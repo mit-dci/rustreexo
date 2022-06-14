@@ -1,1 +1,1 @@
-pub mod pollard;
+pub mod stump;

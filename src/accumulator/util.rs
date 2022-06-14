@@ -180,7 +180,7 @@ pub fn in_forest(mut pos: u64, num_leaves: u64, forest_rows: u8) -> bool {
         return false;
     }
 
-    while pos&marker != 0 {
+    while pos & marker != 0 {
         pos = ((pos << 1) & mask) | 1;
     }
 
@@ -225,7 +225,6 @@ pub fn root_position(num_leaves: u64, row: u8, forest_rows: u8) -> u64 {
 
     let shifted = (before >> row) | (mask << (forest_rows + 1 - row));
     shifted & mask
-
 }
 
 // get_roots_reverse gives you the positions of the tree roots, given a number of leaves.
