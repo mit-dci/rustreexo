@@ -2,8 +2,8 @@ use super::types;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Stump {
-    leafs: u64,
-    roots: Vec<bitcoin_hashes::sha256::Hash>,
+    pub leafs: u64,
+    pub roots: Vec<bitcoin_hashes::sha256::Hash>,
 }
 
 impl Stump {
@@ -51,7 +51,6 @@ impl Stump {
         self.leafs = old_state.leafs;
         self.roots = old_state.roots;
     }
-
     /// Adds new leafs into the root
     fn add(&mut self, utxos: &Vec<bitcoin_hashes::sha256::Hash>) {
         for i in utxos.iter() {

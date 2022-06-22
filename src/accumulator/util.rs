@@ -1,6 +1,16 @@
 // Rustreexo
 
 use std::vec::Vec;
+// isRootPosition checks if the current position is a root given the number of
+// leaves and the entire rows of the forest.
+pub fn is_root_position(position: u64, num_leaves: u64, forest_rows: u8) -> bool {
+    let row = detect_row(position, forest_rows);
+
+    let root_present = num_leaves & (1 << row) != 0;
+    let root_pos = root_position(num_leaves, row, forest_rows);
+
+    return root_present && root_pos == position;
+}
 
 // extractTwins is a optimization for batched deletions. It checks if the nodes
 // being deleted also have their sibling being deleted. It returns the parents
@@ -24,7 +34,9 @@ pub fn extract_twins(nodes: Vec<u64>, forest_rows: u8) -> (Vec<u64>, Vec<u64>) {
 
     return (parents, twined);
 }
-
+pub fn is_left_niece(position: u64) -> bool {
+    position & 1 == 0
+}
 // detectSubTreeHight finds the rows of the subtree a given LEAF position and
 // the number of leaves (& the forest rows which is redundant)
 // Go left to right through the bits of numLeaves,
@@ -42,6 +54,37 @@ pub fn detect_sub_tree_rows(pos: u64, num_leaves: u64, forest_rows: u8) -> u8 {
     return h;
 }
 
+pub fn detect_row_hashes(
+    targets: &Vec<u64>,
+    target_row: u8,
+    forest_rows: u8,
+) -> Result<(u64, u64), String> {
+    let mut start: i64 = -1;
+    let mut end: i64 = -1;
+
+    for i in 0..targets.len() {
+        if detect_row(targets[i], forest_rows) == target_row as u8 {
+            if start == -1 {
+                start = i as i64;
+            }
+            end = i as i64;
+        } else {
+            if start != -1 {
+                break;
+            }
+        }
+    }
+
+    if start == -1 || end == -1 {
+        return Err(String::from("Row not found!"));
+    }
+
+    Ok((start as u64, end as u64))
+}
+pub fn num_roots(leafs: u64) -> usize {
+    leafs.count_ones() as usize
+}
+
 // detectRow finds the current row of a node, given the position
 // and the total forest rows.
 pub fn detect_row(pos: u64, forest_rows: u8) -> u8 {
@@ -54,25 +97,6 @@ pub fn detect_row(pos: u64, forest_rows: u8) -> u8 {
     }
 
     return h;
-}
-
-// getRowOffset returns the first position of that row
-// ex:
-// 14
-// |---------------\
-// 12              13
-// |-------\       |-------\
-// 08      09      10      11
-// |---\   |---\   |---\   |---\
-// 00  01  02  03  04  05  06  07
-//
-// 8 = getRowOffset(1, 3)
-// 12 = getRowOffset(2, 3)
-fn row_offset(row: u8, forest_rows: u8) -> u64 {
-    // 2 << forestRows is 2 more than the max poisition
-    // to get the correct offset for a given row,
-    // subtract (2 << `row complement of forestRows`) from (2 << forestRows)
-    (2 << forest_rows) - (2 << (forest_rows - row))
 }
 
 pub fn detect_offset(pos: u64, num_leaves: u64) -> (u8, u8, u64) {
@@ -120,26 +144,6 @@ pub fn detect_offset(pos: u64, num_leaves: u64) -> (u8, u8, u64) {
     return (bigger_trees, tr - nr, !marker);
 }
 
-// child gives you the left child (LSB will be 0)
-fn child(pos: u64, forest_rows: u8) -> u64 {
-    let mask = (2 << forest_rows) - 1;
-    return (pos << 1) & mask;
-}
-
-// n_grandchild returns the positions of the left grandchild (LSB will be 0)
-// the generations to go will be determined by drop
-// ex: drop = 3 will return a great-grandchild
-fn n_grandchild(pos: u64, drop: u8, forest_rows: u8) -> Result<u64, u8> {
-    if drop == 0 {
-        return Ok(pos);
-    }
-    if drop > forest_rows {
-        return Err(1);
-    }
-    let mask = (2 << forest_rows) - 1;
-    return Ok((pos << drop) & mask);
-}
-
 // parent returns the parent position of the passed in child
 pub fn parent(pos: u64, forest_rows: u8) -> u64 {
     (pos >> 1) | (1 << forest_rows)
@@ -157,14 +161,6 @@ pub fn n_grandparent(pos: u64, rise: u8, forest_rows: u8) -> Result<u64, u8> {
     }
     let mask = (2 << forest_rows) - 1;
     Ok((pos >> rise | (mask << (forest_rows - (rise - 1)))) & mask)
-}
-
-// cousin returns a cousin: the child of the parent's sibling.
-// you just xor with 2.  Actually there's no point in calling this function but
-// it's here to document it.  If you're the left sibling it returns the left
-// cousin.
-fn cousin(pos: u64) -> u64 {
-    pos ^ 2
 }
 
 pub fn in_forest(mut pos: u64, num_leaves: u64, forest_rows: u8) -> bool {
@@ -210,13 +206,6 @@ pub fn tree_rows(n: u64) -> u8 {
     (t.trailing_zeros() & !64) as u8
 }
 
-// num_roots returns all the roots present in the Utreexo forest/pollard
-// Since the roots can only be a power of two, a popcount on the given
-// number of leaves is used
-fn num_roots(num_leaves: u64) -> u8 {
-    (num_leaves.count_ones()) as u8
-}
-
 // root_position returns the position of the root at a given row
 // TODO undefined behavior if the given row doesn't have a root
 pub fn root_position(num_leaves: u64, row: u8, forest_rows: u8) -> u64 {
@@ -227,30 +216,12 @@ pub fn root_position(num_leaves: u64, row: u8, forest_rows: u8) -> u64 {
     shifted & mask
 }
 
+/// Returns whether next is node's sibling or not
+pub fn is_right_sibling(node: u64, next: u64) -> bool {
+    node | 1 == next
+}
+
 // get_roots_reverse gives you the positions of the tree roots, given a number of leaves.
-fn get_roots_reverse(num_leaves: u64, forest_rows: u8) {
-    //let pos: u64;
-
-    //for
-}
-
-fn subtree_positions() {}
-
-fn subtree_leafrange() {}
-
-fn to_leaves() {}
-
-// previous_pow2 returns the previous power of 2
-// ex: n = 9 will return 8. n = 33 will return 32
-fn previous_pow2(n: u64) -> u64 {
-    let mut x = n | (n >> 1);
-    x = x | (x >> 2);
-    x = x | (x >> 4);
-    x = x | (x >> 8);
-    x = x | (x >> 16);
-    x = x | (x >> 32);
-    return x - (x >> 1);
-}
 
 // next_pow2 returns the next power of 2
 // ex: n = 9 will return 16. n = 33 will return 64
@@ -266,7 +237,6 @@ fn next_pow2(n: u64) -> u64 {
 }
 
 #[cfg(test)]
-use std::{println as info, println as warn};
 mod tests {
     #[test]
     fn test_root_position() {
@@ -275,6 +245,10 @@ mod tests {
 
         let pos = super::root_position(5, 0, 3);
         assert_eq!(pos, 4);
+    }
+    #[test]
+    fn test_is_right_sibling() {
+        assert!(super::is_right_sibling(0, 1));
     }
     #[test]
     fn pow_tests() {
@@ -303,7 +277,12 @@ mod tests {
             }
         }
     }
-
+    fn row_offset(row: u8, forest_rows: u8) -> u64 {
+        // 2 << forestRows is 2 more than the max poisition
+        // to get the correct offset for a given row,
+        // subtract (2 << `row complement of forestRows`) from (2 << forestRows)
+        (2 << forest_rows) - (2 << (forest_rows - row))
+    }
     #[test]
     fn test_detect_row() {
         for forest_rows in 1..63 {
@@ -315,14 +294,18 @@ mod tests {
 
             // Test others
             for row in 0..forest_rows {
-                let pos = super::row_offset(row, forest_rows);
+                let pos = row_offset(row, forest_rows);
                 let row_result = super::detect_row(pos, forest_rows);
 
                 assert_eq!(row, row_result);
             }
         }
     }
-
+    #[test]
+    fn test_is_root_position() {
+        let h = super::is_root_position(14, 8, 3);
+        assert_eq!(h, true);
+    }
     #[test]
     fn test_detect_subtree_rows() {
         let h = super::detect_sub_tree_rows(0, 8, 3);
