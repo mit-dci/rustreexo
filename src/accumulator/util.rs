@@ -235,6 +235,47 @@ fn next_pow2(n: u64) -> u64 {
     t |= t >> 32;
     t + 1
 }
+/// Returns whether a and b are sibling or not
+fn is_sibling(a: u64, b: u64) -> bool {
+    a ^ 1 == b
+}
+/// Returns which node should have its hashes on the proof, along with all nodes
+/// whose hashes will be calculated to reach a root
+pub fn get_proof_positions(targets: &Vec<u64>, num_leaves: u64, forest_rows: u8) -> Vec<u64> {
+    let mut proof_postions = vec![];
+    let mut computed_postions = targets.clone();
+
+    for row in 0..=forest_rows {
+        let mut row_targets = computed_postions
+            .to_owned()
+            .into_iter()
+            .filter(|x| super::util::detect_row(*x, forest_rows) == row)
+            .peekable();
+
+        while let Some(node) = row_targets.next() {
+            if is_root_position(node, num_leaves, forest_rows) {
+                let idx = computed_postions.iter().position(|x| node == *x).unwrap();
+
+                computed_postions.remove(idx);
+                continue;
+            }
+            if let Some(next) = row_targets.peek() {
+                if !is_sibling(node, *next) {
+                    proof_postions.push(node ^ 1);
+                } else {
+                    row_targets.next();
+                }
+            } else {
+                proof_postions.push(node ^ 1);
+            }
+
+            computed_postions.push(parent(node, forest_rows));
+            computed_postions.sort();
+        }
+    }
+
+    proof_postions
+}
 
 #[cfg(test)]
 mod tests {
@@ -300,6 +341,15 @@ mod tests {
                 assert_eq!(row, row_result);
             }
         }
+    }
+    #[test]
+    fn test_get_proof_positions() {
+        let targets: Vec<u64> = vec![4, 5, 7, 8];
+        let num_leaves = 8;
+        let targets =
+            super::get_proof_positions(&targets, num_leaves, super::tree_rows(num_leaves));
+
+        assert_eq!(vec![6, 9], targets);
     }
     #[test]
     fn test_is_root_position() {
