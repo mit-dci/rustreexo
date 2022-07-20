@@ -62,7 +62,7 @@ impl Proof {
     ///   let mut proof_hashes = Vec::new();
     ///   let targets = vec![0];
     ///   // For proving 0, we need 01, 09 and 13's hashes. 00, 08, 12 and 14 can be calculated
-    ///   //Fill `proof_hases` up with all hashes
+    ///   //Fill `proof_hashes` up with all hashes
     ///   Proof::new(targets, proof_hashes);
     /// ```  
     pub fn new(targets: Vec<u64>, hashes: Vec<sha256::Hash>) -> Self {
@@ -79,7 +79,7 @@ impl Proof {
     ///   use bitcoin_hashes::{sha256, Hash, HashEngine};
     ///   use std::str::FromStr;
     ///   use rustreexo::accumulator::{stump::Stump, proof::Proof};
-    ///   let mut s = Stump::new();
+    ///   let s = Stump::new();
     ///   // Creates a tree with those values as leafs
     ///   let test_values:Vec<u8> = vec![0, 1, 2, 3, 4, 5, 6, 7];
     ///   // Targets are nodes witch we intend to prove
@@ -107,7 +107,7 @@ impl Proof {
     ///     hashes.push(hash);
     ///   }
     ///
-    ///   s.modify(&hashes, &vec![]);
+    ///   let s = s.modify(&hashes, &vec![], &Proof::default()).unwrap();
     ///   let p = Proof::new(targets, proof_hashes);
     ///   assert!(p.verify(&vec![hashes[0]] , &s).expect("No error should happens"));
     ///```
@@ -163,7 +163,7 @@ impl Proof {
 
         // For each of the targets, we'll try to find the sibling in the proof hashes
         // and promote it as the parent. If it's not in the proof hashes, we'll move
-        // the descendatns of the existing targets and proofs of the sibling's parent
+        // the descendants of the existing targets and proofs of the sibling's parent
         // up by one row.
 
         while let Some(target) = targets.pop() {
@@ -365,13 +365,13 @@ mod tests {
                 hashes.push(hash_from_u8(i.as_u64().unwrap() as u8));
             }
 
-            s.modify(&hashes, &vec![]);
+            s = s.modify(&hashes, &vec![], &Proof::default()).expect("msg");
         } else {
             panic!("Missing test data");
         }
 
-        let json_targets = case["targets"].as_array().expect("Tescase misformed");
-        let json_proof_hashes = case["proof"].as_array().expect("Tescase misformed");
+        let json_targets = case["targets"].as_array().expect("Test case misformed");
+        let json_proof_hashes = case["proof"].as_array().expect("Test case misformed");
         let json_del_values = case["values"].as_array();
 
         let mut targets = vec![];
@@ -410,8 +410,9 @@ mod tests {
         for i in 0..20 {
             hashes.push(hash_from_u8(i as u8));
         }
-        let mut s = Stump::new();
-        s.modify(&hashes, &vec![]);
+        let s = Stump::new()
+            .modify(&hashes, &vec![], &Proof::new(vec![], vec![]))
+            .expect("Modify should not fail");
 
         let proof = Proof::new(
             vec![1, 16, 10],
@@ -454,7 +455,7 @@ mod tests {
         let (del_hashes, proof) = proof_after;
         let roots = proof.create_root_candidates(&del_hashes, &s).unwrap();
 
-        // They are swapped, because create_root_candidates builds the forest botton-up
+        // They are swapped, because create_root_candidates builds the forest bottom-up
         let expected = vec![
             bitcoin_hashes::sha256::Hash::from_str(
                 "21326d8aebeb6ef7bc02f40bdf778a02ba1c836b257f946ae21cab2a6f95fa18",

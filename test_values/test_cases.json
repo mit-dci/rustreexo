@@ -1,5 +1,5 @@
 {
-  "insertion_tests":[
+  "insertion_tests": [
     {
       "leaf_values": [0, 1, 2, 3, 4, 5, 6, 7],
       "roots": [
@@ -198,7 +198,7 @@
       "expected": true
     },
     {
-      "leafs":[
+      "leafs": [
         0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
        20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 
        40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59,
@@ -251,6 +251,211 @@
         5, 3, 1 
       ],
       "expected": true
+    }
+
+  ],
+  "deletion_tests": [
+    {
+      "leaf_values": [0, 1, 2, 3, 4, 5, 6, 7],
+      "target_values": [1, 7],
+      "roots": [
+        "332c306188d35eb22ecb05d8c00446cd6a7a475f6615f46207cfaa713bb3e62c"
+      ],
+      "proof_hashes": [
+        "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+        "67586e98fad27da0b9968bc039a1ef34c939b9b8e523a8bef89d478608c5ecf6",
+        "9576f4ade6e9bc3a6458b506ce3e4e890df29cb14cb5d3d887672aef55647a2b",
+        "9eec588c41d87b16b0ee226cb38da3864f9537632321d8be855a73d5616dcc73"
+      ]
+    },
+    {
+      "leaf_values": [0, 1, 2, 3, 4, 5, 6, 7],
+      "target_values": [1, 5, 7],
+      "roots": [
+        "3b8b6eb231437092f6d9fbf8a0696b7cb446e40f1bf81ddb23d3eabb3080b0dd"
+      ],
+      "proof_hashes": [
+       "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+       "e52d9c508c502347344d8c07ad91cbd6068afc75ff6292f062a09ca381c89e71",
+       "67586e98fad27da0b9968bc039a1ef34c939b9b8e523a8bef89d478608c5ecf6",
+       "9576f4ade6e9bc3a6458b506ce3e4e890df29cb14cb5d3d887672aef55647a2b"
+      ]
+    },
+    {
+      "leaf_values": [
+                        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+                        11, 12, 13, 14, 15, 16, 17, 18, 19
+                    ],
+      "target_values": [1, 10],
+      "roots": [    
+        "37968ef73d30dda38ede8357d66593c72acd4f0eb9f7a1a9acfeb7de850c05b4",
+        "3cb920c113e8ce3ace35fc835e6ff83a6566c4c127ea67eebc0f5d25d2295ea2"
+      ],
+      "proof_hashes": [
+        "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+        "e7cf46a078fed4fafd0b5e3aff144802b853f8ae459a4f0c14add3314b7cc3a6",
+        "9576f4ade6e9bc3a6458b506ce3e4e890df29cb14cb5d3d887672aef55647a2b",
+        "cd9c77062a338e63a63ca623db438cb8676f15466641079ee61ec2dda98de796",
+        "29590a14c1b09384b94a2c0e94bf821ca75b62eacebc47893397ca88e3bbcbd7",
+        "e799acb98a071c4884707e4bc8c093ba22571c8d84cc0223ab0c2c9327313a5b"
+        
+      ]
+    },
+    {
+      "leaf_values": [
+        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+        11, 12, 13, 14, 15, 16, 17, 18, 19
+      ],
+      "target_values": [1, 10, 16],
+      "roots": [
+        "37968ef73d30dda38ede8357d66593c72acd4f0eb9f7a1a9acfeb7de850c05b4",
+        "21326d8aebeb6ef7bc02f40bdf778a02ba1c836b257f946ae21cab2a6f95fa18"              
+      ],
+      "proof_hashes": [
+        "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+        "e7cf46a078fed4fafd0b5e3aff144802b853f8ae459a4f0c14add3314b7cc3a6",
+        "4a64a107f0cb32536e5bce6c98c393db21cca7f4ea187ba8c4dca8b51d4ea80a",
+        "9576f4ade6e9bc3a6458b506ce3e4e890df29cb14cb5d3d887672aef55647a2b",
+        "cd9c77062a338e63a63ca623db438cb8676f15466641079ee61ec2dda98de796",
+        "96d56447466674521007145ed72f8757517c72f7737dc4a0dcd3ecb996968971",
+        "29590a14c1b09384b94a2c0e94bf821ca75b62eacebc47893397ca88e3bbcbd7",
+        "e799acb98a071c4884707e4bc8c093ba22571c8d84cc0223ab0c2c9327313a5b"
+      ]
+    },
+    {
+      "leaf_values": [
+        0, 1, 2, 3, 4, 5, 6, 7, 
+        8, 9, 10, 11, 12, 13, 14
+      ],
+      "target_values": [1, 10, 5],
+      "roots": [
+        "e4676ba63c94588bcb4083e5474063b633aa631897ddaabde7a4da45936890cb",
+        "cae921bbf649d4dd84c252c55c540e2e30c6c00cb089d9704bd613ecea308643",
+        "55d0a0ef8f5c25a9da266b36c0c5f4b31008ece82df2512c8966bddcc27a66a0",
+        "4d7b3ef7300acf70c892d8327db8272f54434adbc61a4e130a563cb59a0d0f47"
+      ],
+      "proof_hashes": [
+        "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+        "e52d9c508c502347344d8c07ad91cbd6068afc75ff6292f062a09ca381c89e71",
+        "e7cf46a078fed4fafd0b5e3aff144802b853f8ae459a4f0c14add3314b7cc3a6",
+        "9576f4ade6e9bc3a6458b506ce3e4e890df29cb14cb5d3d887672aef55647a2b",
+        "34028bbc87000c39476cdc60cf80ca32d579b3a0e2d3f80e0ad8c3739a01aa91",
+        "cd9c77062a338e63a63ca623db438cb8676f15466641079ee61ec2dda98de796"
+      ]
+    },
+    {
+      "leaf_values": [
+        0, 1, 2, 3, 4, 5, 6, 7, 
+        8, 9, 10, 11, 12, 13, 14
+      ],
+      "target_values": [0, 1, 10, 5],
+      "roots": [
+        "352d0d5e172316e73b6d0d40605ad411c79b7e7c1ed0b4529c565f08057bc4a8",
+        "cae921bbf649d4dd84c252c55c540e2e30c6c00cb089d9704bd613ecea308643",
+        "55d0a0ef8f5c25a9da266b36c0c5f4b31008ece82df2512c8966bddcc27a66a0",
+        "4d7b3ef7300acf70c892d8327db8272f54434adbc61a4e130a563cb59a0d0f47"
+      ],
+      "proof_hashes": [
+        "e52d9c508c502347344d8c07ad91cbd6068afc75ff6292f062a09ca381c89e71",
+        "e7cf46a078fed4fafd0b5e3aff144802b853f8ae459a4f0c14add3314b7cc3a6",
+        "9576f4ade6e9bc3a6458b506ce3e4e890df29cb14cb5d3d887672aef55647a2b",
+        "34028bbc87000c39476cdc60cf80ca32d579b3a0e2d3f80e0ad8c3739a01aa91",
+        "cd9c77062a338e63a63ca623db438cb8676f15466641079ee61ec2dda98de796"
+      ]
+    },
+    {
+      "leaf_values": [
+        0, 1, 2, 3, 4, 5, 6, 7, 
+        8, 9, 10, 11, 12, 13, 14
+      ],
+      "target_values": [0, 1, 5, 14],
+      "roots":[
+        "352d0d5e172316e73b6d0d40605ad411c79b7e7c1ed0b4529c565f08057bc4a8",
+        "9c053db406c1a077112189469a3aca0573d3481bef09fa3d2eda3304d7d44be8",
+        "55d0a0ef8f5c25a9da266b36c0c5f4b31008ece82df2512c8966bddcc27a66a0",
+        "0000000000000000000000000000000000000000000000000000000000000000"
+      ],    
+      "proof_hashes": [
+        "e52d9c508c502347344d8c07ad91cbd6068afc75ff6292f062a09ca381c89e71",
+        "9576f4ade6e9bc3a6458b506ce3e4e890df29cb14cb5d3d887672aef55647a2b",
+        "34028bbc87000c39476cdc60cf80ca32d579b3a0e2d3f80e0ad8c3739a01aa91"
+      ]
+    },
+    {
+      "leaf_values": [
+        0, 1, 2, 3, 4, 5, 6, 7, 
+        8, 9, 10, 11, 12, 13, 14
+      ],
+      "target_values": [1, 6, 5, 3],
+      "roots": [
+        "d6ab1f11dd0ceee1862aa84b5e4d2c7520a8651fa2652529e8c49cc2b43b4476",
+        "9c053db406c1a077112189469a3aca0573d3481bef09fa3d2eda3304d7d44be8",
+        "55d0a0ef8f5c25a9da266b36c0c5f4b31008ece82df2512c8966bddcc27a66a0",
+        "4d7b3ef7300acf70c892d8327db8272f54434adbc61a4e130a563cb59a0d0f47"
+      ],
+      "proof_hashes": [
+        "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+        "dbc1b4c900ffe48d575b5da5c638040125f65db0fe3e24494b76ea986457d986",
+        "e52d9c508c502347344d8c07ad91cbd6068afc75ff6292f062a09ca381c89e71",
+        "ca358758f6d27e6cf45272937977a748fd88391db679ceda7dc7bf1f005ee879"
+      ]
+    },
+    {
+      "leaf_values": [
+        0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
+       20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 
+       40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59,
+       60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 
+       80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99
+      ],
+      "target_values": [
+        0, 1, 2, 4, 5, 9
+      ],
+      "roots": [
+        "2bd42a5f0ea1798ba955bab6f3ef2e920c8cf7dc9fd205e73c73bd54af706e2a",
+        "0a2c57a002817e70a57e44d88ce570c3b197bd54047d5883b469c0ba0df6257e",
+        "33436f0f467c317f77eb7bf06dd182e90fd41ad27d34d09923866d89f41c4c27"
+      ],
+      "proof_hashes": [
+        "084fed08b978af4d7d196a7446a86b58009e636b611db16211b65a9aadff29c5",
+        "beead77994cf573341ec17b58bbf7eb34d2711c993c1d976b128b3188dc1829a",
+        "34028bbc87000c39476cdc60cf80ca32d579b3a0e2d3f80e0ad8c3739a01aa91",
+        "c413035120e8c9b0ca3e40c93d06fe60a0d056866138300bb1f1dd172b4923c3",
+        "e799acb98a071c4884707e4bc8c093ba22571c8d84cc0223ab0c2c9327313a5b",
+        "a9597b23de170cbd52de7b993e5fa70b89536485d7c3e0309245bffdf13290ad",
+        "e2a793580a9b6c9dff9d7f333f68ed708e9aa6232d2a1dc1e921be09949450c9"
+      ]
+    },
+    {
+      "leaf_values":  [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99],
+      "target_values":  [38],
+      "roots": [
+        "2a722b6de15cfb2771f91613ab098bdb9b7f9731ac05992aba76d02aecff591e",
+        "0a2c57a002817e70a57e44d88ce570c3b197bd54047d5883b469c0ba0df6257e",
+        "33436f0f467c317f77eb7bf06dd182e90fd41ad27d34d09923866d89f41c4c27"
+      ],
+      "proof_hashes": [
+        "265fda17a34611b1533d8a281ff680dc5791b0ce0a11c25b35e11c8e75685509",
+        "7c804d37a0128caccf89b63d53248b708d4e6702dbdd90b01cdf8bf2be45d0f8",
+        "b743944ca9a4e59a94fd2f32adc6d40f800a012098d7d96aab47cd3883ee7810",
+        "94b8dc9cecafe156b80e4e64414cf4204858f56713776c525c38fb14c2c5e622",
+        "8ec4ba1ba4d169b8a1e5261408d9799185d984206b1d8779e4a5c1e431023fc1",
+        "c20eb2e3805095a3a63d869af5fde12237ba512104438ad914b1c0e2a53743a2"
+      ]
+    },
+    {
+      "leaf_values": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+      "target_values":[0, 4, 5, 6, 7, 8],
+      "roots":[
+        "2b77298feac78ab51bc5079099a074c6d789bd350442f5079fcba2b3402694e5",
+        "84915b5adf9243dd83d67bb7d25b7a0c595ea1c37b97412e21e480c1a46f93bf"
+      ],
+      "proof_hashes": [
+        "4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a",
+        "2b4c342f5433ebe591a1da77e013d1b72475562d48578dca8b84bac6651c3cb9",
+        "9576f4ade6e9bc3a6458b506ce3e4e890df29cb14cb5d3d887672aef55647a2b",
+        "c413035120e8c9b0ca3e40c93d06fe60a0d056866138300bb1f1dd172b4923c3"
+      ]
     }
   ]
 }
