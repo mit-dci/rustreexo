@@ -1,4 +1,4 @@
-use super::types;
+use super::{proof::Proof, types};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Stump {
@@ -20,28 +20,60 @@ impl Stump {
     /// empty.
     ///# Example
     /// ```
-    ///   use rustreexo::accumulator::stump::Stump;
+    ///   use rustreexo::accumulator::{stump::Stump, proof::Proof};
     ///   let mut s = Stump::new();
     ///   let utxos = vec![];
     ///   let stxos = vec![];
-    ///   s.modify(&utxos, &stxos);
+    ///   s.modify(&utxos, &stxos, &Proof::default());
     /// ```
-    pub fn modify(&mut self, utxos: &Vec<bitcoin_hashes::sha256::Hash>, _stxos: &Vec<u64>) {
-        //remove
-        self.add(utxos);
+    pub fn modify(
+        &self,
+        utxos: &Vec<bitcoin_hashes::sha256::Hash>,
+        del_hashes: &Vec<bitcoin_hashes::sha256::Hash>,
+        proof: &Proof,
+    ) -> Result<Stump, String> {
+        let mut root_candidates = proof
+            .create_root_candidates(del_hashes, self)?
+            .into_iter()
+            .rev()
+            .peekable();
+        let mut computed_roots = self.remove(del_hashes, proof)?.into_iter().rev();
+
+        let mut new_roots = vec![];
+
+        for root in self.roots.iter() {
+            if let Some(root_candidate) = root_candidates.peek() {
+                if *root_candidate == *root {
+                    if let Some(new_root) = computed_roots.next() {
+                        new_roots.push(new_root);
+                        root_candidates.next();
+                        continue;
+                    }
+                }
+            }
+
+            new_roots.push(*root);
+        }
+
+        let roots = Stump::add(new_roots, utxos, self.leafs);
+
+        Ok(Stump {
+            leafs: self.leafs + utxos.len() as u64,
+            roots: roots,
+        })
     }
 
     /// Rewinds old tree state, this should be used in case of reorgs.
     /// Takes the ownership over `old_state`.
     ///# Example
     /// ```
-    ///   use rustreexo::accumulator::stump::Stump;
-    ///   let mut s_old = Stump::new();
+    ///   use rustreexo::accumulator::{stump::Stump, proof::Proof};
+    ///   let s_old = Stump::new();
     ///   let mut s_new = Stump::new();
     ///   
-    ///   s_old.modify(&vec![], &vec![]);
+    ///   let s_old = s_old.modify(&vec![], &vec![], &Proof::default()).unwrap();
     ///   s_new = s_old.clone();
-    ///   s_new.modify(&vec![], &vec![]);
+    ///   s_new = s_new.modify(&vec![], &vec![], &Proof::default()).unwrap();
     ///   
     ///   // A reorg happened
     ///   
@@ -51,14 +83,40 @@ impl Stump {
         self.leafs = old_state.leafs;
         self.roots = old_state.roots;
     }
-    /// Adds new leafs into the root
-    fn add(&mut self, utxos: &Vec<bitcoin_hashes::sha256::Hash>) {
-        for i in utxos.iter() {
-            self.add_single(*i);
+
+    fn remove(
+        &self,
+        del_hashes: &Vec<bitcoin_hashes::sha256::Hash>,
+        proof: &Proof,
+    ) -> Result<Vec<bitcoin_hashes::sha256::Hash>, String> {
+        if del_hashes.len() == 0 {
+            return Ok(self.roots.clone());
         }
+
+        let (new_hashes, new_proof) = proof.proof_after_deletion(self.leafs)?;
+        let new_roots = new_proof.create_root_candidates(&new_hashes, self)?;
+
+        Ok(new_roots)
+    }
+    /// Adds new leafs into the root
+    fn add(
+        mut roots: Vec<bitcoin_hashes::sha256::Hash>,
+        utxos: &Vec<bitcoin_hashes::sha256::Hash>,
+        mut leafs: u64,
+    ) -> Vec<bitcoin_hashes::sha256::Hash> {
+        for i in utxos.iter() {
+            Stump::add_single(&mut roots, *i, leafs);
+            leafs += 1;
+        }
+
+        roots
     }
 
-    fn add_single(&mut self, node: bitcoin_hashes::sha256::Hash) {
+    fn add_single(
+        roots: &mut Vec<bitcoin_hashes::sha256::Hash>,
+        node: bitcoin_hashes::sha256::Hash,
+        leafs: u64,
+    ) {
         let mut h = 0;
         // Iterates over roots, if we find a root that is not empty, we concatenate with
         // the one we are adding and create new root, leaving this position empty. Stops
@@ -68,25 +126,27 @@ impl Stump {
         // number of leafs. If the h'th bit is one, then this position is occupied, empty
         // otherwise.
         let mut to_add = node;
-        while (self.leafs >> h) & 1 == 1 {
-            let root = self.roots.pop();
+        while (leafs >> h) & 1 == 1 {
+            let root = roots.pop();
             if let Some(root) = root {
                 to_add = types::parent_hash(&root, &to_add);
             }
             h += 1;
         }
 
-        self.roots.push(to_add);
-
-        self.leafs += 1;
+        roots.push(to_add);
     }
 }
 
 #[cfg(test)]
 mod test {
+    use crate::{
+        accumulator::proof::Proof, get_hash_array_from_obj, get_json_field, get_u64_array_from_obj,
+    };
+
     use super::Stump;
     use bitcoin_hashes::{hex::ToHex, sha256, Hash, HashEngine};
-    use std::vec;
+    use std::{str::FromStr, vec};
 
     #[test]
     // Make a few simple tests about stump creation
@@ -104,8 +164,40 @@ mod test {
         sha256::Hash::from_engine(engine)
     }
 
-    fn run_single_case(case: &serde_json::Value) {
-        let mut s = Stump::new();
+    fn run_case_with_deletion(case: &serde_json::Value) {
+        let leafs = get_json_field!("leaf_values", case);
+        let target_values = get_json_field!("target_values", case);
+        let roots = get_json_field!("roots", case);
+        let proof_hashes = get_json_field!("proof_hashes", case);
+
+        let leafs = get_u64_array_from_obj!(leafs);
+        let target_values = get_u64_array_from_obj!(target_values);
+        let roots = get_hash_array_from_obj!(roots);
+        let proof_hashes = get_hash_array_from_obj!(proof_hashes);
+
+        let mut leaf_hashes = vec![];
+        for i in leafs.iter() {
+            leaf_hashes.push(hash_from_u8(*i as u8));
+        }
+
+        let mut target_hashes = vec![];
+        for i in target_values.iter() {
+            target_hashes.push(hash_from_u8(*i as u8));
+        }
+
+        let proof = Proof::new(target_values, proof_hashes);
+
+        let stump = Stump::new()
+            .modify(&leaf_hashes, &vec![], &Proof::default())
+            .expect("This stump is valid");
+
+        let stump = stump.modify(&vec![], &target_hashes, &proof).unwrap();
+
+        assert_eq!(stump.roots, roots);
+    }
+
+    fn run_single_addition_case(case: &serde_json::Value) {
+        let s = Stump::new();
         let test_values = case["leaf_values"]
             .as_array()
             .expect("Test data is missing");
@@ -120,7 +212,9 @@ mod test {
             hashes.push(hash_from_u8(i.as_u64().unwrap() as u8));
         }
 
-        s.modify(&hashes, &vec![]);
+        let s = s
+            .modify(&hashes, &vec![], &Proof::default())
+            .expect("Stump from test cases are valid");
 
         assert_eq!(s.leafs, hashes.len() as u64);
 
@@ -137,8 +231,10 @@ mod test {
             hashes.push(hash_from_u8(i));
         }
 
-        let mut s_old = Stump::new();
-        s_old.modify(&hashes, &vec![]);
+        let s_old = Stump::new();
+        let s_old = s_old
+            .modify(&hashes, &vec![], &Proof::default())
+            .expect("Stump from test cases are valid");
 
         let mut s_new = s_old.clone();
 
@@ -147,7 +243,9 @@ mod test {
             hashes.push(hash_from_u8(i));
         }
 
-        s_new.modify(&hashes, &vec![]);
+        s_new
+            .modify(&hashes, &vec![], &Proof::default())
+            .expect("Stump from test cases are valid");
         let s_old_copy = s_old.clone();
 
         // A reorg happened, need to roll back state
@@ -155,6 +253,7 @@ mod test {
 
         assert!(s_new == s_old_copy);
     }
+
     #[test]
     fn run_test_cases() {
         let contents = std::fs::read_to_string("test_values/test_cases.json")
@@ -162,10 +261,14 @@ mod test {
 
         let values: serde_json::Value =
             serde_json::from_str(contents.as_str()).expect("JSON deserialization error");
-        let tests = values["insertion_tests"].as_array().unwrap();
+        let insertion_tests = values["insertion_tests"].as_array().unwrap();
+        let deletion_tests = values["deletion_tests"].as_array().unwrap();
 
-        for i in tests {
-            run_single_case(i);
+        for i in insertion_tests {
+            run_single_addition_case(i);
+        }
+        for i in deletion_tests {
+            run_case_with_deletion(i);
         }
     }
 }

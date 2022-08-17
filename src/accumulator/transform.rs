@@ -28,7 +28,7 @@ pub fn transform(mut dels: Vec<u64>, num_leaves: u64, forest_rows: u8) -> Vec<Ve
         let del_remain = dels.len()%2 != 0;
 
         // Twin
-        let mut twin_nextdels = util::extract_twins(dels.clone(), forest_rows);
+        let mut twin_nextdels = util::detwin(dels.clone(), forest_rows);
         dels = twin_nextdels.1;
 
         swaps[row as usize] = make_swaps(dels.clone(), del_remain, root_present, root_pos);
