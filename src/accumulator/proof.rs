@@ -360,12 +360,14 @@ mod tests {
                     .push(bitcoin_hashes::sha256::Hash::from_str(root.as_str().unwrap()).unwrap());
             }
             s.leafs = case["leafs"].as_u64().expect("Missing leafs count");
-        } else if let Some(leafs) = case["leafs"].as_array() {
+        } else if let Some(leafs) = case["leaf_values"].as_array() {
             for i in leafs {
                 hashes.push(hash_from_u8(i.as_u64().unwrap() as u8));
             }
 
-            s = s.modify(&hashes, &vec![], &Proof::default()).expect("msg");
+            s = s
+                .modify(&hashes, &vec![], &Proof::default())
+                .expect("Test stump is valid");
         } else {
             panic!("Missing test data");
         }
