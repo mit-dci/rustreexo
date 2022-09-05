@@ -251,7 +251,6 @@ impl Proof {
 
 #[cfg(test)]
 mod tests {
-    use core::panic;
     use std::{str::FromStr, vec};
 
     use bitcoin_hashes::{sha256, Hash, HashEngine};
@@ -350,29 +349,16 @@ mod tests {
     fn run_single_case(case: &serde_json::Value) {
         let mut s = Stump::new();
 
-        let mut hashes = Vec::new();
-
-        if let Some(roots) = case["roots"].as_array() {
-            for root in roots {
-                s.roots
-                    .push(bitcoin_hashes::sha256::Hash::from_str(root.as_str().unwrap()).unwrap());
-            }
-            s.leafs = case["leafs"].as_u64().expect("Missing leafs count");
-        } else if let Some(leafs) = case["leaf_values"].as_array() {
-            for i in leafs {
-                hashes.push(hash_from_u8(i.as_u64().unwrap() as u8));
-            }
-
-            s = s
-                .modify(&hashes, &vec![], &Proof::default())
-                .expect("Test stump is valid");
-        } else {
-            panic!("Missing test data");
+        let roots = case["roots"].as_array().expect("Missing roots");
+        for root in roots {
+            s.roots
+                .push(bitcoin_hashes::sha256::Hash::from_str(root.as_str().unwrap()).unwrap());
         }
+        s.leafs = case["numleaves"].as_u64().expect("Missing leafs count");
 
-        let json_targets = case["targets"].as_array().expect("Test case misformed");
-        let json_proof_hashes = case["proof"].as_array().expect("Test case misformed");
-        let json_del_values = case["values"].as_array();
+        let json_targets = case["targets"].as_array().expect("Missing targets");
+        let json_proof_hashes = case["proofhashes"].as_array().expect("Missing proofhashes");
+        let json_del_values = case["target_preimages"].as_array();
 
         let mut targets = vec![];
         let mut del_hashes = vec![];

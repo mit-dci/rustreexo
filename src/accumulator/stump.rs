@@ -177,10 +177,10 @@ mod test {
     }
 
     fn run_case_with_deletion(case: &serde_json::Value) {
-        let leafs = get_json_field!("leaf_values", case);
+        let leafs = get_json_field!("leaf_preimages", case);
         let target_values = get_json_field!("target_values", case);
-        let roots = get_json_field!("roots", case);
-        let proof_hashes = get_json_field!("proof_hashes", case);
+        let roots = get_json_field!("expected_roots", case);
+        let proof_hashes = get_json_field!("proofhashes", case);
 
         let leafs = get_u64_array_from_obj!(leafs);
         let target_values = get_u64_array_from_obj!(target_values);
@@ -210,11 +210,11 @@ mod test {
 
     fn run_single_addition_case(case: &serde_json::Value) {
         let s = Stump::new();
-        let test_values = case["leaf_values"]
+        let test_values = case["leaf_preimages"]
             .as_array()
             .expect("Test data is missing");
 
-        let roots = case["roots"]
+        let roots = case["expected_roots"]
             .as_array()
             .expect("Fail reading roots for this case");
 
