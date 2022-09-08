@@ -1,4 +1,6 @@
 use super::{proof::Proof, types};
+use bitcoin_hashes::sha256;
+use std::vec;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Stump {
@@ -33,7 +35,7 @@ impl Stump {
         proof: &Proof,
     ) -> Result<Stump, String> {
         let mut root_candidates = proof
-            .create_root_candidates(del_hashes, self)?
+            .calculate_roots(del_hashes, self)?
             .into_iter()
             .rev()
             .peekable();
@@ -93,8 +95,8 @@ impl Stump {
             return Ok(self.roots.clone());
         }
 
-        let (new_hashes, new_proof) = proof.proof_after_deletion(self.leafs)?;
-        let new_roots = new_proof.create_root_candidates(&new_hashes, self)?;
+        let del_hashes = vec![sha256::Hash::default(); proof.targets()];
+        let new_roots = proof.calculate_roots(&del_hashes, self)?;
 
         Ok(new_roots)
     }

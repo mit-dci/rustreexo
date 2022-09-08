@@ -117,7 +117,7 @@ impl Proof {
         }
 
         let mut calculated_roots = self
-            .create_root_candidates(del_hashes, stump)?
+            .calculate_roots(del_hashes, stump)?
             .into_iter()
             .peekable();
 
@@ -137,6 +137,12 @@ impl Proof {
         }
         Ok(true)
     }
+
+    /// Returns how many targets this proof has
+    pub fn targets(&self) -> usize {
+        self.targets.len()
+    }
+
     pub fn proof_after_deletion(
         &self,
         num_leafs: u64,
@@ -245,7 +251,14 @@ impl Proof {
             },
         ))
     }
-    pub fn create_root_candidates(
+
+    /// This function computes a set of roots from a proof.
+    /// If some target's hashes are null, then it computes the roots after
+    /// those targets are deleted. In this context null means [sha256::Hash::default].
+    ///
+    /// It's the caller's responsibility to null out the targets if desired by
+    /// passing a `bitcoin_hashes::sha256::Hash::default()` instead of the actual hash.
+    pub(crate) fn calculate_roots(
         &self,
         del_hashes: &Vec<sha256::Hash>,
         stump: &Stump,
@@ -280,6 +293,7 @@ impl Proof {
                 .peekable();
 
             while let Some((pos, hash)) = row_nodes.next() {
+                let next_to_prove = util::parent(pos, total_rows);
                 // If the current position is a root, we add that to our result and don't go any further
                 if util::is_root_position(pos, stump.leafs, total_rows) {
                     calculated_root_hashes.push(hash);
@@ -289,10 +303,20 @@ impl Proof {
                 if let Some((next_pos, next_hash)) = row_nodes.peek() {
                     // Is the next node our sibling? If so, we should be hashed together
                     if util::is_right_sibling(pos, *next_pos) {
-                        let hash = types::parent_hash(&hash, &next_hash);
-                        let next_to_prove = util::parent(pos, total_rows);
+                        // There are three possible cases: the current hash is null,
+                        // and the sibling is present, we push the sibling to targets.
+                        // If The sibling is null, we push the current node.
+                        // If none of them is null, we compute the parent hash of both siblings
+                        // and push this to the next target.
+                        if hash == sha256::Hash::default() {
+                            Proof::sorted_push(&mut nodes, (next_to_prove, *next_hash));
+                        } else if *next_hash == sha256::Hash::default() {
+                            Proof::sorted_push(&mut nodes, (next_to_prove, hash));
+                        } else {
+                            let hash = types::parent_hash(&hash, &next_hash);
 
-                        Proof::sorted_push(&mut nodes, (next_to_prove, hash));
+                            Proof::sorted_push(&mut nodes, (next_to_prove, hash));
+                        }
 
                         // Since we consumed 2 elements from nodes, skip one more here
                         // We need make this explicitly because peek, by definition
@@ -305,21 +329,24 @@ impl Proof {
 
                 // If the next node is not my sibling, the hash must be passed inside the proof
                 if let Some(next_proof_hash) = hashes_iter.next() {
-                    let hash = if util::is_left_niece(pos) {
-                        types::parent_hash(&hash, next_proof_hash)
+                    if hash != sha256::Hash::default() {
+                        let hash = if util::is_left_niece(pos) {
+                            types::parent_hash(&hash, next_proof_hash)
+                        } else {
+                            types::parent_hash(next_proof_hash, &hash)
+                        };
+
+                        Proof::sorted_push(&mut nodes, (next_to_prove, hash));
+                        continue;
                     } else {
-                        types::parent_hash(next_proof_hash, &hash)
-                    };
-
-                    let next_to_prove = util::parent(pos, total_rows);
-
-                    Proof::sorted_push(&mut nodes, (next_to_prove, hash));
+                        // If none of the above, push a null hash upwards
+                        Proof::sorted_push(&mut nodes, (next_to_prove, *next_proof_hash));
+                    }
                 } else {
                     return Err(String::from("Proof too short"));
                 }
             }
         }
-
         Ok(calculated_root_hashes)
     }
     fn sorted_push(
@@ -455,7 +482,7 @@ mod tests {
         );
         let proof_after = proof.proof_after_deletion(s.leafs).unwrap();
         let (del_hashes, proof) = proof_after;
-        let roots = proof.create_root_candidates(&del_hashes, &s).unwrap();
+        let roots = proof.calculate_roots(&del_hashes, &s).unwrap();
 
         // They are swapped, because create_root_candidates builds the forest bottom-up
         let expected = vec![
