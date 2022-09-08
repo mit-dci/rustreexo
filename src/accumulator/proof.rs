@@ -142,6 +142,7 @@ impl Proof {
     pub fn targets(&self) -> usize {
         self.targets.len()
     }
+
     /// This function computes a set of roots from a proof.
     /// If some target's hashes are null, then it computes the roots after
     /// those targets are deleted. In this context null means [sha256::Hash::default].
@@ -240,6 +241,7 @@ impl Proof {
 
         Ok((nodes, calculated_root_hashes))
     }
+
     fn sorted_push(
         nodes: &mut Vec<(u64, bitcoin_hashes::sha256::Hash)>,
         to_add: (u64, bitcoin_hashes::sha256::Hash),
@@ -251,13 +253,22 @@ impl Proof {
 
 #[cfg(test)]
 mod tests {
-    use std::{str::FromStr, vec};
+    use std::str::FromStr;
 
     use bitcoin_hashes::{sha256, Hash, HashEngine};
+    use serde::Deserialize;
 
     use super::Proof;
     use crate::accumulator::stump::Stump;
-
+    #[derive(Deserialize)]
+    struct TestCase {
+        numleaves: usize,
+        roots: Vec<String>,
+        targets: Vec<u64>,
+        target_preimages: Vec<u8>,
+        proofhashes: Vec<String>,
+        expected: bool,
+    }
     fn hash_from_u8(value: u8) -> bitcoin_hashes::sha256::Hash {
         let mut engine = bitcoin_hashes::sha256::Hash::engine();
 
@@ -347,48 +358,36 @@ mod tests {
         }
     }
     fn run_single_case(case: &serde_json::Value) {
-        let mut s = Stump::new();
+        let case = serde_json::from_value::<TestCase>(case.clone()).expect("Invalid test case");
+        let roots = case
+            .roots
+            .into_iter()
+            .map(|root| sha256::Hash::from_str(root.as_str()).expect("Test case hash is valid"))
+            .collect();
 
-        let roots = case["roots"].as_array().expect("Missing roots");
-        for root in roots {
-            s.roots
-                .push(bitcoin_hashes::sha256::Hash::from_str(root.as_str().unwrap()).unwrap());
-        }
-        s.leafs = case["numleaves"].as_u64().expect("Missing leafs count");
+        let s = Stump {
+            leafs: case.numleaves as u64,
+            roots,
+        };
 
-        let json_targets = case["targets"].as_array().expect("Missing targets");
-        let json_proof_hashes = case["proofhashes"].as_array().expect("Missing proofhashes");
-        let json_del_values = case["target_preimages"].as_array();
+        let targets = case.targets;
+        let del_hashes = case
+            .target_preimages
+            .into_iter()
+            .map(|target| hash_from_u8(target))
+            .collect();
 
-        let mut targets = vec![];
-        let mut del_hashes = vec![];
-        let mut proof_hashes = vec![];
-
-        for i in json_targets {
-            targets.push(i.as_u64().unwrap());
-        }
-
-        if let Some(values) = json_del_values {
-            for i in values.iter() {
-                let value = i.as_u64().unwrap();
-                del_hashes.push(hash_from_u8(value as u8));
-            }
-        } else {
-            for i in targets.iter() {
-                del_hashes.push(hash_from_u8(*i as u8));
-            }
-        }
-
-        for i in json_proof_hashes {
-            proof_hashes.push(bitcoin_hashes::sha256::Hash::from_str(i.as_str().unwrap()).unwrap());
-        }
+        let proof_hashes = case
+            .proofhashes
+            .into_iter()
+            .map(|hash| sha256::Hash::from_str(hash.as_str()).expect("Test case hash is valid"))
+            .collect();
 
         let p = Proof::new(targets, proof_hashes);
-        let expected = case["expected"].as_bool().unwrap();
+        let expected = case.expected;
 
-        if let Ok(res) = p.verify(&del_hashes, &s) {
-            assert!(expected == res);
-        }
+        let res = p.verify(&del_hashes, &s);
+        assert!(Ok(expected) == res);
     }
 
     #[test]

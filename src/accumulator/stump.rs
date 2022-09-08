@@ -152,13 +152,20 @@ impl Stump {
 
 #[cfg(test)]
 mod test {
-    use crate::{
-        accumulator::proof::Proof, get_hash_array_from_obj, get_json_field, get_u64_array_from_obj,
-    };
+    use crate::accumulator::proof::Proof;
 
     use super::Stump;
     use bitcoin_hashes::{hex::ToHex, sha256, Hash, HashEngine};
+    use serde::Deserialize;
     use std::{str::FromStr, vec};
+
+    #[derive(Debug, Deserialize)]
+    struct TestCase {
+        leaf_preimages: Vec<u8>,
+        target_values: Option<Vec<u64>>,
+        expected_roots: Vec<String>,
+        proofhashes: Option<Vec<String>>,
+    }
 
     #[test]
     // Make a few simple tests about stump creation
@@ -176,53 +183,53 @@ mod test {
         sha256::Hash::from_engine(engine)
     }
 
-    fn run_case_with_deletion(case: &serde_json::Value) {
-        let leafs = get_json_field!("leaf_preimages", case);
-        let target_values = get_json_field!("target_values", case);
-        let roots = get_json_field!("expected_roots", case);
-        let proof_hashes = get_json_field!("proofhashes", case);
+    fn run_case_with_deletion(case: TestCase) {
+        let leaf_hashes = case
+            .leaf_preimages
+            .into_iter()
+            .map(|leaf| hash_from_u8(leaf))
+            .collect();
 
-        let leafs = get_u64_array_from_obj!(leafs);
-        let target_values = get_u64_array_from_obj!(target_values);
-        let roots = get_hash_array_from_obj!(roots);
-        let proof_hashes = get_hash_array_from_obj!(proof_hashes);
+        let target_hashes = case
+            .target_values
+            .clone()
+            .unwrap()
+            .into_iter()
+            .map(|target| hash_from_u8(target as u8))
+            .collect();
 
-        let mut leaf_hashes = vec![];
-        for i in leafs.iter() {
-            leaf_hashes.push(hash_from_u8(*i as u8));
-        }
+        let proof_hashes = case
+            .proofhashes
+            .unwrap_or_default()
+            .into_iter()
+            .map(|hash| sha256::Hash::from_str(hash.as_str()).expect("Test case hashes are valid"))
+            .collect();
 
-        let mut target_hashes = vec![];
-        for i in target_values.iter() {
-            target_hashes.push(hash_from_u8(*i as u8));
-        }
+        let proof = Proof::new(case.target_values.unwrap(), proof_hashes);
 
-        let proof = Proof::new(target_values, proof_hashes);
+        let roots = case
+            .expected_roots
+            .into_iter()
+            .map(|hash| sha256::Hash::from_str(hash.as_str()).expect("Test case hashes are valid"))
+            .collect::<Vec<sha256::Hash>>();
 
         let stump = Stump::new()
             .modify(&leaf_hashes, &vec![], &Proof::default())
             .expect("This stump is valid");
-
         let stump = stump.modify(&vec![], &target_hashes, &proof).unwrap();
 
         assert_eq!(stump.roots, roots);
     }
 
-    fn run_single_addition_case(case: &serde_json::Value) {
+    fn run_single_addition_case(case: TestCase) {
         let s = Stump::new();
-        let test_values = case["leaf_preimages"]
-            .as_array()
-            .expect("Test data is missing");
+        let test_values = case.leaf_preimages;
+        let roots = case.expected_roots;
 
-        let roots = case["expected_roots"]
-            .as_array()
-            .expect("Fail reading roots for this case");
-
-        let mut hashes = vec![];
-
-        for i in test_values {
-            hashes.push(hash_from_u8(i.as_u64().unwrap() as u8));
-        }
+        let hashes = test_values
+            .iter()
+            .map(|value| hash_from_u8(*value))
+            .collect();
 
         let s = s
             .modify(&hashes, &vec![], &Proof::default())
@@ -231,7 +238,7 @@ mod test {
         assert_eq!(s.leafs, hashes.len() as u64);
 
         for i in 0..roots.len() {
-            assert_eq!(roots[i].as_str().unwrap(), s.roots[i].to_hex());
+            assert_eq!(roots[i].as_str(), s.roots[i].to_hex());
         }
     }
 
@@ -268,18 +275,22 @@ mod test {
 
     #[test]
     fn run_test_cases() {
+        #[derive(Deserialize)]
+        struct TestsJSON {
+            insertion_tests: Vec<TestCase>,
+            deletion_tests: Vec<TestCase>,
+        }
+
         let contents = std::fs::read_to_string("test_values/test_cases.json")
             .expect("Something went wrong reading the file");
 
-        let values: serde_json::Value =
-            serde_json::from_str(contents.as_str()).expect("JSON deserialization error");
-        let insertion_tests = values["insertion_tests"].as_array().unwrap();
-        let deletion_tests = values["deletion_tests"].as_array().unwrap();
+        let tests = serde_json::from_str::<TestsJSON>(contents.as_str())
+            .expect("JSON deserialization error");
 
-        for i in insertion_tests {
+        for i in tests.insertion_tests {
             run_single_addition_case(i);
         }
-        for i in deletion_tests {
+        for i in tests.deletion_tests {
             run_case_with_deletion(i);
         }
     }
