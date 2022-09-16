@@ -429,6 +429,37 @@
         "9576f4ade6e9bc3a6458b506ce3e4e890df29cb14cb5d3d887672aef55647a2b",
         "c413035120e8c9b0ca3e40c93d06fe60a0d056866138300bb1f1dd172b4923c3"
       ]
+    },
+    {
+      "leaf_values": [0, 1, 2, 3, 4, 5, 6, 7],
+      "target_values":[0, 1, 2, 3, 4, 5, 6, 7],
+      "roots":[
+        "0000000000000000000000000000000000000000000000000000000000000000"
+      ],
+      "proof_hashes": []
+    },
+    {
+      "leaf_values": [0, 1, 2, 3, 4, 5, 6, 7],
+      "target_values": [0, 1, 2, 3],
+      "roots": [
+        "29590a14c1b09384b94a2c0e94bf821ca75b62eacebc47893397ca88e3bbcbd7"
+      ],
+      "proof_hashes": [
+        "29590a14c1b09384b94a2c0e94bf821ca75b62eacebc47893397ca88e3bbcbd7"
+      ]
+    },
+    {
+      "leaf_values": [0, 1, 2, 3, 4, 5, 6, 7],
+      "target_values": [0, 2, 4, 6],
+      "roots": [
+        "54128834807e7f8763ff00fef2e7aea740c1d19977f95ee138ee6eecd0b9c702"
+      ],
+      "proof_hashes": [
+        "4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a",
+        "084fed08b978af4d7d196a7446a86b58009e636b611db16211b65a9aadff29c5",
+        "e77b9a9ae9e30b0dbdb6f510a264ef9de781501d7b6b92ae89eb059c5ab743db",
+        "ca358758f6d27e6cf45272937977a748fd88391db679ceda7dc7bf1f005ee879"
+      ]
     }
   ]
 }
