@@ -116,7 +116,8 @@ impl Proof {
         }
 
         let mut calculated_roots = self
-            .calculate_roots(del_hashes, stump)?
+            .calculate_hashes(del_hashes, stump)?
+            .1
             .into_iter()
             .peekable();
 
@@ -147,11 +148,11 @@ impl Proof {
     ///
     /// It's the caller's responsibility to null out the targets if desired by
     /// passing a `bitcoin_hashes::sha256::Hash::default()` instead of the actual hash.
-    pub(crate) fn calculate_roots(
+    pub(crate) fn calculate_hashes(
         &self,
         del_hashes: &Vec<sha256::Hash>,
         stump: &Stump,
-    ) -> Result<Vec<sha256::Hash>, String> {
+    ) -> Result<(Vec<(u64, sha256::Hash)>, Vec<sha256::Hash>), String> {
         // Where all the root hashes that we've calculated will go to.
         let total_rows = util::tree_rows(stump.leafs);
 
@@ -236,7 +237,8 @@ impl Proof {
                 }
             }
         }
-        Ok(calculated_root_hashes)
+
+        Ok((nodes, calculated_root_hashes))
     }
     fn sorted_push(
         nodes: &mut Vec<(u64, bitcoin_hashes::sha256::Hash)>,
@@ -322,7 +324,7 @@ mod tests {
             assert!(expected == res);
         }
     }
-    
+
     #[test]
     fn test_proof_verify() {
         let contents = std::fs::read_to_string("test_values/test_cases.json")

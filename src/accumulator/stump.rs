@@ -45,7 +45,8 @@ impl Stump {
         proof: &Proof,
     ) -> Result<Stump, String> {
         let mut root_candidates = proof
-            .calculate_roots(del_hashes, self)?
+            .calculate_hashes(del_hashes, self)?
+            .1
             .into_iter()
             .rev()
             .peekable();
@@ -105,7 +106,7 @@ impl Stump {
         }
 
         let del_hashes = vec![sha256::Hash::default(); proof.targets()];
-        let new_roots = proof.calculate_roots(&del_hashes, self)?;
+        let (_, new_roots) = proof.calculate_hashes(&del_hashes, self)?;
 
         Ok(new_roots)
     }
