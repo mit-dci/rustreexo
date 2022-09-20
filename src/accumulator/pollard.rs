@@ -8,7 +8,7 @@ use std::{
 };
 
 use super::types;
-type Node = Rc<Box<PolNode>>;
+type Node = Rc<PolNode>;
 
 #[derive(Clone)]
 pub struct PolNode {
@@ -57,9 +57,9 @@ impl PolNode {
         node.as_rc()
     }
     /// Returns the current node as an Reference Counted Container "[Rc]". This is how
-    /// nodes are stored inside the tree. 
+    /// nodes are stored inside the tree.
     fn as_rc(self) -> Node {
-        Rc::new(Box::new(self))
+        Rc::new(self)
     }
 
     fn set_aunt(&self, aunt: Option<Node>) -> PolNode {
