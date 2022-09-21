@@ -18,15 +18,20 @@ impl Stump {
     }
     /// Modify is the external API to change the accumulator state. Since order
     /// matters, you can only modify, providing a list of utxos to be added,
-    /// and txos (@TODO) to be removed, along with it's proof. Either may be
+    /// and txos to be removed, along with it's proof. Either may be
     /// empty.
     ///# Example
     /// ```
     ///   use rustreexo::accumulator::{stump::Stump, proof::Proof};
-    ///   let mut s = Stump::new();
-    ///   let utxos = vec![];
+    ///   use bitcoin_hashes::sha256::Hash;
+    ///   use std::str::FromStr;
+    ///
+    ///   let s = Stump::new();
+    ///   let utxos = vec![Hash::from_str("b151a956139bb821d4effa34ea95c17560e0135d1e4661fc23cedc3af49dac42").unwrap()];
     ///   let stxos = vec![];
-    ///   s.modify(&utxos, &stxos, &Proof::default());
+    ///   let s = s.modify(&utxos, &stxos, &Proof::default());
+    ///   assert!(s.is_ok());
+    ///   assert_eq!(s.unwrap().roots, utxos);
     /// ```
     pub fn modify(
         &self,
