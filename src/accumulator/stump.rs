@@ -72,14 +72,13 @@ impl Stump {
     ///   use rustreexo::accumulator::{stump::Stump, proof::Proof};
     ///   let s_old = Stump::new();
     ///   let mut s_new = Stump::new();
-    ///   
+    ///
     ///   let s_old = s_old.modify(&vec![], &vec![], &Proof::default()).unwrap();
     ///   s_new = s_old.clone();
     ///   s_new = s_new.modify(&vec![], &vec![], &Proof::default()).unwrap();
-    ///   
+    ///
     ///   // A reorg happened
-    ///   
-    ///   s_new.undo(s_old);  
+    ///   s_new.undo(s_old);
     ///```
     pub fn undo(&mut self, old_state: Stump) {
         self.leafs = old_state.leafs;
