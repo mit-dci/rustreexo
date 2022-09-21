@@ -128,7 +128,7 @@ pub fn detect_row(pos: u64, forest_rows: u8) -> u8 {
     h
 }
 
-pub fn detect_offset(pos: u64, num_leaves: u64) -> (u8, u8, u64) {
+pub fn detect_offset(pos: u64, num_leaves: u64) -> Result<(u8, u8, u64), String> {
     let mut tr = tree_rows(num_leaves);
     let nr = detect_row(pos, tr);
 
@@ -167,10 +167,13 @@ pub fn detect_offset(pos: u64, num_leaves: u64) -> (u8, u8, u64) {
             marker -= tree_size;
             bigger_trees += 1;
         }
+        if tr == 0 {
+            return Err("Node not in forest".into());
+        }
         tr -= 1;
     }
 
-    (bigger_trees, tr - nr, !marker)
+    Ok((bigger_trees, tr - nr, !marker))
 }
 
 // parent returns the parent position of the passed in child
