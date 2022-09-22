@@ -10,6 +10,11 @@ pub struct Stump {
 
 impl Stump {
     /// Creates an empty Stump
+    ///# Example
+    /// ```
+    ///   use rustreexo::accumulator::stump::Stump;
+    ///   let s = Stump::new();
+    /// ```
     pub fn new() -> Self {
         Stump {
             leafs: 0,
