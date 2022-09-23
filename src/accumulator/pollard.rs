@@ -423,6 +423,8 @@ impl std::fmt::Display for Pollard {
     }
 }
 mod test {
+    use std::str::FromStr;
+
     use super::{PolNode, Pollard};
     use bitcoin_hashes::{sha256::Hash as Data, sha256t, Hash, HashEngine};
     fn hash_from_u8(value: u8) -> Data {
@@ -440,15 +442,24 @@ mod test {
         let p = Pollard::new()
             .modify(hashes, vec![])
             .expect("Pollard should not fail");
-        let node = p.grab_node(13);
+        let node = p.grab_node(4).unwrap();
+        let target: Data = "e52d9c508c502347344d8c07ad91cbd6068afc75ff6292f062a09ca381c89e71"
+            .parse()
+            .unwrap();
+        let sibling: Data = "e77b9a9ae9e30b0dbdb6f510a264ef9de781501d7b6b92ae89eb059c5ab743db"
+            .parse()
+            .unwrap();
+        let parent: Data = "9eec588c41d87b16b0ee226cb38da3864f9537632321d8be855a73d5616dcc73"
+            .parse()
+            .unwrap();
 
-        assert!(node.is_ok());
+        let found_target = node.1.clone().data;
+        let found_sibling = node.0.clone().data;
+        let found_parent = node.2.clone().data;
 
-        let hash = node.unwrap().1.data;
-        assert_eq!(
-            hash.to_string().as_str(),
-            "9d1e0e2d9459d06523ad13e28a4093c2316baafe7aec5b25f30eba2e113599c4"
-        );
+        assert_eq!(target, found_target);
+        assert_eq!(sibling, found_sibling);
+        assert_eq!(parent, found_parent);
     }
     #[test]
     fn test_recompute_hashes() {
@@ -460,6 +471,11 @@ mod test {
             .expect("Pollard should not fail");
         let node = p.grab_node(0);
         if let Ok((_, _, parent)) = node {
+            parent
+                .get_l_niece()
+                .unwrap()
+                .set_self_hash(PolNode::default().as_rc());
+
             let res = parent.recompute_parent_hash();
             println!("{:?}", res);
         }
@@ -562,6 +578,52 @@ mod test {
 
         let root = roots[0].clone();
         assert_eq!(root.data, hashes[0]);
+    }
+    #[test]
+    fn test_get_children() {
+        let values = vec![0, 1, 2, 3, 4, 5, 6, 7];
+        let hashes: Vec<Data> = values.into_iter().map(|val| hash_from_u8(val)).collect();
+
+        let p = Pollard::new()
+            .modify(hashes.clone(), vec![])
+            .expect("Pollard should not fail");
+
+        let (sibling, node, parent) = p.grab_node(8).expect("Node exists");
+        assert_eq!(
+            Data::from_str("02242b37d8e851f1e86f46790298c7097df06893d6226b7c1453c213e91717de")
+                .unwrap(),
+            node.data
+        );
+
+        assert_eq!(
+            Data::from_str("9576f4ade6e9bc3a6458b506ce3e4e890df29cb14cb5d3d887672aef55647a2b")
+                .unwrap(),
+            sibling.data
+        );
+        let (l_child, r_child) = node.get_children();
+        assert!(l_child.is_some());
+        assert!(r_child.is_some());
+
+        let l_child = l_child.unwrap();
+        let r_child = r_child.unwrap();
+
+        assert_eq!(hashes[0], r_child.data);
+        assert_eq!(hashes[1], l_child.data);
+    }
+    fn test_get_parent() {
+        let values = vec![0, 1, 2, 3, 4, 5, 6, 7];
+        let hashes: Vec<Data> = values.into_iter().map(|val| hash_from_u8(val)).collect();
+
+        let p = Pollard::new()
+            .modify(hashes.clone(), vec![])
+            .expect("Pollard should not fail");
+
+        let (sibling, node, parent) = p.grab_node(8).expect("Node exists");
+        assert_eq!(
+            Data::from_str("02242b37d8e851f1e86f46790298c7097df06893d6226b7c1453c213e91717de")
+                .unwrap(),
+            node.data
+        );
     }
     #[test]
     fn test_delete_root() {
