@@ -10,10 +10,10 @@ pub struct Proof {
     /// Targets are the i'th of leaf locations to delete and they are the bottommost leaves.
     /// With the tree below, the Targets can only consist of one of these: 02, 03, 04.
     ///```!
-    ///  // 06  
-    ///  // |-------\  
-    ///  // 04      05  
-    ///  // |---\   |---\  
+    ///  // 06
+    ///  // |-------\
+    ///  // 04      05
+    ///  // |---\   |---\
     ///  //         02  03
     /// ```
     targets: Vec<u64>,
@@ -41,11 +41,11 @@ impl Proof {
     /// Assuming a tree with leaf values [0, 1, 2, 3, 4, 5, 6, 7], we should see something like this:
     ///```!
     /// 14
-    /// |-----------------\                               
-    /// 12                13                         
-    /// |---------\       |--------\               
-    /// 08       09       10       11         
-    /// |----\   |----\   |----\   |----\       
+    /// |-----------------\
+    /// 12                13
+    /// |---------\       |--------\
+    /// 08       09       10       11
+    /// |----\   |----\   |----\   |----\
     /// 00   01  02   03  04   05  06   07
     /// ```
     /// If we are proving `00` (i.e. 00 is our target), then we need 01,
@@ -76,7 +76,7 @@ impl Proof {
     /// not valid given the current stump.
     ///# Examples
     /// ```
-    ///   use bitcoin_hashes::{sha256, Hash, HashEngine};
+    ///   use bitcoin_hashes::{sha256::Hash as Sha256, Hash, HashEngine};
     ///   use std::str::FromStr;
     ///   use rustreexo::accumulator::{stump::Stump, proof::Proof};
     ///   let s = Stump::new();
@@ -87,29 +87,28 @@ impl Proof {
     ///   
     ///   let mut proof_hashes = Vec::new();
     ///   // This tree will look like this
-    ///   // 14                                                         
-    ///   // |-----------------\                               
-    ///   // 12                13                         
-    ///   // |---------\       |--------\               
-    ///   // 08       09       10       11         
-    ///   // |----\   |----\   |----\   |----\       
+    ///   // 14
+    ///   // |-----------------\
+    ///   // 12                13
+    ///   // |---------\       |--------\
+    ///   // 08       09       10       11
+    ///   // |----\   |----\   |----\   |----\
     ///   // 00   01  02   03  04   05  06   07
     ///   // For proving 0, we need 01, 09 and 13's hashes. 00, 08, 12 and 14 can be calculated
-    ///   proof_hashes.push(bitcoin_hashes::sha256::Hash::from_str("4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a").unwrap());
-    ///   proof_hashes.push(bitcoin_hashes::sha256::Hash::from_str("9576f4ade6e9bc3a6458b506ce3e4e890df29cb14cb5d3d887672aef55647a2b").unwrap());
-    ///   proof_hashes.push(bitcoin_hashes::sha256::Hash::from_str("29590a14c1b09384b94a2c0e94bf821ca75b62eacebc47893397ca88e3bbcbd7").unwrap());
-    ///   
+    ///   proof_hashes.push(Sha256::from_str("4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a").unwrap());
+    ///   proof_hashes.push(Sha256::from_str("9576f4ade6e9bc3a6458b506ce3e4e890df29cb14cb5d3d887672aef55647a2b").unwrap());
+    ///   proof_hashes.push(Sha256::from_str("29590a14c1b09384b94a2c0e94bf821ca75b62eacebc47893397ca88e3bbcbd7").unwrap());
+    ///
     ///   let mut hashes = Vec::new();
     ///   for i in test_values {
-    ///     let mut engine = bitcoin_hashes::sha256::Hash::engine();
-    ///      engine.input(&[i]);
-    ///      let hash = sha256::Hash::from_engine(engine);
-    ///     hashes.push(hash);
+    ///       let mut engine = Sha256::engine();
+    ///       engine.input(&[i]);
+    ///       let hash = Sha256::from_engine(engine);
+    ///       hashes.push(hash);
     ///   }
-    ///
     ///   let s = s.modify(&hashes, &vec![], &Proof::default()).unwrap();
     ///   let p = Proof::new(targets, proof_hashes);
-    ///   assert!(p.verify(&vec![hashes[0]] , &s).expect("No error should happens"));
+    ///   assert!(p.verify(&vec![hashes[0]] , &s).expect("This proof is valid"));
     ///```
     pub fn verify(&self, del_hashes: &Vec<sha256::Hash>, stump: &Stump) -> Result<bool, String> {
         if self.targets.len() == 0 {

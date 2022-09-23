@@ -10,6 +10,11 @@ pub struct Stump {
 
 impl Stump {
     /// Creates an empty Stump
+    ///# Example
+    /// ```
+    ///   use rustreexo::accumulator::stump::Stump;
+    ///   let s = Stump::new();
+    /// ```
     pub fn new() -> Self {
         Stump {
             leafs: 0,
@@ -18,15 +23,20 @@ impl Stump {
     }
     /// Modify is the external API to change the accumulator state. Since order
     /// matters, you can only modify, providing a list of utxos to be added,
-    /// and txos (@TODO) to be removed, along with it's proof. Either may be
+    /// and txos to be removed, along with it's proof. Either may be
     /// empty.
     ///# Example
     /// ```
     ///   use rustreexo::accumulator::{stump::Stump, proof::Proof};
-    ///   let mut s = Stump::new();
-    ///   let utxos = vec![];
+    ///   use bitcoin_hashes::sha256::Hash;
+    ///   use std::str::FromStr;
+    ///
+    ///   let s = Stump::new();
+    ///   let utxos = vec![Hash::from_str("b151a956139bb821d4effa34ea95c17560e0135d1e4661fc23cedc3af49dac42").unwrap()];
     ///   let stxos = vec![];
-    ///   s.modify(&utxos, &stxos, &Proof::default());
+    ///   let s = s.modify(&utxos, &stxos, &Proof::default());
+    ///   assert!(s.is_ok());
+    ///   assert_eq!(s.unwrap().roots, utxos);
     /// ```
     pub fn modify(
         &self,
@@ -72,14 +82,13 @@ impl Stump {
     ///   use rustreexo::accumulator::{stump::Stump, proof::Proof};
     ///   let s_old = Stump::new();
     ///   let mut s_new = Stump::new();
-    ///   
+    ///
     ///   let s_old = s_old.modify(&vec![], &vec![], &Proof::default()).unwrap();
     ///   s_new = s_old.clone();
     ///   s_new = s_new.modify(&vec![], &vec![], &Proof::default()).unwrap();
-    ///   
+    ///
     ///   // A reorg happened
-    ///   
-    ///   s_new.undo(s_old);  
+    ///   s_new.undo(s_old);
     ///```
     pub fn undo(&mut self, old_state: Stump) {
         self.leafs = old_state.leafs;
