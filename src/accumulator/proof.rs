@@ -116,7 +116,8 @@ impl Proof {
         }
 
         let mut calculated_roots = self
-            .calculate_roots(del_hashes, stump)?
+            .calculate_hashes(del_hashes, stump)?
+            .1
             .into_iter()
             .peekable();
 
@@ -147,11 +148,11 @@ impl Proof {
     ///
     /// It's the caller's responsibility to null out the targets if desired by
     /// passing a `bitcoin_hashes::sha256::Hash::default()` instead of the actual hash.
-    pub(crate) fn calculate_roots(
+    pub(crate) fn calculate_hashes(
         &self,
         del_hashes: &Vec<sha256::Hash>,
         stump: &Stump,
-    ) -> Result<Vec<sha256::Hash>, String> {
+    ) -> Result<(Vec<(u64, sha256::Hash)>, Vec<sha256::Hash>), String> {
         // Where all the root hashes that we've calculated will go to.
         let total_rows = util::tree_rows(stump.leafs);
 
@@ -236,7 +237,8 @@ impl Proof {
                 }
             }
         }
-        Ok(calculated_root_hashes)
+
+        Ok((nodes, calculated_root_hashes))
     }
     fn sorted_push(
         nodes: &mut Vec<(u64, bitcoin_hashes::sha256::Hash)>,
@@ -264,7 +266,87 @@ mod tests {
 
         sha256::Hash::from_engine(engine)
     }
+    #[test]
+    fn test_calculate_hashes() {
+        // Tests if the calculated roots and nodes are correct.
+        // The values we use to get some hashes
+        let preimages = vec![0, 1, 2, 3, 4, 5, 6, 7];
+        let hashes = preimages
+            .into_iter()
+            .map(|preimage| hash_from_u8(preimage))
+            .collect();
+        // Create a new stump with 8 leaves and 1 root
+        let s = Stump::new()
+            .modify(&hashes, &vec![], &Proof::default())
+            .expect("This stump is valid");
 
+        // Nodes that will be deleted
+        let del_hashes = vec![hashes[0], hashes[2], hashes[4], hashes[6]];
+        let proof = vec![
+            "4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a",
+            "084fed08b978af4d7d196a7446a86b58009e636b611db16211b65a9aadff29c5",
+            "e77b9a9ae9e30b0dbdb6f510a264ef9de781501d7b6b92ae89eb059c5ab743db",
+            "ca358758f6d27e6cf45272937977a748fd88391db679ceda7dc7bf1f005ee879",
+        ];
+        let proof_hashes = proof
+            .into_iter()
+            .map(|hash| bitcoin_hashes::sha256::Hash::from_str(hash).unwrap())
+            .collect();
+
+        let p = Proof::new(vec![0, 2, 4, 6], proof_hashes);
+
+        // We should get those computed nodes...
+        let expected_hashes = [
+            "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+            "dbc1b4c900ffe48d575b5da5c638040125f65db0fe3e24494b76ea986457d986",
+            "e52d9c508c502347344d8c07ad91cbd6068afc75ff6292f062a09ca381c89e71",
+            "67586e98fad27da0b9968bc039a1ef34c939b9b8e523a8bef89d478608c5ecf6",
+            "02242b37d8e851f1e86f46790298c7097df06893d6226b7c1453c213e91717de",
+            "9576f4ade6e9bc3a6458b506ce3e4e890df29cb14cb5d3d887672aef55647a2b",
+            "9eec588c41d87b16b0ee226cb38da3864f9537632321d8be855a73d5616dcc73",
+            "34028bbc87000c39476cdc60cf80ca32d579b3a0e2d3f80e0ad8c3739a01aa91",
+            "df46b17be5f66f0750a4b3efa26d4679db170a72d41eb56c3e4ff75a58c65386",
+            "29590a14c1b09384b94a2c0e94bf821ca75b62eacebc47893397ca88e3bbcbd7",
+            "b151a956139bb821d4effa34ea95c17560e0135d1e4661fc23cedc3af49dac42",
+        ];
+        // ... at these positions ...
+        let expected_pos = [0, 2, 4, 6, 8, 9, 10, 11, 12, 13, 14];
+
+        // ... leading to this root
+        let expected_roots = ["b151a956139bb821d4effa34ea95c17560e0135d1e4661fc23cedc3af49dac42"];
+
+        let expected_roots: Vec<_> = expected_roots
+            .iter()
+            .map(|root| bitcoin_hashes::sha256::Hash::from_str(root).unwrap())
+            .collect();
+
+        let mut expected_computed = expected_hashes
+            .iter()
+            .map(|hash| bitcoin_hashes::sha256::Hash::from_str(hash).unwrap())
+            .zip(expected_pos);
+
+        let calculated = p.calculate_hashes(&del_hashes, &s);
+
+        // We don't expect any errors from this simple test
+        assert!(calculated.is_ok());
+
+        let (nodes, roots) = calculated.unwrap();
+
+        // Make sure we got the expect roots
+        assert_eq!(roots, expected_roots);
+
+        // Did we compute all expected nodes?
+        assert_eq!(nodes.len(), expected_computed.len());
+        // For each calculated position, check if the position and hashes are as expected
+        for (pos, hash) in nodes {
+            if let Some((expected_hash, expected_pos)) = expected_computed.next() {
+                assert_eq!(pos, expected_pos);
+                assert_eq!(hash, expected_hash);
+            } else {
+                panic!()
+            }
+        }
+    }
     fn run_single_case(case: &serde_json::Value) {
         let mut s = Stump::new();
 
@@ -322,7 +404,7 @@ mod tests {
             assert!(expected == res);
         }
     }
-    
+
     #[test]
     fn test_proof_verify() {
         let contents = std::fs::read_to_string("test_values/test_cases.json")
