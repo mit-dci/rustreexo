@@ -1,0 +1,142 @@
+[
+    {
+        "initial_stump": "Add no leaf",
+        "roots": [],
+        "leaves": 0,
+        "additional_preimages": [0, 1, 2, 3],
+        "del_hashes": [],
+        "proof_hashes": [],
+        "proof_targets": [],
+        "new_add_pos": [0, 1, 2, 3, 4, 5, 6],
+        "new_add_hash": [
+            "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+            "4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a",
+            "dbc1b4c900ffe48d575b5da5c638040125f65db0fe3e24494b76ea986457d986",
+            "084fed08b978af4d7d196a7446a86b58009e636b611db16211b65a9aadff29c5",
+            "02242b37d8e851f1e86f46790298c7097df06893d6226b7c1453c213e91717de",
+            "9576f4ade6e9bc3a6458b506ce3e4e890df29cb14cb5d3d887672aef55647a2b",
+            "df46b17be5f66f0750a4b3efa26d4679db170a72d41eb56c3e4ff75a58c65386"
+        ],
+        "to_destroy": []
+    },
+    {
+        "initial_stump": "Add six leaves [0, 1, 2, 3, 4, 5]",
+        "roots": [
+            "df46b17be5f66f0750a4b3efa26d4679db170a72d41eb56c3e4ff75a58c65386",
+            "9eec588c41d87b16b0ee226cb38da3864f9537632321d8be855a73d5616dcc73"
+        ],
+        "leaves": 6,
+        "additional_preimages": [0, 1, 2, 3, 4],
+        "del_hashes": [],
+        "proof_hashes": [],
+        "proof_targets": [],
+        "new_add_pos": [6, 7, 8, 9, 10, 18, 19, 20, 24, 25, 28],
+        "new_add_hash": [
+            "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+            "4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a",
+            "dbc1b4c900ffe48d575b5da5c638040125f65db0fe3e24494b76ea986457d986",
+            "084fed08b978af4d7d196a7446a86b58009e636b611db16211b65a9aadff29c5",
+            "e52d9c508c502347344d8c07ad91cbd6068afc75ff6292f062a09ca381c89e71",
+            "9eec588c41d87b16b0ee226cb38da3864f9537632321d8be855a73d5616dcc73",
+            "02242b37d8e851f1e86f46790298c7097df06893d6226b7c1453c213e91717de",
+            "9576f4ade6e9bc3a6458b506ce3e4e890df29cb14cb5d3d887672aef55647a2b",
+            "df46b17be5f66f0750a4b3efa26d4679db170a72d41eb56c3e4ff75a58c65386",
+            "df12e87db0413ef51d5bbd374904eeeb5cc4615ddae80e45a7140983f30cd01c",
+            "b6b70236289cd59beebc247e8045f2c1293996ad881e756b79f01e275bc98fa1"
+        ],
+        "to_destroy": []
+    },
+    {
+        "initial_stump": "Add four leaves [0, 1, 2, 3] and remove them",
+        "roots": [
+            "0000000000000000000000000000000000000000000000000000000000000000"
+        ],
+        "leaves": 4,
+        "additional_preimages": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+        "del_hashes": [],
+        "proof_hashes": [],
+        "proof_targets": [],
+        "new_add_pos": [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 48, 49, 50, 51, 52, 56, 57, 60],
+        "new_add_hash": [
+            "e52d9c508c502347344d8c07ad91cbd6068afc75ff6292f062a09ca381c89e71",
+            "e77b9a9ae9e30b0dbdb6f510a264ef9de781501d7b6b92ae89eb059c5ab743db",
+            "67586e98fad27da0b9968bc039a1ef34c939b9b8e523a8bef89d478608c5ecf6",
+            "ca358758f6d27e6cf45272937977a748fd88391db679ceda7dc7bf1f005ee879",
+            "beead77994cf573341ec17b58bbf7eb34d2711c993c1d976b128b3188dc1829a",
+            "2b4c342f5433ebe591a1da77e013d1b72475562d48578dca8b84bac6651c3cb9",
+            "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+            "e7cf46a078fed4fafd0b5e3aff144802b853f8ae459a4f0c14add3314b7cc3a6",
+            "ef6cbd2161eaea7943ce8693b9824d23d1793ffb1c0fca05b600d3899b44c977",
+            "9d1e0e2d9459d06523ad13e28a4093c2316baafe7aec5b25f30eba2e113599c4",
+            "4d7b3ef7300acf70c892d8327db8272f54434adbc61a4e130a563cb59a0d0f47",
+            "dc0e9c3658a1a3ed1ec94274d8b19925c93e1abb7ddba294923ad9bde30f8cb8",
+            "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+            "4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a",
+            "dbc1b4c900ffe48d575b5da5c638040125f65db0fe3e24494b76ea986457d986",
+            "084fed08b978af4d7d196a7446a86b58009e636b611db16211b65a9aadff29c5",
+            "9eec588c41d87b16b0ee226cb38da3864f9537632321d8be855a73d5616dcc73",
+            "34028bbc87000c39476cdc60cf80ca32d579b3a0e2d3f80e0ad8c3739a01aa91",
+            "cd9c77062a338e63a63ca623db438cb8676f15466641079ee61ec2dda98de796",
+            "c413035120e8c9b0ca3e40c93d06fe60a0d056866138300bb1f1dd172b4923c3",
+            "55d0a0ef8f5c25a9da266b36c0c5f4b31008ece82df2512c8966bddcc27a66a0",
+            "b43b92244de0b4c6ea8b03017286927bb4389bd9440c1839ff3234c24da776a7",
+            "02242b37d8e851f1e86f46790298c7097df06893d6226b7c1453c213e91717de",
+            "9576f4ade6e9bc3a6458b506ce3e4e890df29cb14cb5d3d887672aef55647a2b",
+            "29590a14c1b09384b94a2c0e94bf821ca75b62eacebc47893397ca88e3bbcbd7",
+            "9c053db406c1a077112189469a3aca0573d3481bef09fa3d2eda3304d7d44be8",
+            "e799acb98a071c4884707e4bc8c093ba22571c8d84cc0223ab0c2c9327313a5b",
+            "df46b17be5f66f0750a4b3efa26d4679db170a72d41eb56c3e4ff75a58c65386",
+            "4fa0cac492b54bd78886ad14002aa71ca9c038cc1bea035bc27f67803031f0bc",
+            "b50340a8c59e66c01d81923f4f834a07966866d2cdfdfba87204a7532f3368c5"
+        ],
+        "to_destroy": [48]
+    }    ,
+    {
+        "initial_stump": "Add four leaves [0, 1, 2, 3] and remove them",
+        "roots": [
+            "0000000000000000000000000000000000000000000000000000000000000000"
+        ],
+        "leaves": 4,
+        "additional_preimages": [0, 1, 2, 3, 4],
+        "del_hashes": [],
+        "proof_hashes": [],
+        "proof_targets": [],
+        "new_add_pos": [8, 16, 17, 18, 19, 24, 25, 28],
+        "new_add_hash": [
+            "e52d9c508c502347344d8c07ad91cbd6068afc75ff6292f062a09ca381c89e71",
+            "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+            "4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a",
+            "dbc1b4c900ffe48d575b5da5c638040125f65db0fe3e24494b76ea986457d986",
+            "084fed08b978af4d7d196a7446a86b58009e636b611db16211b65a9aadff29c5",
+            "02242b37d8e851f1e86f46790298c7097df06893d6226b7c1453c213e91717de",
+            "9576f4ade6e9bc3a6458b506ce3e4e890df29cb14cb5d3d887672aef55647a2b",
+            "df46b17be5f66f0750a4b3efa26d4679db170a72d41eb56c3e4ff75a58c65386"
+        ],
+        "to_destroy": [24]
+    },
+    {
+        "initial_stump":"Add six leaves [0, 1, 2, 3, 4, 5] and remove [0, 1, 2, 3]",
+        "roots": [
+            "0000000000000000000000000000000000000000000000000000000000000000",
+            "9eec588c41d87b16b0ee226cb38da3864f9537632321d8be855a73d5616dcc73"
+        ],
+        "leaves": 6,
+        "additional_preimages": [0, 1, 2, 3, 4],
+        "del_hashes": [],
+        "proof_hashes": [],
+        "proof_targets": [],
+        "new_add_pos": [8, 9, 10, 18, 19, 20, 24, 25, 28],
+        "new_add_hash": [
+            "dbc1b4c900ffe48d575b5da5c638040125f65db0fe3e24494b76ea986457d986",
+            "084fed08b978af4d7d196a7446a86b58009e636b611db16211b65a9aadff29c5",
+            "e52d9c508c502347344d8c07ad91cbd6068afc75ff6292f062a09ca381c89e71",
+            "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+            "4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a",
+            "9576f4ade6e9bc3a6458b506ce3e4e890df29cb14cb5d3d887672aef55647a2b",
+            "9eec588c41d87b16b0ee226cb38da3864f9537632321d8be855a73d5616dcc73",
+            "02242b37d8e851f1e86f46790298c7097df06893d6226b7c1453c213e91717de",
+            "df12e87db0413ef51d5bbd374904eeeb5cc4615ddae80e45a7140983f30cd01c"
+        ],
+        "to_destroy": [24]
+    }
+]
