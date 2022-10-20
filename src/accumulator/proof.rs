@@ -40,13 +40,13 @@ impl Proof {
     ///
     /// Assuming a tree with leaf values [0, 1, 2, 3, 4, 5, 6, 7], we should see something like this:
     ///```!
-    /// 14
-    /// |-----------------\
-    /// 12                13
-    /// |---------\       |--------\
-    /// 08       09       10       11
-    /// |----\   |----\   |----\   |----\
-    /// 00   01  02   03  04   05  06   07
+    /// // 14
+    /// // |-----------------\
+    /// // 12                13
+    /// // |---------\       |--------\
+    /// // 08       09       10       11
+    /// // |----\   |----\   |----\   |----\
+    /// // 00   01  02   03  04   05  06   07
     /// ```
     /// If we are proving `00` (i.e. 00 is our target), then we need 01,
     /// 09 and 13's hashes, so we can compute 14 by hashing both siblings
@@ -333,7 +333,7 @@ mod tests {
         let mut expected_computed = expected_hashes
             .iter()
             .map(|hash| bitcoin_hashes::sha256::Hash::from_str(hash).unwrap())
-            .zip(expected_pos);
+            .zip(&expected_pos);
 
         let calculated = p.calculate_hashes(&del_hashes, &s);
 
@@ -350,7 +350,7 @@ mod tests {
         // For each calculated position, check if the position and hashes are as expected
         for (pos, hash) in nodes {
             if let Some((expected_hash, expected_pos)) = expected_computed.next() {
-                assert_eq!(pos, expected_pos);
+                assert_eq!(pos, *expected_pos as u64);
                 assert_eq!(hash, expected_hash);
             } else {
                 panic!()
