@@ -30,7 +30,7 @@ pub fn calc_next_pos(position: u64, del_pos: u64, forest_rows: u8) -> Result<u64
     let pos_row = detect_row(position, forest_rows);
 
     if del_row < pos_row {
-        return Err(format!("calc_next_pos fail: del_pos of {del_pos} is at a lower row than position at {position}"));
+        return Err(format!("calc_next_pos fail: del_pos of {} is at a lower row than position at {}", del_pos, position));
     }
 
     // This is the lower bits where we'll remove the nth bit.
@@ -255,7 +255,7 @@ pub fn parent_many(pos: u64, rise: u8, forest_rows: u8) -> Result<u64, String> {
     }
     if rise > forest_rows {
         return Err(format!(
-            "Cannot rise more than the forestRows: rise: {rise} forest_rows: {forest_rows}"
+            "Cannot rise more than the forestRows: rise: {} forest_rows: {}", rise, forest_rows
         ));
     }
     let mask = ((2 << forest_rows) - 1) as u64;

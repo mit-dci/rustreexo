@@ -10,12 +10,41 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
-
+  Tests:
+    name: Tests
     runs-on: ubuntu-latest
-
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - rust: stable
+            env:
+              DO_COV: true
+              DO_LINT: true
+              AS_DEPENDENCY: true
+              DO_NO_STD: true
+          - rust: beta
+            env:
+              AS_DEPENDENCY: true
+              DO_NO_STD: true
+          - rust: nightly
+            env:
+              DO_BENCH: true
+              AS_DEPENDENCY: true
+              DO_NO_STD: true
+              DO_DOCS: true
+          - rust: 1.41.1
+            env:
+              AS_DEPENDENCY: true
+          - rust: 1.47
+            env:
+              AS_DEPENDENCY: true
+              DO_NO_STD: true
     steps:
     - uses: actions/checkout@v3
+      with:
+        profile: minimal
+        toolchain: ${{ matrix.rust }}
     - name: Build
       run: cargo build --verbose
     - name: Run tests
