@@ -106,7 +106,7 @@ impl Proof {
     ///       let hash = Sha256::from_engine(engine);
     ///       hashes.push(hash);
     ///   }
-    ///   let s = s.modify(&hashes, &vec![], &Proof::default()).unwrap();
+    ///   let s = s.modify(&hashes, &vec![], &Proof::default()).unwrap().0;
     ///   let p = Proof::new(targets, proof_hashes);
     ///   assert!(p.verify(&vec![hashes[0]] , &s).expect("This proof is valid"));
     ///```
@@ -288,7 +288,8 @@ mod tests {
         // Create a new stump with 8 leaves and 1 root
         let s = Stump::new()
             .modify(&hashes, &vec![], &Proof::default())
-            .expect("This stump is valid");
+            .expect("This stump is valid")
+            .0;
 
         // Nodes that will be deleted
         let del_hashes = vec![hashes[0], hashes[2], hashes[4], hashes[6]];

@@ -1,6 +1,8 @@
 // Rustreexo
 
 use std::vec::Vec;
+
+use bitcoin_hashes::{hex::FromHex, sha256};
 // isRootPosition checks if the current position is a root given the number of
 // leaves and the entire rows of the forest.
 pub fn is_root_position(position: u64, num_leaves: u64, forest_rows: u8) -> bool {
@@ -71,6 +73,44 @@ fn add_and_sort(mut vec: Vec<u64>, value: u64) -> Vec<u64> {
 }
 pub fn is_left_niece(position: u64) -> bool {
     position & 1 == 0
+}
+pub fn left_sibling(position: u64) -> u64 {
+    (position | 1) ^ 1
+}
+// roots_to_destroy returns the empty roots that get written over after num_adds
+// amount of leaves have been added.
+pub fn roots_to_destroy(
+    num_adds: u64,
+    mut num_leaves: u64,
+    orig_roots: &Vec<sha256::Hash>,
+) -> Vec<u64> {
+    let mut roots = orig_roots.clone();
+
+    let mut deleted = vec![];
+    let mut h = 0;
+    for add in 0..num_adds {
+        while (num_leaves >> h) & 1 == 1 {
+            let root = roots
+                .pop()
+                .expect("If (num_leaves >> h) & 1 == 1, it must have at least one root left");
+            if root == sha256::Hash::default() {
+                let root_pos =
+                    root_position(num_leaves, h, tree_rows(num_leaves + (num_adds - add)));
+                deleted.push(root_pos);
+            }
+            h += 1;
+        }
+        // Just adding a non-zero value to the slice.
+        roots.push(
+            sha256::Hash::from_hex(
+                "0000000000000000000000000000000000000000000000000000000000000001",
+            )
+            .unwrap(),
+        );
+        num_leaves += 1;
+    }
+
+    deleted
 }
 // detectSubTreeHight finds the rows of the subtree a given LEAF position and
 // the number of leaves (& the forest rows which is redundant)
@@ -347,7 +387,11 @@ pub fn get_proof_positions(targets: &Vec<u64>, num_leaves: u64, forest_rows: u8)
 
 #[cfg(test)]
 mod tests {
-    use std::vec;
+    use std::{str::FromStr, vec};
+
+    use bitcoin_hashes::sha256;
+
+    use super::roots_to_destroy;
     #[test]
     fn test_is_sibling() {
         assert_eq!(super::is_sibling(0, 1), true);
@@ -368,7 +412,22 @@ mod tests {
     fn test_is_right_sibling() {
         assert!(super::is_right_sibling(0, 1));
     }
+    #[test]
+    fn test_roots_to_destroy() {
+        let roots = vec![
+            "0000000000000000000000000000000000000000000000000000000000000000",
+            "aad41f1d55e1a111ca193f6fa4e13dfc0cbdfbea851b30f3eacfe8d9d6be4302",
+            "0000000000000000000000000000000000000000000000000000000000000000",
+            "3c2d8cbe4336bbe05fff898102d413ab6356de2598aad4d5a7f916c5b316cb42",
+        ];
+        let roots = roots
+            .iter()
+            .map(|hash| sha256::Hash::from_str(*hash).unwrap())
+            .collect();
+        let deleted = roots_to_destroy(1, 15, &roots);
 
+        assert_eq!(deleted, vec![22, 28])
+    }
     #[test]
     fn test_remove_bit() {
         // This should remove just one bit from the final number
