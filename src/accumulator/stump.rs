@@ -15,6 +15,8 @@ pub struct UpdateData {
     pub(crate) prev_num_leaves: u64,
     /// new_add are the new hashes for the newly created roots after the addition.
     pub(crate) new_add: Vec<(u64, sha256::Hash)>,
+    /// new_del are the new hashes after the deletion.
+    pub(crate) new_del: Vec<(u64, sha256::Hash)>,
 }
 
 impl Stump {
@@ -60,7 +62,7 @@ impl Stump {
             .rev()
             .peekable();
 
-        let (_, computed_roots) = self.remove(del_hashes, proof)?;
+        let (intermediate, computed_roots) = self.remove(del_hashes, proof)?;
         let mut computed_roots = computed_roots.into_iter().rev();
 
         let mut new_roots = vec![];
@@ -88,6 +90,7 @@ impl Stump {
             new_add: updated,
             prev_num_leaves: self.leafs,
             to_destroy: destroyed,
+            new_del: intermediate,
         };
 
         Ok((new_stump, update_data))
@@ -225,7 +228,9 @@ mod test {
             /// During addition, we create those nodes
             new_add_pos: Vec<u64>,
             new_add_hash: Vec<String>,
-
+            /// And during deletion, we destroy or update those
+            new_del_pos: Vec<u64>,
+            new_del_hashes: Vec<String>,
             to_destroy: Vec<u64>,
         }
         let contents = std::fs::read_to_string("test_values/cache_tests.json")
@@ -273,11 +278,22 @@ mod test {
                 .into_iter()
                 .zip(new_add_hash.into_iter())
                 .collect();
+            // Positions returned after deletion
+            let new_del_hash: Vec<_> = data
+                .new_del_hashes
+                .iter()
+                .map(|hash| sha256::Hash::from_str(hash).unwrap())
+                .collect();
+            let new_del: Vec<_> = data
+                .new_del_pos
+                .into_iter()
+                .zip(new_del_hash.into_iter())
+                .collect();
 
             assert_eq!(updated.prev_num_leaves, data.leaves);
             assert_eq!(updated.to_destroy, data.to_destroy);
             assert_eq!(updated.new_add, new_add);
-
+            assert_eq!(updated.new_del, new_del);
         }
     }
     #[test]
