@@ -32,7 +32,10 @@ pub fn calc_next_pos(position: u64, del_pos: u64, forest_rows: u8) -> Result<u64
     let pos_row = detect_row(position, forest_rows);
 
     if del_row < pos_row {
-        return Err(format!("calc_next_pos fail: del_pos of {} is at a lower row than position at {}", del_pos, position));
+        return Err(format!(
+            "calc_next_pos fail: del_pos of {} is at a lower row than position at {}",
+            del_pos, position
+        ));
     }
 
     // This is the lower bits where we'll remove the nth bit.
@@ -259,25 +262,11 @@ pub fn in_forest(mut pos: u64, num_leaves: u64, forest_rows: u8) -> bool {
 
 // tree_rows returns the number of rows given n leaves
 pub fn tree_rows(n: u64) -> u8 {
-    // tree_rows works by:
-    // 1. Find the next power of 2 from the given n leaves.
-    // 2. Calculate the log2 of the result from step 1.
-    //
-    // For example, if the given number is 9, the next power of 2 is
-    // 16. This log2 of this number is how many rows there are in the
-    // given tree.
-    //
-    // This works because while Utreexo is a collection of perfect
-    // trees, the allocated number of leaves is always a power of 2.
-    // For Utreexo trees that don't have leaves that are power of 2,
-    // the extra space is just unallocated/filled with zeros.
+    if n == 0 {
+        return 0;
+    }
 
-    let t = next_pow2(n);
-
-    // log of 2 is the tree depth/height
-    // if n == 0, there will be 64 trailing zeros but actually no tree rows
-    // we clear the 6th bit to return 0 in that case.
-    (t.trailing_zeros() & !64) as u8
+    (u64::BITS - (n - 1).leading_zeros()) as u8
 }
 
 // root_position returns the position of the root at a given row
@@ -295,7 +284,8 @@ pub fn parent_many(pos: u64, rise: u8, forest_rows: u8) -> Result<u64, String> {
     }
     if rise > forest_rows {
         return Err(format!(
-            "Cannot rise more than the forestRows: rise: {} forest_rows: {}", rise, forest_rows
+            "Cannot rise more than the forestRows: rise: {} forest_rows: {}",
+            rise, forest_rows
         ));
     }
     let mask = ((2 << forest_rows) - 1) as u64;
@@ -326,23 +316,6 @@ pub fn is_right_sibling(node: u64, next: u64) -> bool {
     node | 1 == next
 }
 
-// get_roots_reverse gives you the positions of the tree roots, given a number of leaves.
-
-// next_pow2 returns the next power of 2
-// ex: n = 9 will return 16. n = 33 will return 64
-fn next_pow2(n: u64) -> u64 {
-    if n == 0 {
-        return 1;
-    }
-    let mut t = n - 1;
-    t |= t >> 1;
-    t |= t >> 2;
-    t |= t >> 4;
-    t |= t >> 8;
-    t |= t >> 16;
-    t |= t >> 32;
-    t + 1
-}
 /// Returns whether a and b are sibling or not
 fn is_sibling(a: u64, b: u64) -> bool {
     a ^ 1 == b
@@ -461,17 +434,12 @@ mod tests {
     }
 
     #[test]
-    fn pow_tests() {
-        // Check one
-        assert_eq!(super::next_pow2(1), 1);
-
-        // Check 2 through 64
-        for i in 2..64u64 {
-            let x = 1 << i - 1;
-            assert_eq!(super::next_pow2(x), 1 << (i - 1));
-        }
+    fn test_tree_rows() {
+        assert_eq!(super::tree_rows(8), 3);
+        assert_eq!(super::tree_rows(9), 4);
+        assert_eq!(super::tree_rows(12), 4);
+        assert_eq!(super::tree_rows(255), 8);
     }
-
     fn row_offset(row: u8, forest_rows: u8) -> u64 {
         // 2 << forestRows is 2 more than the max position
         // to get the correct offset for a given row,
