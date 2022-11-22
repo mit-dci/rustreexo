@@ -32,7 +32,10 @@ pub fn calc_next_pos(position: u64, del_pos: u64, forest_rows: u8) -> Result<u64
     let pos_row = detect_row(position, forest_rows);
 
     if del_row < pos_row {
-        return Err(format!("calc_next_pos fail: del_pos of {} is at a lower row than position at {}", del_pos, position));
+        return Err(format!(
+            "calc_next_pos fail: del_pos of {} is at a lower row than position at {}",
+            del_pos, position
+        ));
     }
 
     // This is the lower bits where we'll remove the nth bit.
@@ -295,7 +298,8 @@ pub fn parent_many(pos: u64, rise: u8, forest_rows: u8) -> Result<u64, String> {
     }
     if rise > forest_rows {
         return Err(format!(
-            "Cannot rise more than the forestRows: rise: {} forest_rows: {}", rise, forest_rows
+            "Cannot rise more than the forestRows: rise: {} forest_rows: {}",
+            rise, forest_rows
         ));
     }
     let mask = ((2 << forest_rows) - 1) as u64;
@@ -352,6 +356,7 @@ fn is_sibling(a: u64, b: u64) -> bool {
 pub fn get_proof_positions(targets: &Vec<u64>, num_leaves: u64, forest_rows: u8) -> Vec<u64> {
     let mut proof_positions = vec![];
     let mut computed_positions = targets.clone();
+    computed_positions.sort();
 
     for row in 0..=forest_rows {
         let mut row_targets = computed_positions
@@ -387,11 +392,24 @@ pub fn get_proof_positions(targets: &Vec<u64>, num_leaves: u64, forest_rows: u8)
 
 #[cfg(test)]
 mod tests {
+    use super::roots_to_destroy;
+    use crate::accumulator::util::tree_rows;
+    use bitcoin_hashes::sha256;
     use std::{str::FromStr, vec};
 
-    use bitcoin_hashes::sha256;
+    #[test]
+    fn test_proof_pos() {
+        let unsorted = vec![33, 35, 32, 34, 50, 52];
+        let sorted = vec![33, 35, 32, 34, 50, 52];
+        let num_leaves = 32 as u64;
+        let num_rows = tree_rows(num_leaves);
 
-    use super::roots_to_destroy;
+        // Test that un-sorted targets results in the same result as the sorted vec.
+        assert_eq!(
+            super::get_proof_positions(&unsorted, num_leaves, num_rows),
+            super::get_proof_positions(&sorted, num_leaves, num_rows)
+        );
+    }
     #[test]
     fn test_is_sibling() {
         assert_eq!(super::is_sibling(0, 1), true);
