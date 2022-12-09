@@ -325,6 +325,7 @@ fn is_sibling(a: u64, b: u64) -> bool {
 pub fn get_proof_positions(targets: &Vec<u64>, num_leaves: u64, forest_rows: u8) -> Vec<u64> {
     let mut proof_positions = vec![];
     let mut computed_positions = targets.clone();
+    computed_positions.sort();
 
     for row in 0..=forest_rows {
         let mut row_targets = computed_positions
@@ -360,11 +361,24 @@ pub fn get_proof_positions(targets: &Vec<u64>, num_leaves: u64, forest_rows: u8)
 
 #[cfg(test)]
 mod tests {
+    use super::roots_to_destroy;
+    use crate::accumulator::util::tree_rows;
+    use bitcoin_hashes::sha256;
     use std::{str::FromStr, vec};
 
-    use bitcoin_hashes::sha256;
+    #[test]
+    fn test_proof_pos() {
+        let unsorted = vec![33, 35, 32, 34, 50, 52];
+        let sorted = vec![33, 35, 32, 34, 50, 52];
+        let num_leaves = 32 as u64;
+        let num_rows = tree_rows(num_leaves);
 
-    use super::roots_to_destroy;
+        // Test that un-sorted targets results in the same result as the sorted vec.
+        assert_eq!(
+            super::get_proof_positions(&unsorted, num_leaves, num_rows),
+            super::get_proof_positions(&sorted, num_leaves, num_rows)
+        );
+    }
     #[test]
     fn test_is_sibling() {
         assert_eq!(super::is_sibling(0, 1), true);
