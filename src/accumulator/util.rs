@@ -80,6 +80,15 @@ pub fn is_left_niece(position: u64) -> bool {
 pub fn left_sibling(position: u64) -> u64 {
     (position | 1) ^ 1
 }
+
+// We need a non-zero value while calculating roots to destroy, since this function is called
+// very often during block processing, reconstructing this hash every time causes a huge
+// performance impact. Using lazy static makes sure we only instantiate
+// this once (and if needed), and use as a global static variable during the program's lifetime.
+lazy_static::lazy_static!(
+    static ref ONE_AS_HASH: sha256::Hash = sha256::Hash::from_hex("0000000000000000000000000000000000000000000000000000000000000001").unwrap();
+);
+
 // roots_to_destroy returns the empty roots that get written over after num_adds
 // amount of leaves have been added.
 pub fn roots_to_destroy(
@@ -88,7 +97,6 @@ pub fn roots_to_destroy(
     orig_roots: &Vec<sha256::Hash>,
 ) -> Vec<u64> {
     let mut roots = orig_roots.clone();
-
     let mut deleted = vec![];
     let mut h = 0;
     for add in 0..num_adds {
@@ -104,12 +112,7 @@ pub fn roots_to_destroy(
             h += 1;
         }
         // Just adding a non-zero value to the slice.
-        roots.push(
-            sha256::Hash::from_hex(
-                "0000000000000000000000000000000000000000000000000000000000000001",
-            )
-            .unwrap(),
-        );
+        roots.push(*ONE_AS_HASH);
         num_leaves += 1;
     }
 
