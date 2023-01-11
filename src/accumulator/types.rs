@@ -1,5 +1,5 @@
 // Rustreexo
-use bitcoin::hashes::{sha256, Hash};
+use bitcoin_hashes::{sha256, Hash};
 
 extern crate sha2;
 
