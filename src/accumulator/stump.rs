@@ -1,5 +1,5 @@
 use super::{proof::Proof, types, util};
-use bitcoin_hashes::sha256;
+use bitcoin_hashes::{sha256, Hash};
 use std::vec;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -125,7 +125,7 @@ impl Stump {
             return Ok((vec![], self.roots.clone()));
         }
 
-        let del_hashes = vec![sha256::Hash::default(); proof.targets()];
+        let del_hashes = vec![sha256::Hash::all_zeros(); proof.targets()];
         proof.calculate_hashes(&del_hashes, self)
     }
     /// Adds new leafs into the root
@@ -162,7 +162,7 @@ impl Stump {
                 let root = roots.pop();
 
                 if let Some(root) = root {
-                    if root != sha256::Hash::default() {
+                    if root != sha256::Hash::all_zeros() {
                         updated_subtree.push((util::left_sibling(pos), root));
                         updated_subtree.push((pos, to_add));
                         pos = util::parent(pos, after_rows);
