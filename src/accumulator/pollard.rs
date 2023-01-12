@@ -1,6 +1,6 @@
 use super::{
     types::{self, parent_hash},
-    util::{is_left_niece, is_root_position, parent, tree_rows},
+    util::{is_left_niece, is_root_position, tree_rows},
 };
 use bitcoin_hashes::{hex::ToHex, sha256::Hash};
 use std::fmt::Debug;
@@ -17,15 +17,34 @@ pub struct PolNode {
 
 impl Debug for PolNode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "\n{}\n|------\\\n", &self.data[0..2].to_hex())?;
-        let (left_children, right_children) = self.get_children();
+        fn fmt_row(
+            f: &mut std::fmt::Formatter<'_>,
+            row_nodes: Vec<Option<Rc<PolNode>>>,
+            i: u32,
+        ) -> std::fmt::Result {
+            if row_nodes.iter().all(|el| el.is_none()) {
+                return Ok(());
+            }
+            if i > 4 {
+                return Ok(());
+            }
+            let mut next_nodes = vec![];
+            for node in row_nodes {
+                if let Some(node) = node {
+                    write!(f, "{} ", node.data[0..2].to_hex())?;
 
-        if let Some(left_children) = left_children {
-            write!(f, "{}   ", &left_children.data[0..2].to_hex())?;
+                    let (l, r) = node.get_children();
+                    next_nodes.push(l);
+                    next_nodes.push(r);
+                } else {
+                    next_nodes.push(None);
+                    write!(f, "---- ")?;
+                }
+            }
+            write!(f, "\n")?;
+            fmt_row(f, next_nodes, i + 1)
         }
-        if let Some(right_children) = right_children {
-            write!(f, "{}\n", &right_children.data[0..2].to_hex())?;
-        }
+        fmt_row(f, vec![Some(self.clone().as_rc())], 0)?;
         Ok(())
     }
 }
@@ -62,6 +81,7 @@ impl PolNode {
             r_niece.update_aunt(aunt, false);
         }
     }
+    /// Returns whether or not `n` is `aunt's` left niece
     fn is_l_niece(aunt: &Node, n: &Node) -> bool {
         if aunt.get_l_niece().as_ref().eq(&Some(n)) {
             true
@@ -69,14 +89,20 @@ impl PolNode {
             false
         }
     }
+    /// Returns whether or not `n` is `aunt's` right niece
     fn get_children(&self) -> (Option<Node>, Option<Node>) {
         let sibling = self.get_sibling();
         if let Some(sibling) = sibling {
             return (sibling.get_l_niece(), sibling.get_r_niece());
         }
+        // I'm a root, so I point to my children
+        if self.get_aunt().is_none() {
+            return (self.get_l_niece(), self.get_r_niece());
+        }
         // This means I'm a leaf
         (None, None)
     }
+    /// Returns this node's sibling
     fn get_sibling(&self) -> Option<Node> {
         let node = self.get_aunt();
         if let Some(parent) = node {
@@ -89,6 +115,8 @@ impl PolNode {
 
         None
     }
+    /// Returns this node's parent, this is one of the most important methods, because
+    /// most of the data is retrieved from this.
     fn get_parent(&self) -> Option<Node> {
         //I'm a root, so no parent
         if let None = self.get_aunt() {
@@ -125,6 +153,7 @@ impl PolNode {
             }
         }
     }
+    /// Transverses the tree upwards, updating the node's hashes after an deletion
     fn recompute_parent_hash(&self) -> Result<Node, String> {
         if let (Some(l_niece), Some(r_niece)) = (self.get_l_niece(), self.get_r_niece()) {
             let new_parent_hash = parent_hash(&l_niece.data, &r_niece.data);
@@ -141,12 +170,15 @@ impl PolNode {
 
         Ok(self.clone().as_rc())
     }
+    /// Returns this node's aunt as [Node]
     fn get_aunt(&self) -> Option<Node> {
         self.aunt.clone().into_inner()
     }
+    /// Returns this node's l_niece as [Node]
     fn get_l_niece(&self) -> Option<Node> {
         self.l_niece.borrow().clone()
     }
+    /// Returns this node's r_niece as [Node]
     fn get_r_niece(&self) -> Option<Node> {
         self.r_niece.borrow().clone()
     }
@@ -167,6 +199,7 @@ impl PolNode {
 
         node.as_rc()
     }
+    /// Swap this node's aunt with `other`
     fn swap_aunt(&self, other: &Node) {
         self.aunt.swap(&other.aunt);
     }
@@ -175,11 +208,11 @@ impl PolNode {
     fn as_rc(self) -> Node {
         Rc::new(self)
     }
-
+    /// Set this node's aunt
     fn set_aunt(&self, aunt: Option<Node>) {
         self.aunt.replace(aunt);
     }
-
+    /// Set both r_niece and l_niece
     fn set_nieces(&self, l_niece: Option<Node>, r_niece: Option<Node>) {
         self.l_niece.replace(l_niece);
         self.r_niece.replace(r_niece);
@@ -190,10 +223,18 @@ impl PolNode {
         self.r_niece.replace(None);
     }
 }
+/// A Pollard is a collection of trees that may or may not be pruned. We store all roots in
+/// the `roots` field. If we choose not to prune, all nodes will be owned by its ancestor
 #[derive(Clone)]
 pub struct Pollard {
+    /// Leaves are the actual data in the accumulator. Each UTXO will be a leaf, this is how
+    /// many leafs there are this acc. Note that with swappiless deletion, deleting leaves don't change
+    /// this number. So this is more like "How many leaves have we ever added into the acc"
     leaves: u64,
+    /// The actual roots
     roots: Vec<Node>,
+    /// Whether or not we cache non-roots nodes
+    full: bool,
 }
 
 impl Pollard {
@@ -201,6 +242,7 @@ impl Pollard {
         Pollard {
             leaves: 0,
             roots: vec![],
+            full: true,
         }
     }
     pub fn modify(&self, utxos: Vec<Hash>, stxos: Vec<u64>) -> Result<Pollard, String> {
@@ -211,6 +253,7 @@ impl Pollard {
         Ok(Pollard {
             leaves: utxos_after_deletion,
             roots,
+            full: self.full,
         })
     }
 
@@ -231,57 +274,33 @@ impl Pollard {
             return Ok(roots);
         }
         // Grab the node we'll move up
-        // from_node is however is moving up, to node is the position it will be
+        // from_node is whomever is moving up, to node is the position it will be
         // after moved
         let (from_node, _, to_node) = self.grab_node(pos)?;
-        // What is the position of our parent?
-        let parent_pos = parent(pos, tree_rows(self.leaves));
-
         // If the position I'm moving to has an aunt, I'm not becoming a root.
         // ancestor is the node right beneath the to_node, this is useful because
         // either it or it's sibling points to the `to_node`. We need to update this.
-        if let Some(ancestor) = to_node.get_aunt() {
-            if let Some(new_aunt) = ancestor.get_sibling() {
-                // If my new ancestor has a sibling, it means my aunt/parent is not root
-                // and my aunt is pointing to me, *not* my parent.
-                from_node.chop();
-
-                from_node.set_aunt(Some(new_aunt.clone()));
-
-                let new_node = from_node;
-                if is_left_niece(parent_pos) {
-                    new_aunt.l_niece.replace(Some(new_node));
-                } else {
-                    new_aunt.r_niece.replace(Some(new_node));
-                }
-                new_aunt.update_aunt(Some(new_aunt.clone()), true);
-                roots[tree as usize] = new_aunt.recompute_parent_hash()?;
-            } else {
-                // If my ancestor has no sibling, then my new ancestor itself is a root
-                // and roots points to it's own children.
-
-                // If we need to chop down OUR children, we have to taken then from our
-                // sibling.
-                if let Some(sibling) = to_node.get_sibling() {
-                    sibling.chop();
-                }
-
-                from_node.set_aunt(Some(ancestor.clone()));
-                if is_left_niece(parent_pos) {
-                    ancestor.l_niece.replace(Some(from_node));
-                } else {
-                    ancestor.r_niece.replace(Some(from_node));
-                }
-                ancestor.update_aunt(Some(ancestor.clone()), true);
-                roots[tree as usize] = ancestor.recompute_parent_hash()?;
-            }
+        if let Some(new_aunt) = to_node.get_sibling() {
+            // If my new ancestor has a sibling, it means my aunt/parent is not root
+            // and my aunt is pointing to me, *not* my parent.
+            let new_node = PolNode {
+                aunt: to_node.aunt.clone(),
+                data: from_node.data,
+                l_niece: to_node.l_niece.clone(),
+                r_niece: to_node.r_niece.clone(),
+            };
+            new_aunt.chop();
+            to_node.set_self_hash(new_node.as_rc());
         } else {
-            // If it does not have a aunt, then I'm becoming a root
-            from_node.set_aunt(None);
-            let from_node = from_node;
-            roots[tree as usize] = from_node;
+            // This means we are a root's sibling. We are becoming a root now
+            let new_node = PolNode {
+                aunt: to_node.aunt.clone(),
+                data: from_node.data,
+                l_niece: to_node.l_niece.clone(),
+                r_niece: to_node.r_niece.clone(),
+            };
+            roots[tree as usize] = new_node.as_rc();
         }
-
         Ok(roots)
     }
     fn grab_node(&self, pos: u64) -> Result<(Node, Node, Node), String> {
@@ -525,6 +544,8 @@ mod test {
         assert_eq!(roots.len(), 1);
 
         let root = roots[0].clone();
+        println!("{:?}", root);
+
         assert_eq!(root.data, hashes[0]);
     }
     #[test]
@@ -630,34 +651,37 @@ mod test {
         assert_eq!(root, PolNode::default().as_rc());
     }
     #[test]
-    fn test_delete_deeper() {
-        // Assuming this tree, if we delete `01`, 00 will move up to 04's position
-        // 06
-        // |-------\
-        // 04      05
-        // |---\   |---\
-        // 00  01  02  03
+    fn test_delete_non_root() {
+        // Assuming this tree, if we delete `01`, 00 will move up to 08's position
+        // 14
+        // |-----------------\
+        // 12                13
+        // |-------\         |--------\
+        // 08       09       10       11
+        // |----\   |----\   |----\   |----\
+        // 00   01  02   03  04   05  06   07
 
-        // Becoming something like this:
-        // 06
-        // |-------\
-        // 04      05
-        // |---\   |---\
-        // --  --  02  03
-        // Where 04's data is just 00's
+        // 14
+        // |-----------------\
+        // 12                13
+        // |-------\         |--------\
+        // 08       09       10       11
+        // |----\   |----\   |----\   |----\
+        // 00   01  02   03  04   05  06   07
 
-        let values = vec![0, 1, 2, 3];
+        // Where 08's data is just 00's
+
+        let values = vec![0, 1, 2, 3, 4, 5, 6, 7];
         let hashes: Vec<Data> = values.into_iter().map(|val| hash_from_u8(val)).collect();
 
         let p = Pollard::new()
             .modify(hashes.clone(), vec![])
-            .expect("Pollard should not fail");
-        let roots = p.delete_single(1).expect("msg");
-        assert_eq!(roots.len(), 1);
+            .expect("Pollard should not fail")
+            .modify(vec![], vec![1])
+            .expect("Still should not fail");
 
-        let root = roots[0].clone();
-        let expected_pos = root.get_l_niece().expect("04 should still exist");
-
-        assert_eq!(expected_pos.data, hashes[0]);
+        assert_eq!(p.roots.len(), 1);
+        let (_, node, _) = p.grab_node(8).expect("This tree should have pos 8");
+        assert_eq!(node.data, hashes[0]);
     }
 }
