@@ -1,21 +1,10 @@
-use bitcoin_hashes::{hex::ToHex, sha256::Hash};
-use std::{
-    borrow::Borrow,
-    fmt::{write, Debug},
-};
-#[allow(unused)]
-use std::{
-    cell::{Cell, RefCell},
-    mem::{self, swap},
-    rc::{Rc, Weak},
-};
-
-use crate::accumulator::util::detect_row_hashes;
-
 use super::{
     types::{self, parent_hash},
-    util::{detect_row, is_left_niece, is_root_position, next_pow2, num_roots, parent, tree_rows},
+    util::{is_left_niece, is_root_position, parent, tree_rows},
 };
+use bitcoin_hashes::{hex::ToHex, sha256::Hash};
+use std::fmt::Debug;
+use std::{cell::RefCell, rc::Rc};
 type Node = Rc<PolNode>;
 
 #[derive(Clone, PartialEq, Eq, Default)]
@@ -81,26 +70,15 @@ impl PolNode {
         }
     }
     fn get_children(&self) -> (Option<Node>, Option<Node>) {
-        let parent = self.get_parent();
-        if let Some(parent) = parent {
-            // I'm the left children, so my sibling is the right one
-            if parent.get_l_niece().unwrap_or_default().as_ref().eq(self) {
-                if let Some(sibling) = parent.get_r_niece() {
-                    return (sibling.get_l_niece(), sibling.get_r_niece());
-                }
-            } else {
-                if let Some(sibling) = parent.get_l_niece() {
-                    return (sibling.get_l_niece(), sibling.get_r_niece());
-                }
-            }
-        } else {
-            return (self.get_l_niece(), self.get_r_niece());
+        let sibling = self.get_sibling();
+        if let Some(sibling) = sibling {
+            return (sibling.get_l_niece(), sibling.get_r_niece());
         }
-        // This means I'm a root,
+        // This means I'm a leaf
         (None, None)
     }
     fn get_sibling(&self) -> Option<Node> {
-        let node = self.get_parent();
+        let node = self.get_aunt();
         if let Some(parent) = node {
             if parent.get_l_niece().unwrap_or_default().as_ref().eq(self) {
                 return parent.get_r_niece();
@@ -383,7 +361,6 @@ impl Pollard {
             new_node.set_nieces(Some(left_root), Some(node));
             node = new_node;
 
-            // left_root.aunt = new_node.clone();
             num_leaves >>= 1;
         }
 
@@ -392,41 +369,12 @@ impl Pollard {
     }
 }
 
-impl std::fmt::Display for Pollard {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let trees = num_roots(self.leaves);
-        let rows = tree_rows(self.leaves) + 1;
-        let total_nodes = (2 as u64).pow(rows.into()) - 2;
-        let mut pos = total_nodes - 1;
-        for row in (0..=(rows - 1)).rev() {
-            while detect_row(pos, rows - 1) == row {
-                if let Ok((_, node, _)) = self.grab_node(pos.into()) {
-                    write!(f, "{:?}", &node.data[0..2].to_hex())?;
-                } else {
-                    write!(f, "--")?;
-                }
-                if pos == 0 {
-                    break;
-                }
-                pos -= 1;
-            }
-            write!(f, "\n")?;
-        }
-        // for row in (0..=rows).rev() {
-        //     for node in start_node..end_node {
-
-        //     }
-
-        // }
-
-        Ok(())
-    }
-}
+#[cfg(test)]
 mod test {
     use std::str::FromStr;
 
     use super::{PolNode, Pollard};
-    use bitcoin_hashes::{sha256::Hash as Data, sha256t, Hash, HashEngine};
+    use bitcoin_hashes::{sha256::Hash as Data, Hash, HashEngine};
     fn hash_from_u8(value: u8) -> Data {
         let mut engine = Data::engine();
 
@@ -453,9 +401,9 @@ mod test {
             .parse()
             .unwrap();
 
-        let found_target = node.1.clone().data;
-        let found_sibling = node.0.clone().data;
-        let found_parent = node.2.clone().data;
+        let found_target = node.1.data;
+        let found_sibling = node.0.data;
+        let found_parent = node.2.data;
 
         assert_eq!(target, found_target);
         assert_eq!(sibling, found_sibling);
@@ -588,7 +536,7 @@ mod test {
             .modify(hashes.clone(), vec![])
             .expect("Pollard should not fail");
 
-        let (sibling, node, parent) = p.grab_node(8).expect("Node exists");
+        let (sibling, node, _) = p.grab_node(8).expect("Node exists");
         assert_eq!(
             Data::from_str("02242b37d8e851f1e86f46790298c7097df06893d6226b7c1453c213e91717de")
                 .unwrap(),
@@ -607,9 +555,39 @@ mod test {
         let l_child = l_child.unwrap();
         let r_child = r_child.unwrap();
 
-        assert_eq!(hashes[0], r_child.data);
-        assert_eq!(hashes[1], l_child.data);
+        assert_eq!(hashes[1], r_child.data);
+        assert_eq!(hashes[0], l_child.data);
     }
+    #[test]
+    fn test_get_sibling() {
+        let values = vec![0, 1, 2, 3, 4, 5, 6, 7];
+        let hashes: Vec<Data> = values.into_iter().map(|val| hash_from_u8(val)).collect();
+
+        let p = Pollard::new()
+            .modify(hashes.clone(), vec![])
+            .expect("Pollard should not fail");
+
+        let (sibling, node, _) = p.grab_node(8).expect("Node exists");
+        assert_eq!(
+            Data::from_str("02242b37d8e851f1e86f46790298c7097df06893d6226b7c1453c213e91717de")
+                .unwrap(),
+            node.data
+        );
+
+        assert_eq!(
+            Data::from_str("9576f4ade6e9bc3a6458b506ce3e4e890df29cb14cb5d3d887672aef55647a2b")
+                .unwrap(),
+            sibling.data
+        );
+        let sibling = node.get_sibling();
+        assert_eq!(
+            Data::from_str("9576f4ade6e9bc3a6458b506ce3e4e890df29cb14cb5d3d887672aef55647a2b")
+                .unwrap(),
+            sibling.unwrap().data
+        );
+        // assert_eq!(sibling.unwrap().data.to_string(), String::from(""))
+    }
+    #[test]
     fn test_get_parent() {
         let values = vec![0, 1, 2, 3, 4, 5, 6, 7];
         let hashes: Vec<Data> = values.into_iter().map(|val| hash_from_u8(val)).collect();
@@ -618,11 +596,16 @@ mod test {
             .modify(hashes.clone(), vec![])
             .expect("Pollard should not fail");
 
-        let (sibling, node, parent) = p.grab_node(8).expect("Node exists");
+        let (_, node, _) = p.grab_node(8).expect("Node exists");
         assert_eq!(
             Data::from_str("02242b37d8e851f1e86f46790298c7097df06893d6226b7c1453c213e91717de")
                 .unwrap(),
             node.data
+        );
+        let parent = node.get_parent();
+        assert_eq!(
+            parent.unwrap().data.to_string(),
+            String::from("df46b17be5f66f0750a4b3efa26d4679db170a72d41eb56c3e4ff75a58c65386")
         );
     }
     #[test]
