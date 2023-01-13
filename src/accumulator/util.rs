@@ -2,7 +2,7 @@
 
 use std::vec::Vec;
 
-use bitcoin_hashes::{hex::FromHex, sha256};
+use bitcoin_hashes::{hex::FromHex, sha256, Hash};
 // isRootPosition checks if the current position is a root given the number of
 // leaves and the entire rows of the forest.
 pub fn is_root_position(position: u64, num_leaves: u64, forest_rows: u8) -> bool {
@@ -96,7 +96,7 @@ pub fn roots_to_destroy(
             let root = roots
                 .pop()
                 .expect("If (num_leaves >> h) & 1 == 1, it must have at least one root left");
-            if root == sha256::Hash::default() {
+            if root == sha256::Hash::all_zeros() {
                 let root_pos =
                     root_position(num_leaves, h, tree_rows(num_leaves + (num_adds - add)));
                 deleted.push(root_pos);
