@@ -68,7 +68,14 @@ pub fn detwin(nodes: Vec<u64>, forest_rows: u8) -> Vec<u64> {
 
     dels_after
 }
-
+// start_position_at_row returns the smallest position an accumulator can have for the
+// requested row for the given numLeaves.
+pub fn start_position_at_row(row: u8, forest_rows: u8) -> u64 {
+    // 2 << forest_rows is 2 more than the max position
+    // to get the correct offset for a given row,
+    // subtract (2 << `row complement of forest_rows`) from (2 << forest_rows)
+    (2 << forest_rows) - (2 << (forest_rows - row)) as u64
+}
 fn add_and_sort(mut vec: Vec<u64>, value: u64) -> Vec<u64> {
     vec.push(value);
     vec.sort();

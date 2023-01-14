@@ -1,3 +1,4 @@
+use super::stump::UpdateData;
 use crate::accumulator::{stump::Stump, types, util};
 use bitcoin_hashes::{sha256, Hash};
 
@@ -241,6 +242,152 @@ impl Proof {
 
         Ok((nodes, calculated_root_hashes))
     }
+    /// Uses the data passed in to update a proof, creating a valid proof for a given
+    /// set of targets, after an update. This is useful for caching UTXOs. You grab a proof
+    /// for it once and then keep updating it every block, yielding an always valid proof
+    /// over those UTXOs.
+    pub fn update(
+        self,
+        cached_hashes: Vec<sha256::Hash>,
+        block_targets: Vec<u64>,
+        update_data: UpdateData,
+    ) -> Result<(Proof, Vec<sha256::Hash>), String> {
+        self.update_proof_remove(
+            block_targets,
+            cached_hashes.clone(),
+            update_data.new_del,
+            update_data.prev_num_leaves,
+        )
+    }
+
+    /// update_proof_remove modifies the cached proof with the deletions that happen in the block proof.
+    /// It updates the necessary proof hashes and un-caches the targets that are being deleted.
+    fn update_proof_remove(
+        self,
+        block_targets: Vec<u64>,
+        cached_hashes: Vec<sha256::Hash>,
+        updated: Vec<(u64, sha256::Hash)>,
+        num_leaves: u64,
+    ) -> Result<(Proof, Vec<sha256::Hash>), String> {
+        let total_rows = util::tree_rows(num_leaves);
+
+        let targets_with_hash: Vec<(u64, bitcoin_hashes::sha256::Hash)> = self
+            .targets
+            .clone()
+            .into_iter()
+            .zip(cached_hashes.clone().into_iter())
+            .filter(|(pos, _)| !block_targets.contains(pos))
+            .collect();
+
+        let (targets, _): (Vec<_>, Vec<_>) = targets_with_hash.to_owned().into_iter().unzip();
+        let proof_positions =
+            util::get_proof_positions(&self.targets, num_leaves, util::tree_rows(num_leaves));
+
+        let old_proof: Vec<_> = proof_positions.iter().zip(self.hashes.iter()).collect();
+
+        let mut new_proof = vec![];
+        // Grab all the positions of the needed proof hashes.
+        let needed_pos = util::get_proof_positions(&targets, num_leaves, total_rows);
+
+        let old_proof_iter = old_proof.iter();
+        // Loop through old_proofs and only add the needed proof hashes.
+        for (pos, hash) in old_proof_iter {
+            // Some positions might not be useful anymore, due to deleted targets
+            if needed_pos.contains(*pos) {
+                // Grab all positions from the old proof, if it changed, then takes the new
+                // hash from `updated`
+                if let Some((_, updated_hash)) =
+                    updated.iter().find(|(updated_pos, _)| *pos == updated_pos)
+                {
+                    if *updated_hash != sha256::Hash::all_zeros() {
+                        new_proof.push((**pos, *updated_hash));
+                    }
+                } else {
+                    // If it didn't change, take the value from the old proof
+                    if **hash != sha256::Hash::all_zeros() {
+                        new_proof.push((**pos, **hash));
+                    }
+                }
+            }
+        }
+
+        let missing_positions = needed_pos
+            .into_iter()
+            .filter(|pos| !proof_positions.contains(pos) && !block_targets.contains(pos));
+
+        for missing in missing_positions {
+            if let Some((_, hash)) = updated
+                .iter()
+                .find(|(updated_pos, _)| missing == *updated_pos)
+            {
+                if *hash != sha256::Hash::all_zeros() {
+                    new_proof.push((missing, *hash));
+                }
+            }
+        }
+
+        // We need to remap all proof hashes and sort then, otherwise our hash will be wrong.
+        // This happens because deletion moves nodes upwards, some of this nodes may be a proof
+        // element. If so we move it to its new position. After that the vector is probably unsorted, so we sort it.
+
+        let mut proof_elements: Vec<_> =
+            Proof::calc_next_positions(&block_targets, &new_proof, num_leaves, true)?;
+
+        proof_elements.sort();
+        // Grab the hashes for the proof
+        let (_, hashes): (Vec<u64>, Vec<sha256::Hash>) = proof_elements.into_iter().unzip();
+        // Gets all proof targets, but with their new positions after delete
+        let (targets, target_hashes) =
+            Proof::calc_next_positions(&block_targets, &targets_with_hash, num_leaves, true)?
+                .into_iter()
+                .unzip();
+
+        Ok((Proof { hashes, targets }, target_hashes))
+    }
+
+    fn calc_next_positions(
+        block_targets: &Vec<u64>,
+        old_positions: &Vec<(u64, sha256::Hash)>,
+        num_leaves: u64,
+        append_roots: bool,
+    ) -> Result<Vec<(u64, sha256::Hash)>, String> {
+        let total_rows = util::tree_rows(num_leaves);
+        let mut new_positions = vec![];
+
+        let block_targets = util::detwin(block_targets.to_owned(), total_rows);
+
+        for (position, hash) in old_positions {
+            if *hash == sha256::Hash::all_zeros() {
+                continue;
+            }
+            let mut next_pos = *position;
+            for target in block_targets.iter() {
+                if util::is_root_position(next_pos, num_leaves, total_rows) {
+                    break;
+                }
+                // If these positions are in different subtrees, continue.
+                let (sub_tree, _, _) = util::detect_offset(*target, num_leaves);
+                let (sub_tree1, _, _) = util::detect_offset(next_pos, num_leaves);
+                if sub_tree != sub_tree1 {
+                    continue;
+                }
+
+                if util::is_ancestor(util::parent(*target, total_rows), next_pos, total_rows)? {
+                    next_pos = util::calc_next_pos(next_pos, *target, total_rows)?;
+                }
+            }
+
+            if append_roots {
+                new_positions.push((next_pos, *hash));
+            } else {
+                if !util::is_root_position(next_pos, num_leaves, total_rows) {
+                    new_positions.push((next_pos, *hash));
+                }
+            }
+        }
+        new_positions.sort();
+        Ok(new_positions)
+    }
 
     fn sorted_push(
         nodes: &mut Vec<(u64, bitcoin_hashes::sha256::Hash)>,
@@ -268,6 +415,156 @@ mod tests {
         target_preimages: Vec<u8>,
         proofhashes: Vec<String>,
         expected: bool,
+    }
+
+    #[test]
+    fn test_calc_next_positions() {
+        use super::Proof;
+
+        #[derive(Clone)]
+        struct Test {
+            name: &'static str,
+            block_targets: Vec<u64>,
+            old_positions: Vec<(u64, sha256::Hash)>,
+            num_leaves: u64,
+            num_adds: u64,
+            append_roots: bool,
+            expected: Vec<(u64, sha256::Hash)>,
+        }
+
+        let tests = vec![Test {
+            name: "One empty root deleted",
+            block_targets: vec![26],
+            old_positions: vec![
+                (
+                    1,
+                    bitcoin_hashes::sha256::Hash::from_str(
+                        "4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a",
+                    )
+                    .unwrap(),
+                ),
+                (
+                    13,
+                    bitcoin_hashes::sha256::Hash::from_str(
+                        "9d1e0e2d9459d06523ad13e28a4093c2316baafe7aec5b25f30eba2e113599c4",
+                    )
+                    .unwrap(),
+                ),
+                (
+                    17,
+                    bitcoin_hashes::sha256::Hash::from_str(
+                        "9576f4ade6e9bc3a6458b506ce3e4e890df29cb14cb5d3d887672aef55647a2b",
+                    )
+                    .unwrap(),
+                ),
+                (
+                    25,
+                    bitcoin_hashes::sha256::Hash::from_str(
+                        "29590a14c1b09384b94a2c0e94bf821ca75b62eacebc47893397ca88e3bbcbd7",
+                    )
+                    .unwrap(),
+                ),
+            ],
+            num_leaves: 14,
+            num_adds: 2,
+            append_roots: false,
+            expected: (vec![
+                (
+                    1,
+                    bitcoin_hashes::sha256::Hash::from_str(
+                        "4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a",
+                    )
+                    .unwrap(),
+                ),
+                (
+                    17,
+                    bitcoin_hashes::sha256::Hash::from_str(
+                        "9576f4ade6e9bc3a6458b506ce3e4e890df29cb14cb5d3d887672aef55647a2b",
+                    )
+                    .unwrap(),
+                ),
+                (
+                    21,
+                    bitcoin_hashes::sha256::Hash::from_str(
+                        "9d1e0e2d9459d06523ad13e28a4093c2316baafe7aec5b25f30eba2e113599c4",
+                    )
+                    .unwrap(),
+                ),
+                (
+                    25,
+                    bitcoin_hashes::sha256::Hash::from_str(
+                        "29590a14c1b09384b94a2c0e94bf821ca75b62eacebc47893397ca88e3bbcbd7",
+                    )
+                    .unwrap(),
+                ),
+            ]),
+        }];
+
+        for test in tests {
+            let res = Proof::calc_next_positions(
+                &test.block_targets,
+                &test.old_positions,
+                test.num_leaves + test.num_adds,
+                test.append_roots,
+            )
+            .unwrap();
+
+            assert_eq!(res, test.expected, "testcase: \"{}\" fail", test.name);
+        }
+    }
+    #[test]
+    fn test_update_proof_delete() {
+        let preimages = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+        let hashes = preimages
+            .into_iter()
+            .map(|preimage| hash_from_u8(preimage))
+            .collect();
+        let (stump, _) = Stump::new()
+            .modify(&hashes, &vec![], &Proof::default())
+            .unwrap();
+
+        let proof_hashes = vec![
+            "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+            "084fed08b978af4d7d196a7446a86b58009e636b611db16211b65a9aadff29c5",
+            "ca358758f6d27e6cf45272937977a748fd88391db679ceda7dc7bf1f005ee879",
+            "9eec588c41d87b16b0ee226cb38da3864f9537632321d8be855a73d5616dcc73",
+        ];
+        let proof_hashes = proof_hashes
+            .into_iter()
+            .map(|hash| sha256::Hash::from_str(hash).unwrap())
+            .collect();
+
+        let cached_proof_hashes = [
+            "67586e98fad27da0b9968bc039a1ef34c939b9b8e523a8bef89d478608c5ecf6",
+            "9576f4ade6e9bc3a6458b506ce3e4e890df29cb14cb5d3d887672aef55647a2b",
+            "9eec588c41d87b16b0ee226cb38da3864f9537632321d8be855a73d5616dcc73",
+        ];
+        let cached_proof_hashes = cached_proof_hashes
+            .iter()
+            .map(|hash| sha256::Hash::from_str(hash).unwrap())
+            .collect();
+        let cached_proof = Proof::new(vec![0, 1, 7], cached_proof_hashes);
+
+        let proof = Proof::new(vec![1, 2, 6], proof_hashes);
+
+        let (stump, modified) = stump
+            .modify(
+                &vec![],
+                &vec![hash_from_u8(1), hash_from_u8(2), hash_from_u8(6)],
+                &proof,
+            )
+            .unwrap();
+        let (new_proof, _) = cached_proof
+            .update_proof_remove(
+                vec![1, 2, 6],
+                vec![hash_from_u8(0), hash_from_u8(1), hash_from_u8(7)],
+                modified.new_del,
+                10,
+            )
+            .unwrap();
+
+        let res = new_proof.verify(&vec![hash_from_u8(0), hash_from_u8(7)], &stump);
+        assert_eq!(res, Ok(true));
     }
     fn hash_from_u8(value: u8) -> bitcoin_hashes::sha256::Hash {
         let mut engine = bitcoin_hashes::sha256::Hash::engine();
@@ -390,7 +687,6 @@ mod tests {
         let res = p.verify(&del_hashes, &s);
         assert!(Ok(expected) == res);
     }
-
     #[test]
     fn test_proof_verify() {
         let contents = std::fs::read_to_string("test_values/test_cases.json")
