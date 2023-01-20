@@ -1,3 +1,50 @@
+//! This is the Rust implementation of the Pollard data structure, the algorithms are similar
+//! to the go counterpart, but it's not a 1-to-1 re-implementation. A tight copy of the Go lib
+//! is almost impossible in safe Rust, because it relies on passing pointers around.
+//!
+//! In a Pollard, nodes points to its niece instead of children. This helps with proving and
+//! some updates, but creates some challenges when dealing with Rust. Furthermore, nodes also
+//! points to its aunt, creating a link that is hard to express in safe Rust using basic
+//! static borrow check and lifetime annotation.
+//! During development of this struct, something much simpler like this code bellow have been tried,
+//! but 'ancestor usually binds to the same lifetime as the whole tree, making it impossible to
+//! hold a node and a `mut ref` to another one, or the tree itself (usually a vector of roots). We
+//! need to mutate internally, and we need to mutate internal node data, like data, aunt and nieces
+//! because nodes change their position as the tree get things added and deleted. If you try to
+//! introduce more specifiers, you end up with a infinite recursion where you have to specify
+//! all lifetimes to descendant and ancestor nodes; impossible to do.
+//! ```
+//! use bitcoin_hashes::sha256::Hash;
+//! use std::boxed::Box;
+//! struct PolNode<'ancestor> {
+//!     data: Hash,
+//!     aunt: &'ancestor PolNode<'ancestor>,
+//!     l_niece: Box<PolNode<'ancestor>>,
+//!     r_niece: Box<PolNode<'ancestor>>,
+//! }
+//! ```
+//! Note: This [Box] is required because at declaration time, [PolNode] is an incomplete type
+//! with no known compilation-time size (i.e !sized), hence, we can't use it as a concrete type.
+//! Boxes are complete types, so we place a Box inside [PolNode] and somehow get a new [PolNode]
+//! to put in there.
+//!
+//! The solution is to use [RefCell], a pointer-ish struct that holds a memory location with
+//! dynamic borrow checking. Everything the borrow checker do on compilation time, [RefCell] do
+//! at runtime. A bit of performance loss, but not that bad. With [RefCell] we can deal with
+//! immutable references almost everywhere, and simplify things a lot. We also put a [PolNode] inside
+//! a [Rc], so we can keep references to it easily, and even manipulate nodes by their own
+//! without risking creating two different trees - If we just clone a node (node a [Rc] of a node)
+//! we'll also clone all nodes bellow, creating two identical trees. Every change to this new
+//! tree wouldn't reflect on the original one.
+//!
+//! Even though [RefCell] is considered safe code, it might panic in situations that the
+//! borrow checker issues a compile-time error. For that reason, we should be careful when
+//! using it. ** It is prohibited to get a mut ref (&mut) to a node inside any tree **, this
+//! makes sure we don't run on a conflict of trying mutable borrow a node that is already
+//! borrowed. We also avoid immutable refs (&), to the same reason. For all cases of interior
+//! mutability, there is a simple specialized function to do the job, and the API gives you
+//! a [Rc] over a node, not the [RefCell], so avoid using the [RefCell] directly.
+
 use super::{
     types::{self, parent_hash},
     util::{is_left_niece, is_root_position, tree_rows},
@@ -6,7 +53,13 @@ use bitcoin_hashes::{hex::ToHex, sha256::Hash};
 use std::fmt::Debug;
 use std::{cell::RefCell, rc::Rc};
 
+/// Type alias used throughout this lib, see the crate-level doc to understand why using [Rc]
 type Node = Rc<PolNode>;
+
+/// A PolNode is any node inside a tree, it can be a root, in which case aunt would be [None].
+/// A internal node, where all fields are filled, or a leaf, that has no child/niece.
+/// Mutable references are discouraged, for mutating a [PolNode], use the appropriated
+/// methods.
 #[derive(Clone, PartialEq, Eq, Default)]
 pub struct PolNode {
     data: Hash,
@@ -15,6 +68,7 @@ pub struct PolNode {
     r_niece: RefCell<Option<Node>>,
 }
 
+//FIX-ME: Make this Debug more pleasant, like the Go one
 impl Debug for PolNode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         fn fmt_row(
@@ -50,6 +104,10 @@ impl Debug for PolNode {
 }
 
 impl PolNode {
+    /// Creates a new [PolNode] with provided data. For an empty node see [Default].
+    /// If this node is a root, there's no aunt. If it's a leaf, then nieces is [None]. Finally
+    /// if node is a root child, [l_niece] and [r_niece] are actually r_child and l_child (and
+    /// aunt is actually parent).
     fn new(
         data: Hash,
         aunt: Option<Node>,
@@ -63,9 +121,11 @@ impl PolNode {
             r_niece: RefCell::new(r_niece),
         }
     }
+    /// Returns the node's data, i.e the stored hash
     pub fn get_data(&self) -> Hash {
         self.data
     }
+    /// Updates this node's aunt
     fn update_aunt(&self, aunt: Option<Node>, root: bool) {
         let aunt = if root {
             self.set_aunt(None);
@@ -292,6 +352,7 @@ impl Pollard {
             full: self.full,
         })
     }
+    /// Returns a reference to this acc roots
     pub fn get_roots(&self) -> &Vec<Node> {
         &self.roots
     }
