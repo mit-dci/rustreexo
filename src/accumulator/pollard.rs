@@ -2,7 +2,7 @@ use super::{
     types::{self, parent_hash},
     util::{is_left_niece, is_root_position, tree_rows},
 };
-use bitcoin_hashes::{hex::ToHex, sha256::Hash};
+use bitcoin_hashes::{hex::ToHex, sha256::{Hash, self}};
 use std::fmt::Debug;
 use std::{cell::RefCell, rc::Rc};
 type Node = Rc<PolNode>;
@@ -62,6 +62,9 @@ impl PolNode {
             l_niece: RefCell::new(l_niece),
             r_niece: RefCell::new(r_niece),
         }
+    }
+    pub fn get_data(&self) -> Hash {
+        self.data
     }
     fn update_aunt(&self, aunt: Option<Node>, root: bool) {
         let aunt = if root {
@@ -245,6 +248,35 @@ impl Pollard {
             full: true,
         }
     }
+    /// Modify is the main API to a [Pollard]. Because order matters, you can only `modify`
+    /// a [Pollard], and internally it'll add and delete, in the correct order.
+    ///
+    /// Modify takes ownership over the [Pollard] and returns a new one. This is to avoid API
+    /// misuse, since modify is a **pure function**, it doesn't change any of it's arguments
+    /// and return a brand new [Pollard]. Taking ownership discourage people to use an old [Pollard]
+    /// state instead of using the new one.
+    ///
+    /// This method accepts two vectors as parameter, a vec of [Hash] and a vec of [u64]. The
+    /// first one is a vec of leaf hashes for the newly created UTXOs. The second one is the position
+    /// for the UTXOs being spent in this block as inputs.
+    ///
+    /// # Example
+    /// ```
+    /// use rustreexo::accumulator::pollard::Pollard;
+    /// use bitcoin_hashes::{sha256::Hash as Data, Hash, HashEngine};
+    /// let values = vec![0, 1, 2, 3, 4, 5, 6, 7];
+    /// let hashes = values.into_iter().map(|val|{
+    ///     let mut engine = Data::engine();
+    ///     engine.input(&[val]);
+    ///     Data::from_engine(engine)
+    /// })
+    /// .collect();
+    /// // Add 8 leaves to the pollard
+    /// let p = Pollard::new()
+    ///        .modify(hashes, vec![])
+    ///        .expect("Pollard should not fail");
+    /// assert_eq!(p.get_roots()[0].get_data().to_string(), String::from("b151a956139bb821d4effa34ea95c17560e0135d1e4661fc23cedc3af49dac42"));
+    /// ```
     pub fn modify(&self, utxos: Vec<Hash>, stxos: Vec<u64>) -> Result<Pollard, String> {
         let utxos_after_deletion = self.leaves + utxos.len() as u64;
         let roots = self.delete(stxos)?;
@@ -256,7 +288,9 @@ impl Pollard {
             full: self.full,
         })
     }
-
+    pub fn get_roots(&self)-> &Vec<Node> {
+        &self.roots
+    }
     /// Deletes a single node from a Pollard. The algorithm works as follows:
     /// Grab a node, it's sibling and it's parent.
     /// (i) if I'm deleting the node, but not it's sibling, then the sibling takes the parent's position
