@@ -2,11 +2,11 @@ use super::{
     types::{self, parent_hash},
     util::{is_left_niece, is_root_position, tree_rows},
 };
-use bitcoin_hashes::{hex::ToHex, sha256::{Hash, self}};
+use bitcoin_hashes::{hex::ToHex, sha256::Hash};
 use std::fmt::Debug;
 use std::{cell::RefCell, rc::Rc};
-type Node = Rc<PolNode>;
 
+type Node = Rc<PolNode>;
 #[derive(Clone, PartialEq, Eq, Default)]
 pub struct PolNode {
     data: Hash,
@@ -158,14 +158,18 @@ impl PolNode {
     }
     /// Transverses the tree upwards, updating the node's hashes after an deletion
     fn recompute_parent_hash(&self) -> Result<Node, String> {
-        if let (Some(l_niece), Some(r_niece)) = (self.get_l_niece(), self.get_r_niece()) {
+        if let (Some(l_niece), Some(r_niece)) = self.get_children() {
             let new_parent_hash = parent_hash(&l_niece.data, &r_niece.data);
-            let aunt = self.get_aunt();
-            let new_node =
-                PolNode::new(new_parent_hash, aunt.clone(), Some(l_niece), Some(r_niece));
-            if let Some(aunt) = aunt {
+            let parent = self.get_parent();
+            let new_node = PolNode::new(
+                new_parent_hash,
+                parent.clone(),
+                self.get_l_niece(),
+                self.get_r_niece(),
+            );
+            if let Some(parent) = parent {
                 self.set_self_hash(new_node.as_rc());
-                return aunt.recompute_parent_hash();
+                return parent.recompute_parent_hash();
             } else {
                 return Ok(new_node.as_rc());
             }
@@ -288,7 +292,7 @@ impl Pollard {
             full: self.full,
         })
     }
-    pub fn get_roots(&self)-> &Vec<Node> {
+    pub fn get_roots(&self) -> &Vec<Node> {
         &self.roots
     }
     /// Deletes a single node from a Pollard. The algorithm works as follows:
@@ -427,7 +431,11 @@ mod test {
     use std::str::FromStr;
 
     use super::{PolNode, Pollard};
-    use bitcoin_hashes::{sha256::Hash as Data, Hash, HashEngine};
+    use bitcoin_hashes::{
+        hex::{FromHex, ToHex},
+        sha256::{self, Hash as Data},
+        Hash, HashEngine,
+    };
     fn hash_from_u8(value: u8) -> Data {
         let mut engine = Data::engine();
 
@@ -471,14 +479,27 @@ mod test {
             .modify(hashes, vec![])
             .expect("Pollard should not fail");
         let node = p.grab_node(0);
-        if let Ok((_, _, parent)) = node {
-            parent
-                .get_l_niece()
-                .unwrap()
-                .set_self_hash(PolNode::default().as_rc());
-
+        if let Ok((node, _, parent)) = node {
+            node.set_self_hash(
+                PolNode::new(
+                    sha256::Hash::from_hex(
+                        "0100000000000000000000000000000000000000000000000000000000000000",
+                    )
+                    .unwrap(),
+                    node.get_aunt(),
+                    node.get_l_niece(),
+                    node.get_r_niece(),
+                )
+                .as_rc(),
+            );
             let res = parent.recompute_parent_hash();
-            println!("{:?}", res);
+
+            assert_eq!(
+                res.unwrap().get_data().to_hex(),
+                String::from("a3fab668c6917a4979627f04dd0be687ceb5601aaf161664747ddb1399b1a4fb")
+            )
+        } else {
+            unreachable!()
         }
     }
     #[test]
@@ -524,17 +545,11 @@ mod test {
             .expect("Pollard should not fail");
         let p = p.modify(vec![], vec![0]).expect("msg");
 
-        let root = p.roots[0].clone();
-        let l_niece = root.get_l_niece();
-        let r_niece = root.get_r_niece();
-        let aunt = l_niece.clone().unwrap().get_aunt();
-
-        if let (Some(l_niece), Some(r_niece), Some(aunt)) = (l_niece, r_niece, aunt) {
-            println!(
-                "root: {:?}\n l_niece {:?}\n r_niece: {:?}\n aunt: {:?}",
-                root, l_niece, r_niece, aunt
-            );
-        }
+        let (_, node, _) = p.grab_node(8).unwrap();
+        assert_eq!(
+            String::from("4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a"),
+            node.get_data().to_string()
+        );
     }
     #[test]
     fn test_add() {
@@ -578,8 +593,6 @@ mod test {
         assert_eq!(roots.len(), 1);
 
         let root = roots[0].clone();
-        println!("{:?}", root);
-
         assert_eq!(root.data, hashes[0]);
     }
     #[test]
