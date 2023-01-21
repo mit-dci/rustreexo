@@ -47,7 +47,7 @@
 
 use super::{
     types::{self, parent_hash},
-    util::{is_left_niece, is_root_position, tree_rows},
+    util::{self, is_left_niece, is_root_position, tree_rows},
 };
 use bitcoin_hashes::{hex::ToHex, sha256::Hash};
 use std::fmt::Debug;
@@ -182,7 +182,7 @@ impl PolNode {
     /// most of the data is retrieved from this.
     fn get_parent(&self) -> Option<Node> {
         //I'm a root, so no parent
-        if let None = self.get_aunt() {
+        if self.get_aunt().is_none() {
             return None;
         }
 
@@ -207,35 +207,42 @@ impl PolNode {
     /// This method is a little evolved, it takes an [Rc] to our aunt, then finds out
     /// whether we are left or right nieces. With that info, we replace the corresponding
     /// aunt's niece with our new self.
-    fn set_self_hash(&self, new: Node) {
+    fn set_self_hash(&self, new: Node) -> Result<(), String> {
         if let Some(aunt) = self.get_aunt() {
+            println!("{aunt:?}");
             if *aunt.get_l_niece().unwrap_or_default() == *self {
                 aunt.l_niece.replace(Some(new));
             } else {
                 aunt.r_niece.replace(Some(new));
             }
+            return Ok(());
         }
+        Err("Node doesn't have an aunt".into())
     }
     /// Transverses the tree upwards, updating the node's hashes after an deletion
-    fn recompute_parent_hash(&self) -> Result<Node, String> {
+    fn recompute_parent_hash(&self) -> Node {
         if let (Some(l_niece), Some(r_niece)) = self.get_children() {
             let new_parent_hash = parent_hash(&l_niece.data, &r_niece.data);
             let parent = self.get_parent();
+
             let new_node = PolNode::new(
                 new_parent_hash,
-                parent.clone(),
+                self.get_aunt(),
                 self.get_l_niece(),
                 self.get_r_niece(),
             );
+
             if let Some(parent) = parent {
-                self.set_self_hash(new_node.as_rc());
+                self.set_self_hash(new_node.as_rc()).expect("msg");
                 return parent.recompute_parent_hash();
             } else {
-                return Ok(new_node.as_rc());
+                return new_node.as_rc();
             }
         }
-
-        Ok(self.clone().as_rc())
+        if let Some(parent) = self.get_parent() {
+            return parent.recompute_parent_hash();
+        }
+        unreachable!();
     }
     /// Returns this node's aunt as [Node]
     fn get_aunt(&self) -> Option<Node> {
@@ -341,15 +348,17 @@ impl Pollard {
     ///        .expect("Pollard should not fail");
     /// assert_eq!(p.get_roots()[0].get_data().to_string(), String::from("b151a956139bb821d4effa34ea95c17560e0135d1e4661fc23cedc3af49dac42"));
     /// ```
-    pub fn modify(&self, utxos: Vec<Hash>, stxos: Vec<u64>) -> Result<Pollard, String> {
+    pub fn modify(self, utxos: Vec<Hash>, stxos: Vec<u64>) -> Result<Pollard, String> {
         let utxos_after_deletion = self.leaves + utxos.len() as u64;
+        let full = self.full;
+        let leaves = self.leaves;
         let roots = self.delete(stxos)?;
-        let roots = Pollard::add(roots, utxos, self.leaves);
+        let roots = Pollard::add(roots, utxos, leaves);
 
         Ok(Pollard {
             leaves: utxos_after_deletion,
             roots,
-            full: self.full,
+            full,
         })
     }
     /// Returns a reference to this acc roots
@@ -362,15 +371,14 @@ impl Pollard {
     /// (ii) if both are being deleted, then the parent is also deleted
     /// (iii) if my parent is a root, then the node's sibling becomes a root
     /// (iv) if I'm a root myself, then this root becomes an empty root (PolNode::Default).
-    fn delete_single(&self, pos: u64) -> Result<Vec<Node>, String> {
-        let mut roots = self.roots.clone();
+    fn delete_single(&mut self, pos: u64) -> Result<(), String> {
         // In what subtree we are?
         let (tree, _, _) = super::util::detect_offset(pos, self.leaves);
 
         // If deleting a root, we just place a default node in it's place
         if is_root_position(pos, self.leaves, tree_rows(self.leaves)) {
-            roots[tree as usize] = PolNode::default().as_rc();
-            return Ok(roots);
+            self.roots[tree as usize] = PolNode::default().as_rc();
+            return Ok(());
         }
         // Grab the node we'll move up
         // from_node is whomever is moving up, to node is the position it will be
@@ -379,7 +387,7 @@ impl Pollard {
         // If the position I'm moving to has an aunt, I'm not becoming a root.
         // ancestor is the node right beneath the to_node, this is useful because
         // either it or it's sibling points to the `to_node`. We need to update this.
-        if let Some(new_aunt) = to_node.get_sibling() {
+        if let Some(sibling) = to_node.get_sibling() {
             // If my new ancestor has a sibling, it means my aunt/parent is not root
             // and my aunt is pointing to me, *not* my parent.
             let new_node = PolNode {
@@ -388,8 +396,11 @@ impl Pollard {
                 l_niece: to_node.l_niece.clone(),
                 r_niece: to_node.r_niece.clone(),
             };
-            new_aunt.chop();
-            to_node.set_self_hash(new_node.as_rc());
+            sibling.chop();
+            println!("=============");
+            to_node.set_self_hash(new_node.as_rc())?;
+            println!("=============");
+            self.roots[tree as usize] = to_node.recompute_parent_hash();
         } else {
             // This means we are a root's sibling. We are becoming a root now
             let new_node = PolNode {
@@ -398,9 +409,9 @@ impl Pollard {
                 l_niece: to_node.l_niece.clone(),
                 r_niece: to_node.r_niece.clone(),
             };
-            roots[tree as usize] = new_node.as_rc();
+            self.roots[tree as usize] = new_node.as_rc();
         }
-        Ok(roots)
+        Ok(())
     }
     fn grab_node(&self, pos: u64) -> Result<(Node, Node, Node), String> {
         let (tree, branch_len, bits) = super::util::detect_offset(pos, self.leaves);
@@ -430,7 +441,7 @@ impl Pollard {
         if let (Some(node), Some(sibling), Some(parent)) = (n, sibling, parent) {
             return Ok((node, sibling, parent));
         }
-        Err("node not found".to_string())
+        Err(format!("node {pos} not found"))
     }
     fn add(mut roots: Vec<Node>, utxos: Vec<Hash>, mut num_leaves: u64) -> Vec<Node> {
         for utxo in utxos {
@@ -440,13 +451,13 @@ impl Pollard {
 
         roots
     }
-    fn delete(&self, stxos: Vec<u64>) -> Result<Vec<Node>, String> {
-        let mut roots = vec![];
+    fn delete(mut self, stxos: Vec<u64>) -> Result<Vec<Node>, String> {
+        let stxos = util::detwin(stxos, util::tree_rows(self.leaves));
         for stxo in stxos {
-            roots = self.delete_single(stxo)?;
+            self.delete_single(stxo)?;
         }
 
-        Ok(roots)
+        Ok(self.roots)
     }
     fn add_single(mut roots: Vec<Node>, node: Hash, mut num_leaves: u64) -> Vec<Node> {
         let mut node = PolNode::new(node, None, None, None).as_rc();
@@ -497,6 +508,8 @@ mod test {
         sha256::{self, Hash as Data},
         Hash, HashEngine,
     };
+    use serde::Deserialize;
+
     fn hash_from_u8(value: u8) -> Data {
         let mut engine = Data::engine();
 
@@ -552,11 +565,12 @@ mod test {
                     node.get_r_niece(),
                 )
                 .as_rc(),
-            );
+            )
+            .expect("should not err");
             let res = parent.recompute_parent_hash();
 
             assert_eq!(
-                res.unwrap().get_data().to_hex(),
+                res.get_data().to_hex(),
                 String::from("a3fab668c6917a4979627f04dd0be687ceb5601aaf161664747ddb1399b1a4fb")
             )
         } else {
@@ -647,13 +661,13 @@ mod test {
         let values = vec![0, 1];
         let hashes: Vec<Data> = values.into_iter().map(|val| hash_from_u8(val)).collect();
 
-        let p = Pollard::new()
+        let mut p = Pollard::new()
             .modify(hashes.clone(), vec![])
             .expect("Pollard should not fail");
-        let roots = p.delete_single(1).expect("msg");
-        assert_eq!(roots.len(), 1);
+        p.delete_single(1).expect("msg");
+        assert_eq!(p.get_roots().len(), 1);
 
-        let root = roots[0].clone();
+        let root = p.get_roots()[0].clone();
         assert_eq!(root.data, hashes[0]);
     }
     #[test]
@@ -714,7 +728,6 @@ mod test {
                 .unwrap(),
             sibling.unwrap().data
         );
-        // assert_eq!(sibling.unwrap().data.to_string(), String::from(""))
     }
     #[test]
     fn test_get_parent() {
@@ -749,13 +762,13 @@ mod test {
         let values = vec![0, 1];
         let hashes: Vec<Data> = values.into_iter().map(|val| hash_from_u8(val)).collect();
 
-        let p = Pollard::new()
+        let mut p = Pollard::new()
             .modify(hashes, vec![])
             .expect("Pollard should not fail");
-        let roots = p.delete_single(2).expect("msg");
-        assert_eq!(roots.len(), 1);
+        p.delete_single(2).expect("msg");
+        assert_eq!(p.get_roots().len(), 1);
 
-        let root = roots[0].clone();
+        let root = p.get_roots()[0].clone();
         assert_eq!(root, PolNode::default().as_rc());
     }
     #[test]
@@ -791,5 +804,85 @@ mod test {
         assert_eq!(p.roots.len(), 1);
         let (_, node, _) = p.grab_node(8).expect("This tree should have pos 8");
         assert_eq!(node.data, hashes[0]);
+    }
+    #[derive(Debug, Deserialize)]
+    struct TestCase {
+        leaf_preimages: Vec<u8>,
+        target_values: Option<Vec<u64>>,
+        expected_roots: Vec<String>,
+    }
+    fn run_single_addition_case(case: TestCase) {
+        let hashes = case
+            .leaf_preimages
+            .iter()
+            .map(|preimage| hash_from_u8(*preimage))
+            .collect();
+        let p = Pollard::new()
+            .modify(hashes, vec![])
+            .expect("Test pollards are valid");
+        assert_eq!(p.get_roots().len(), case.expected_roots.len());
+        let expected_roots = case
+            .expected_roots
+            .iter()
+            .map(|root| sha256::Hash::from_hex(&root).unwrap())
+            .collect::<Vec<_>>();
+        let roots = p
+            .get_roots()
+            .into_iter()
+            .map(|root| root.get_data())
+            .collect::<Vec<_>>();
+        assert_eq!(expected_roots, roots, "Test case failed {case:?}");
+    }
+    fn run_case_with_deletion(case: TestCase) {
+        let hashes = case
+            .leaf_preimages
+            .iter()
+            .map(|preimage| hash_from_u8(*preimage))
+            .collect();
+        let dels = case
+            .target_values
+            .clone()
+            .expect("Del test must have targets");
+        let p = Pollard::new()
+            .modify(hashes, vec![])
+            .expect("Test pollards are valid")
+            .modify(vec![], dels)
+            .expect("still should be valid");
+
+        assert_eq!(p.get_roots().len(), case.expected_roots.len());
+        let expected_roots = case
+            .expected_roots
+            .iter()
+            .map(|root| sha256::Hash::from_hex(&root).unwrap())
+            .collect::<Vec<_>>();
+        // println!("{:?}", p.get_roots());
+        let roots = p
+            .get_roots()
+            .into_iter()
+            .map(|root| root.get_data())
+            .collect::<Vec<_>>();
+        assert_eq!(expected_roots, roots, "Test case failed {case:?}");
+    }
+
+    #[test]
+    fn run_tests_from_cases() {
+        #[derive(Deserialize)]
+        struct TestsJSON {
+            insertion_tests: Vec<TestCase>,
+            deletion_tests: Vec<TestCase>,
+        }
+
+        let contents = std::fs::read_to_string("test_values/test_cases.json")
+            .expect("Something went wrong reading the file");
+
+        let tests = serde_json::from_str::<TestsJSON>(contents.as_str())
+            .expect("JSON deserialization error");
+
+        for i in tests.insertion_tests {
+            run_single_addition_case(i);
+        }
+        for i in tests.deletion_tests {
+            run_case_with_deletion(i);
+        }
     }
 }
