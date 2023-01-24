@@ -71,8 +71,9 @@
 //! a [Rc] over a node, not the [RefCell], so avoid using the [RefCell] directly.
 
 use super::{
+    proof::Proof,
     types::{self, parent_hash},
-    util::{self, is_left_niece, is_root_position, tree_rows},
+    util::{self, detwin, get_proof_positions, is_left_niece, is_root_position, tree_rows},
 };
 use bitcoin_hashes::{
     hex::ToHex,
@@ -346,7 +347,7 @@ impl Pollard {
     /// and return a brand new [Pollard]. Taking ownership discourage people to use an old [Pollard]
     /// state instead of using the new one.
     ///
-    /// This method accepts two vectors as parameter, a vec of [Hash] and a vec of [u64]. The
+    /// This method accepts two vectors as parameter, a vec of [struct@Hash] and a vec of [u64]. The
     /// first one is a vec of leaf hashes for the newly created UTXOs. The second one is the position
     /// for the UTXOs being spent in this block as inputs.
     ///
@@ -384,6 +385,18 @@ impl Pollard {
     /// roots, serialization should use standard APIs.
     pub fn get_roots(&self) -> &Vec<Node> {
         &self.roots
+    }
+    /// Proves that a given utxo is in the current Pollard
+    pub fn prove(&self, targets: &[u64]) -> Result<Proof, String> {
+        let total_rows = tree_rows(self.leaves);
+        let targets = detwin(targets.into(), total_rows);
+        let needed_pos = get_proof_positions(&targets, self.leaves, total_rows);
+        let mut hashes = vec![];
+        for pos in needed_pos {
+            let (_, node, _) = self.grab_node(pos)?;
+            hashes.push(node.get_data());
+        }
+        Ok(Proof::new(targets, hashes))
     }
     /// Deletes a single node from a Pollard. The algorithm works as follows:
     /// Grab a node, it's sibling and it's parent.
@@ -541,6 +554,8 @@ impl Pollard {
 #[cfg(test)]
 mod test {
     use std::{str::FromStr, vec};
+
+    use crate::accumulator::{proof::Proof, stump::Stump};
 
     use super::{PolNode, Pollard};
     use bitcoin_hashes::{
@@ -806,6 +821,37 @@ mod test {
         assert_eq!(p.get_roots().len(), 1);
         let root = p.get_roots()[0].clone();
         assert_eq!(root, PolNode::default().into_rc());
+    }
+    #[test]
+    fn test_prove() {
+        let values = vec![0, 1, 2, 3, 4, 5, 6, 7];
+        let hashes: Vec<Data> = values.into_iter().map(hash_from_u8).collect();
+        let proof = Pollard::new()
+            .modify(hashes.clone(), vec![])
+            .unwrap()
+            .modify(vec![], vec![0, 3])
+            .unwrap()
+            .prove(&[5, 7])
+            .unwrap();
+        // Stump needs this proof
+        let del_proof_hashes = [
+            "4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a",
+            "dbc1b4c900ffe48d575b5da5c638040125f65db0fe3e24494b76ea986457d986",
+            "29590a14c1b09384b94a2c0e94bf821ca75b62eacebc47893397ca88e3bbcbd7",
+        ]
+        .iter()
+        .map(|hash| Data::from_hex(hash).unwrap())
+        .collect();
+
+        let del_proof = Proof::new(vec![0, 3], del_proof_hashes);
+        let stump = Stump::new()
+            .modify(&hashes, &vec![], &Proof::default())
+            .unwrap()
+            .0
+            .modify(&vec![], &vec![hashes[0], hashes[3]], &del_proof)
+            .unwrap()
+            .0;
+        assert_eq!(proof.verify(&vec![hashes[5], hashes[7]], &stump), Ok(true));
     }
     #[test]
     fn test_delete_non_root() {
