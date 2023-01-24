@@ -88,14 +88,23 @@ type Node = Rc<PolNode>;
 /// A internal node, where all fields are filled, or a leaf, that has no child/niece.
 /// Mutable references are discouraged, for mutating a [PolNode], use the appropriated
 /// methods.
-#[derive(Clone, PartialEq, Eq, Default)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct PolNode {
     data: Cell<Hash>,
     aunt: RefCell<Option<Node>>,
     l_niece: RefCell<Option<Node>>,
     r_niece: RefCell<Option<Node>>,
 }
-
+impl Default for PolNode {
+    fn default() -> Self {
+        PolNode {
+            data: Cell::new(<Hash as bitcoin_hashes::Hash>::all_zeros()),
+            aunt: RefCell::new(None),
+            l_niece: RefCell::new(None),
+            r_niece: RefCell::new(None),
+        }
+    }
+}
 //FIX-ME: Make this Debug more pleasant, like the Go one
 impl Debug for PolNode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -494,7 +503,7 @@ impl Pollard {
             // 00  01  02  03  --  --
             // We accomplish this by just skipping the append-and-hash for 04
 
-            if left_root.get_data() == sha256::Hash::default() {
+            if left_root.get_data() == <sha256::Hash as bitcoin_hashes::Hash>::all_zeros() {
                 continue;
             }
             // Roots points to their children, but now they aren't roots, so they should
