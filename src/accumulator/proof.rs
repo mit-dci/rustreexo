@@ -1,4 +1,5 @@
 use super::stump::UpdateData;
+use super::util::get_proof_positions;
 use crate::accumulator::{stump::Stump, types, util};
 use bitcoin_hashes::{sha256, Hash};
 
@@ -249,15 +250,154 @@ impl Proof {
     pub fn update(
         self,
         cached_hashes: Vec<sha256::Hash>,
+        add_hashes: Vec<sha256::Hash>,
         block_targets: Vec<u64>,
+        remembers: Vec<u64>,
         update_data: UpdateData,
     ) -> Result<(Proof, Vec<sha256::Hash>), String> {
-        self.update_proof_remove(
+        let (proof_after_deletion, cached_hashes) = self.update_proof_remove(
             block_targets,
             cached_hashes.clone(),
             update_data.new_del,
             update_data.prev_num_leaves,
-        )
+        )?;
+
+        let data_after_addition = proof_after_deletion.update_proof_add(
+            add_hashes,
+            cached_hashes.clone(),
+            remembers,
+            update_data.new_add,
+            update_data.prev_num_leaves,
+            update_data.to_destroy,
+        )?;
+
+        Ok(data_after_addition)
+    }
+    fn update_proof_add(
+        self,
+        adds: Vec<sha256::Hash>,
+        cached_del_hashes: Vec<sha256::Hash>,
+        remembers: Vec<u64>,
+        new_nodes: Vec<(u64, sha256::Hash)>,
+        before_num_leaves: u64,
+        to_destroy: Vec<u64>,
+    ) -> Result<(Proof, Vec<sha256::Hash>), String> {
+        // Combine the hashes with the targets.
+        let orig_targets_with_hash: Vec<(u64, sha256::Hash)> = self
+            .targets
+            .to_owned()
+            .into_iter()
+            .zip(cached_del_hashes.into_iter())
+            .collect();
+
+        // Attach positions to the proof.
+        let proof_pos = get_proof_positions(
+            &self.targets,
+            before_num_leaves,
+            util::tree_rows(before_num_leaves),
+        );
+        let proof_with_pos = proof_pos
+            .clone()
+            .into_iter()
+            .zip(self.hashes.clone())
+            .collect();
+
+        // Remap the positions if we moved up a after the addition row.
+        let targets_after_remap = Proof::maybe_remap(
+            before_num_leaves,
+            adds.len() as u64,
+            orig_targets_with_hash.clone(),
+        );
+        let mut final_targets = targets_after_remap.clone();
+        let mut new_nodes_iter = new_nodes.iter();
+        let mut proof_with_pos =
+            Proof::maybe_remap(before_num_leaves, adds.len() as u64, proof_with_pos);
+
+        let num_leaves = before_num_leaves + (adds.len() as u64);
+        // Move up positions that need to be moved up due to the empty roots
+        // being written over.
+        for node in to_destroy {
+            final_targets =
+                Proof::calc_next_positions(&vec![node], &final_targets, num_leaves, true)?;
+            proof_with_pos =
+                Proof::calc_next_positions(&vec![node], &proof_with_pos, num_leaves, true)?;
+        }
+
+        // remembers is an index telling what newly created UTXO should be cached
+        for remember in remembers {
+            let remember_target: Option<&sha256::Hash> = adds.get(remember as usize);
+            if let Some(remember_target) = remember_target {
+                let node = new_nodes_iter.find(|(_, hash)| *hash == *remember_target);
+                if let Some((pos, hash)) = node {
+                    final_targets.push((*pos, *hash));
+                }
+            }
+        }
+
+        final_targets.sort();
+
+        let (new_target_pos, target_hashes) = final_targets.clone().into_iter().unzip();
+        // Grab all the new nodes after this add.
+        let mut needed_proof_positions =
+            util::get_proof_positions(&new_target_pos, num_leaves, util::tree_rows(num_leaves));
+        needed_proof_positions.sort();
+
+        // We'll use all elements from the old proof, as addition only creates new nodes
+        // in our proof (except for root destruction). But before using it, we have to
+        // compute the new positions, as adding new elements may move existing elements a few
+        // rows up.
+        let mut new_proof = proof_with_pos;
+        // Iterates over the needed positions and grab them from new_nodes
+        // All proof elements must come from the old proof or new_nodes. Old proof elements
+        // are already in new_proof. Some every missing element must be in new_nodes.
+        for pos in needed_proof_positions {
+            if let Some((_, hash)) = new_nodes.iter().find(|(node_pos, _)| pos == *node_pos) {
+                new_proof.push((pos, *hash));
+            } else {
+                // This node must be in either new_nodes or in the old proof, otherwise we can't
+                // update our proof
+                if let None = new_proof.iter().find(|(proof_pos, _)| *proof_pos == pos) {
+                    return Err(format!("Missing position {}", pos));
+                }
+            }
+        }
+        new_proof.sort();
+
+        let (_, hashes): (Vec<u64>, Vec<sha256::Hash>) = new_proof.into_iter().unzip();
+        Ok((
+            Proof {
+                hashes,
+                targets: new_target_pos,
+            },
+            target_hashes,
+        ))
+    }
+    /// maybe_remap remaps the passed in hash and pos if the tree_rows increase after
+    /// adding the new nodes.
+    fn maybe_remap(
+        num_leaves: u64,
+        num_adds: u64,
+        positions: Vec<(u64, sha256::Hash)>,
+    ) -> Vec<(u64, sha256::Hash)> {
+        let new_forest_rows = util::tree_rows(num_leaves + num_adds);
+        let old_forest_rows = util::tree_rows(num_leaves);
+        let tree_rows = util::tree_rows(num_leaves);
+        let mut new_proofs = vec![];
+        if new_forest_rows > old_forest_rows {
+            for (pos, hash) in positions.iter() {
+                let row = util::detect_row(*pos, tree_rows);
+
+                let old_start_pos = util::start_position_at_row(row, old_forest_rows);
+                let new_start_pos = util::start_position_at_row(row, new_forest_rows);
+
+                let offset = pos - old_start_pos;
+                let new_pos = offset + new_start_pos;
+                new_proofs.push((new_pos, *hash));
+            }
+            return new_proofs;
+        }
+
+        positions
     }
 
     /// update_proof_remove modifies the cached proof with the deletions that happen in the block proof.
@@ -402,7 +542,7 @@ impl Proof {
 mod tests {
     use std::str::FromStr;
 
-    use bitcoin_hashes::{sha256, Hash, HashEngine};
+    use bitcoin_hashes::{hex::FromHex, sha256, Hash, HashEngine};
     use serde::Deserialize;
 
     use super::Proof;
@@ -416,7 +556,134 @@ mod tests {
         proofhashes: Vec<String>,
         expected: bool,
     }
+    /// This test checks whether our update proof works for different scenarios. We start
+    /// with a (valid) cached proof, then we receive `blocks`, like we would in normal Bitcoin
+    /// but for this test, block is just random data. For each block we update our Stump and
+    /// our proof as well, after that, our proof **must** still be valid for the latest Stump.
+    ///
+    /// Fix-me: Using derive for deserialize, when also using sha256::Hash leads to an odd
+    /// error that can't be easily fixed. Even bumping version doesn't appear to help.
+    /// Deriving hashes directly reduces the amount of boilerplate code used, and makes everything
+    /// more clearer, hence, it's preferable.
+    #[test]
+    fn test_update_proof() {
+        #[derive(Debug, Deserialize)]
+        struct JsonProof {
+            targets: Vec<u64>,
+            hashes: Vec<String>,
+        }
+        #[derive(Debug, Deserialize)]
+        struct UpdatedData {
+            /// The newly created utxo to be added to our accumulator
+            adds: Vec<u64>,
+            /// The proof for all destroyed utxos
+            proof: JsonProof,
+            /// The hash of all destroyed utxos
+            del_hashes: Vec<String>,
+        }
+        #[derive(Debug, Deserialize)]
+        struct TestData {
+            /// Blocks contains new utxos and utxos that are being deleted
+            update: UpdatedData,
+            /// The proof we have for our wallet's utxos
+            cached_proof: JsonProof,
+            /// A initial set of roots, may be empty for starting with an empty stump
+            initial_roots: Vec<String>,
+            /// The number of leaves in the initial Stump
+            initial_leaves: u64,
+            /// The hash of all wallet's utxo
+            cached_hashes: Vec<String>,
+            /// The indexes of all the new utxos to cache
+            remembers: Vec<u64>,
+            /// After we update our stump, which roots we expect?
+            expected_roots: Vec<String>,
+            /// After we update the proof, the proof's target should be this
+            expected_targets: Vec<u64>,
+            /// After we update the proof, the cached hashes should be this
+            expected_cached_hashes: Vec<String>,
+        }
+        let contents = std::fs::read_to_string("test_values/cached_proof_tests.json")
+            .expect("Something went wrong reading the file");
 
+        let values: Vec<TestData> =
+            serde_json::from_str(contents.as_str()).expect("JSON deserialization error");
+        for case_values in values {
+            let proof_hashes = case_values
+                .cached_proof
+                .hashes
+                .iter()
+                .map(|val| sha256::Hash::from_str(val).unwrap())
+                .collect();
+            let cached_hashes: Vec<_> = case_values
+                .cached_hashes
+                .iter()
+                .map(|val| sha256::Hash::from_str(val).unwrap())
+                .collect();
+
+            let cached_proof = Proof::new(case_values.cached_proof.targets, proof_hashes);
+            let roots = case_values
+                .initial_roots
+                .into_iter()
+                .map(|hash| sha256::Hash::from_hex(&hash).unwrap())
+                .collect();
+
+            let stump = Stump {
+                leafs: case_values.initial_leaves,
+                roots,
+            };
+
+            let utxos = case_values
+                .update
+                .adds
+                .iter()
+                .map(|preimage| hash_from_u8(*preimage as u8))
+                .collect();
+            let del_hashes = case_values
+                .update
+                .del_hashes
+                .iter()
+                .map(|hash| sha256::Hash::from_hex(hash).unwrap())
+                .collect();
+            let block_proof_hashes: Vec<_> = case_values
+                .update
+                .proof
+                .hashes
+                .iter()
+                .map(|hash| sha256::Hash::from_hex(hash).unwrap())
+                .collect();
+
+            let block_proof =
+                Proof::new(case_values.update.proof.targets.clone(), block_proof_hashes);
+            let (stump, updated) = stump.modify(&utxos, &del_hashes, &block_proof).unwrap();
+            let (cached_proof, cached_hashes) = cached_proof
+                .update(
+                    cached_hashes.clone(),
+                    utxos,
+                    case_values.update.proof.targets,
+                    case_values.remembers.clone(),
+                    updated.clone(),
+                )
+                .unwrap();
+
+            let res = cached_proof.verify(&cached_hashes, &stump);
+
+            let expected_roots: Vec<_> = case_values
+                .expected_roots
+                .iter()
+                .map(|hash| sha256::Hash::from_hex(hash).unwrap())
+                .collect();
+
+            let expected_cached_hashes: Vec<_> = case_values
+                .expected_cached_hashes
+                .iter()
+                .map(|hash| sha256::Hash::from_hex(hash).unwrap())
+                .collect();
+            assert_eq!(res, Ok(true));
+            assert_eq!(cached_proof.targets, case_values.expected_targets);
+            assert_eq!(stump.roots, expected_roots);
+            assert_eq!(cached_hashes, expected_cached_hashes);
+        }
+    }
     #[test]
     fn test_calc_next_positions() {
         use super::Proof;
