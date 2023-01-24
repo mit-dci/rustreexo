@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 pub mod pollard;
 pub mod proof;
 pub mod stump;

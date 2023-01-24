@@ -6,6 +6,31 @@
 //! some updates, but creates some challenges when dealing with Rust. Furthermore, nodes also
 //! points to its aunt, creating a link that is hard to express in safe Rust using basic
 //! static borrow check and lifetime annotation.
+//! # Usage
+//! ```
+//! use rustreexo::accumulator::pollard::Pollard;
+//! use bitcoin_hashes::{sha256::Hash as Data, Hash, HashEngine, hex::ToHex};
+//! // Instead of hashing UTXOs, we hash integers for the sake of the example. But in a real
+//! // case, you'll take the sha512_256 of LeafData
+//! let values = vec![0, 1, 2, 3, 4, 5, 6, 7];
+//! // Hashes all values, using just sha256
+//! let hashes: Vec<_> = values.into_iter().map(|val|{
+//!     let mut engine = Data::engine();
+//!     engine.input(&[val]);
+//!     Data::from_engine(engine)
+//! })
+//! .collect();
+//! // Creates a new Pollard with 8 leaves, then deletes the first and fourth elements (0, 3)
+//! let p = Pollard::new()
+//!     .modify(hashes.clone(), vec![])
+//!     .expect("Simple addition don't fail")
+//!     .modify(vec![], vec![0, 3])
+//!     .expect("Nor should simple deletion with known to be in tree elements");
+//! // We should get this state after
+//! assert_eq!(p.get_roots().len(), 1);
+//! assert_eq!(p.get_roots()[0].get_data().to_hex(), String::from("dd015199c18dcd8b8606a4f0053a2ad4797e82f51944d9d2d3cc0c1fca872a22"));
+//! ```
+//! # Implementation
 //! During development of this struct, something much simpler like this code bellow have been tried,
 //! but 'ancestor usually binds to the same lifetime as the whole tree, making it impossible to
 //! hold a node and a `mut ref` to another one, or the tree itself (usually a vector of roots). We
@@ -49,8 +74,11 @@ use super::{
     types::{self, parent_hash},
     util::{self, is_left_niece, is_root_position, tree_rows},
 };
-use bitcoin_hashes::{hex::ToHex, sha256::Hash};
-use std::fmt::Debug;
+use bitcoin_hashes::{
+    hex::ToHex,
+    sha256::{self, Hash},
+};
+use std::{cell::Cell, fmt::Debug};
 use std::{cell::RefCell, rc::Rc};
 
 /// Type alias used throughout this lib, see the crate-level doc to understand why using [Rc]
@@ -62,7 +90,7 @@ type Node = Rc<PolNode>;
 /// methods.
 #[derive(Clone, PartialEq, Eq, Default)]
 pub struct PolNode {
-    data: Hash,
+    data: Cell<Hash>,
     aunt: RefCell<Option<Node>>,
     l_niece: RefCell<Option<Node>>,
     r_niece: RefCell<Option<Node>>,
@@ -79,19 +107,18 @@ impl Debug for PolNode {
             if row_nodes.iter().all(|el| el.is_none()) {
                 return Ok(());
             }
-            if i > 4 {
-                return Ok(());
-            }
             let mut next_nodes = vec![];
             for node in row_nodes {
                 if let Some(node) = node {
-                    write!(f, "{} ", node.data[0..2].to_hex())?;
+                    write!(f, "{} ", node.get_data()[0..2].to_hex())?;
 
                     let (l, r) = node.get_children();
                     next_nodes.push(l);
                     next_nodes.push(r);
                 } else {
                     next_nodes.push(None);
+                    next_nodes.push(None);
+
                     write!(f, "---- ")?;
                 }
             }
@@ -115,7 +142,7 @@ impl PolNode {
         r_niece: Option<Node>,
     ) -> PolNode {
         PolNode {
-            data,
+            data: Cell::new(data),
             aunt: RefCell::new(aunt),
             l_niece: RefCell::new(l_niece),
             r_niece: RefCell::new(r_niece),
@@ -123,29 +150,29 @@ impl PolNode {
     }
     /// Returns the node's data, i.e the stored hash
     pub fn get_data(&self) -> Hash {
-        self.data
+        self.data.to_owned().into_inner()
     }
     /// Updates this node's aunt
-    fn update_aunt(&self, aunt: Option<Node>, root: bool) {
+    fn _update_aunt(&self, aunt: Option<Node>, root: bool) {
         let aunt = if root {
             self.set_aunt(None);
             aunt
         } else {
-            if PolNode::is_l_niece(&aunt.clone().unwrap(), &self.clone().as_rc()) {
+            if PolNode::_is_l_niece(&aunt.clone().unwrap(), &self.clone().as_rc()) {
                 aunt.expect("msg").get_l_niece()
             } else {
                 aunt.expect("msg").get_r_niece()
             }
         };
         if let Some(l_niece) = self.get_l_niece() {
-            l_niece.update_aunt(aunt.clone(), false);
+            l_niece._update_aunt(aunt.clone(), false);
         }
         if let Some(r_niece) = self.get_l_niece() {
-            r_niece.update_aunt(aunt, false);
+            r_niece._update_aunt(aunt, false);
         }
     }
     /// Returns whether or not `n` is `aunt's` left niece
-    fn is_l_niece(aunt: &Node, n: &Node) -> bool {
+    fn _is_l_niece(aunt: &Node, n: &Node) -> bool {
         if aunt.get_l_niece().as_ref().eq(&Some(n)) {
             true
         } else {
@@ -185,7 +212,6 @@ impl PolNode {
         if self.get_aunt().is_none() {
             return None;
         }
-
         if let Some(aunt) = self.get_aunt() {
             // If aunt also has an aunt, then I take his sibling, as he's my parent
             if let Some(grandpa) = aunt.get_aunt() {
@@ -207,36 +233,20 @@ impl PolNode {
     /// This method is a little evolved, it takes an [Rc] to our aunt, then finds out
     /// whether we are left or right nieces. With that info, we replace the corresponding
     /// aunt's niece with our new self.
-    fn set_self_hash(&self, new: Node) -> Result<(), String> {
-        if let Some(aunt) = self.get_aunt() {
-            println!("{aunt:?}");
-            if *aunt.get_l_niece().unwrap_or_default() == *self {
-                aunt.l_niece.replace(Some(new));
-            } else {
-                aunt.r_niece.replace(Some(new));
-            }
-            return Ok(());
-        }
-        Err("Node doesn't have an aunt".into())
+    fn set_self_hash(&self, new: Hash) {
+        self.data.replace(new);
     }
     /// Transverses the tree upwards, updating the node's hashes after an deletion
-    fn recompute_parent_hash(&self) -> Node {
+    fn recompute_parent_hash(&self) {
         if let (Some(l_niece), Some(r_niece)) = self.get_children() {
-            let new_parent_hash = parent_hash(&l_niece.data, &r_niece.data);
+            let new_parent_hash = parent_hash(&l_niece.get_data(), &r_niece.get_data());
             let parent = self.get_parent();
-
-            let new_node = PolNode::new(
-                new_parent_hash,
-                self.get_aunt(),
-                self.get_l_niece(),
-                self.get_r_niece(),
-            );
+            self.set_self_hash(new_parent_hash);
 
             if let Some(parent) = parent {
-                self.set_self_hash(new_node.as_rc()).expect("msg");
                 return parent.recompute_parent_hash();
             } else {
-                return new_node.as_rc();
+                return;
             }
         }
         if let Some(parent) = self.get_parent() {
@@ -265,7 +275,7 @@ impl PolNode {
         r_niece: Option<Node>,
     ) -> Node {
         let node = PolNode {
-            data,
+            data: Cell::new(data),
             aunt: RefCell::new(aunt),
             l_niece: RefCell::new(l_niece),
             r_niece: RefCell::new(r_niece),
@@ -312,6 +322,14 @@ pub struct Pollard {
 }
 
 impl Pollard {
+    /// Creates an empty Pollard
+    /// # Example
+    /// ```
+    /// use rustreexo::accumulator::pollard::Pollard;
+    /// let p = Pollard::new();
+    /// // Should have no roots
+    /// assert_eq!(p.get_roots().len(), 0);
+    /// ```
     pub fn new() -> Pollard {
         Pollard {
             leaves: 0,
@@ -361,7 +379,8 @@ impl Pollard {
             full,
         })
     }
-    /// Returns a reference to this acc roots
+    /// Returns a reference to this acc roots. Usually, API consumers won't care much about
+    /// roots, serialization should use standard APIs.
     pub fn get_roots(&self) -> &Vec<Node> {
         &self.roots
     }
@@ -390,29 +409,19 @@ impl Pollard {
         if let Some(sibling) = to_node.get_sibling() {
             // If my new ancestor has a sibling, it means my aunt/parent is not root
             // and my aunt is pointing to me, *not* my parent.
-            let new_node = PolNode {
-                aunt: to_node.aunt.clone(),
-                data: from_node.data,
-                l_niece: to_node.l_niece.clone(),
-                r_niece: to_node.r_niece.clone(),
-            };
             sibling.chop();
-            println!("=============");
-            to_node.set_self_hash(new_node.as_rc())?;
-            println!("=============");
-            self.roots[tree as usize] = to_node.recompute_parent_hash();
+            to_node.set_self_hash(from_node.get_data());
+            to_node.set_nieces(to_node.get_l_niece(), to_node.get_r_niece());
+            to_node.recompute_parent_hash();
         } else {
             // This means we are a root's sibling. We are becoming a root now
-            let new_node = PolNode {
-                aunt: to_node.aunt.clone(),
-                data: from_node.data,
-                l_niece: to_node.l_niece.clone(),
-                r_niece: to_node.r_niece.clone(),
-            };
-            self.roots[tree as usize] = new_node.as_rc();
+            to_node.set_self_hash(from_node.get_data());
+            to_node.set_nieces(from_node.get_l_niece(), from_node.get_l_niece());
         }
         Ok(())
     }
+    /// Grabs node given its position in the tree. It returns a node's sibling, the node
+    /// itself and the parent. Error if node isn't on tree.
     fn grab_node(&self, pos: u64) -> Result<(Node, Node, Node), String> {
         let (tree, branch_len, bits) = super::util::detect_offset(pos, self.leaves);
         let mut n = Some(self.roots[tree as usize].clone());
@@ -441,8 +450,9 @@ impl Pollard {
         if let (Some(node), Some(sibling), Some(parent)) = (n, sibling, parent) {
             return Ok((node, sibling, parent));
         }
-        Err(format!("node {pos} not found"))
+        Err(format!("node {} not found", pos))
     }
+    /// Add nodes to the accumulator
     fn add(mut roots: Vec<Node>, utxos: Vec<Hash>, mut num_leaves: u64) -> Vec<Node> {
         for utxo in utxos {
             roots = Pollard::add_single(roots, utxo, num_leaves);
@@ -451,6 +461,7 @@ impl Pollard {
 
         roots
     }
+    /// Deletes nodes from the accumulator
     fn delete(mut self, stxos: Vec<u64>) -> Result<Vec<Node>, String> {
         let stxos = util::detwin(stxos, util::tree_rows(self.leaves));
         for stxo in stxos {
@@ -459,6 +470,8 @@ impl Pollard {
 
         Ok(self.roots)
     }
+    /// Adds a single node. Addition is a loop over all new nodes, calling add_single for each
+    /// of them
     fn add_single(mut roots: Vec<Node>, node: Hash, mut num_leaves: u64) -> Vec<Node> {
         let mut node = PolNode::new(node, None, None, None).as_rc();
 
@@ -467,10 +480,36 @@ impl Pollard {
             let left_root = roots
                 .pop()
                 .expect("add_single: num_leaves & 1 == 1 and no roots?");
+            //If the root that we're gonna hash with is empty, move the current
+            // node up to the position of the parent.
+            //
+            // Example:
+            //
+            // 12
+            // |-------\
+            // 08      09
+            // |---\   |---\
+            // 00  01  02  03  --
+            //
+            // When we add 05 to this tree, 04 is empty so we move 05 to 10.
+            // The resulting tree looks like below. The hash at position 10
+            // is not hash(04 || 05) but just the hash of 05.
+            //
+            // 12
+            // |-------\
+            // 08      09      10
+            // |---\   |---\   |---\
+            // 00  01  02  03  --  --
+            // We accomplish this by just skipping the append-and-hash for 04
 
+            if left_root.get_data() == sha256::Hash::default() {
+                continue;
+            }
+            // Roots points to their children, but now they aren't roots, so they should
+            // point to their nieces instead
             left_root.l_niece.swap(&node.l_niece);
             left_root.r_niece.swap(&node.r_niece);
-            // Swap aunts
+            // Swap aunts for the nieces
             left_root
                 .get_l_niece()
                 .unwrap_or_default()
@@ -480,10 +519,10 @@ impl Pollard {
                 .get_r_niece()
                 .unwrap_or_default()
                 .swap_aunt(&node.get_r_niece().unwrap_or_default());
-
-            let n_hash = types::parent_hash(&left_root.data.clone(), &node.data.clone());
+            // Creates a new node that is hash(left_root | node)
+            let n_hash = types::parent_hash(&left_root.get_data(), &node.get_data());
             let new_node = PolNode::new_node(n_hash, None, None, None);
-
+            // Turns left_root and node into new_nodes's children
             left_root.set_aunt(Some(new_node.clone()));
             node.set_aunt(Some(new_node.clone()));
 
@@ -500,7 +539,7 @@ impl Pollard {
 
 #[cfg(test)]
 mod test {
-    use std::str::FromStr;
+    use std::{str::FromStr, vec};
 
     use super::{PolNode, Pollard};
     use bitcoin_hashes::{
@@ -536,9 +575,9 @@ mod test {
             .parse()
             .unwrap();
 
-        let found_target = node.1.data;
-        let found_sibling = node.0.data;
-        let found_parent = node.2.data;
+        let found_target = node.1.get_data();
+        let found_sibling = node.0.get_data();
+        let found_parent = node.2.get_data();
 
         assert_eq!(target, found_target);
         assert_eq!(sibling, found_sibling);
@@ -553,24 +592,16 @@ mod test {
             .modify(hashes, vec![])
             .expect("Pollard should not fail");
         let node = p.grab_node(0);
-        if let Ok((node, _, parent)) = node {
+        if let Ok((node, _, _)) = node {
             node.set_self_hash(
-                PolNode::new(
-                    sha256::Hash::from_hex(
-                        "0100000000000000000000000000000000000000000000000000000000000000",
-                    )
-                    .unwrap(),
-                    node.get_aunt(),
-                    node.get_l_niece(),
-                    node.get_r_niece(),
+                sha256::Hash::from_hex(
+                    "0100000000000000000000000000000000000000000000000000000000000000",
                 )
-                .as_rc(),
-            )
-            .expect("should not err");
-            let res = parent.recompute_parent_hash();
-
+                .unwrap(),
+            );
+            node.recompute_parent_hash();
             assert_eq!(
-                res.get_data().to_hex(),
+                p.get_roots()[0].get_data().to_hex(),
                 String::from("a3fab668c6917a4979627f04dd0be687ceb5601aaf161664747ddb1399b1a4fb")
             )
         } else {
@@ -594,19 +625,24 @@ mod test {
         let parent = node.2;
 
         assert_eq!(
-            sibling.data.to_string().as_str(),
+            sibling.get_data().to_string().as_str(),
             "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d"
         );
         assert_eq!(
-            self_node.data.to_string().as_str(),
+            self_node.get_data().to_string().as_str(),
             "4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a"
         );
         assert_eq!(
-            parent.data.to_string().as_str(),
+            parent.get_data().to_string().as_str(),
             "02242b37d8e851f1e86f46790298c7097df06893d6226b7c1453c213e91717de"
         );
         assert_eq!(
-            self_node.get_aunt().unwrap().data.to_string().as_str(),
+            self_node
+                .get_aunt()
+                .unwrap()
+                .get_data()
+                .to_string()
+                .as_str(),
             "9576f4ade6e9bc3a6458b506ce3e4e890df29cb14cb5d3d887672aef55647a2b"
         );
     }
@@ -635,19 +671,19 @@ mod test {
 
         assert_eq!(
             "b151a956139bb821d4effa34ea95c17560e0135d1e4661fc23cedc3af49dac42",
-            roots[0].data.to_string().as_str(),
+            roots[0].get_data().to_string().as_str(),
         );
         assert_eq!(
             "9c053db406c1a077112189469a3aca0573d3481bef09fa3d2eda3304d7d44be8",
-            roots[1].data.to_string().as_str(),
+            roots[1].get_data().to_string().as_str(),
         );
         assert_eq!(
             "55d0a0ef8f5c25a9da266b36c0c5f4b31008ece82df2512c8966bddcc27a66a0",
-            roots[2].data.to_string().as_str(),
+            roots[2].get_data().to_string().as_str(),
         );
         assert_eq!(
             "4d7b3ef7300acf70c892d8327db8272f54434adbc61a4e130a563cb59a0d0f47",
-            roots[3].data.to_string().as_str(),
+            roots[3].get_data().to_string().as_str(),
         );
     }
     #[test]
@@ -668,7 +704,7 @@ mod test {
         assert_eq!(p.get_roots().len(), 1);
 
         let root = p.get_roots()[0].clone();
-        assert_eq!(root.data, hashes[0]);
+        assert_eq!(root.get_data(), hashes[0]);
     }
     #[test]
     fn test_get_children() {
@@ -683,13 +719,13 @@ mod test {
         assert_eq!(
             Data::from_str("02242b37d8e851f1e86f46790298c7097df06893d6226b7c1453c213e91717de")
                 .unwrap(),
-            node.data
+            node.get_data()
         );
 
         assert_eq!(
             Data::from_str("9576f4ade6e9bc3a6458b506ce3e4e890df29cb14cb5d3d887672aef55647a2b")
                 .unwrap(),
-            sibling.data
+            sibling.get_data()
         );
         let (l_child, r_child) = node.get_children();
         assert!(l_child.is_some());
@@ -698,8 +734,8 @@ mod test {
         let l_child = l_child.unwrap();
         let r_child = r_child.unwrap();
 
-        assert_eq!(hashes[1], r_child.data);
-        assert_eq!(hashes[0], l_child.data);
+        assert_eq!(hashes[1], r_child.get_data());
+        assert_eq!(hashes[0], l_child.get_data());
     }
     #[test]
     fn test_get_sibling() {
@@ -714,19 +750,19 @@ mod test {
         assert_eq!(
             Data::from_str("02242b37d8e851f1e86f46790298c7097df06893d6226b7c1453c213e91717de")
                 .unwrap(),
-            node.data
+            node.get_data()
         );
 
         assert_eq!(
             Data::from_str("9576f4ade6e9bc3a6458b506ce3e4e890df29cb14cb5d3d887672aef55647a2b")
                 .unwrap(),
-            sibling.data
+            sibling.get_data()
         );
         let sibling = node.get_sibling();
         assert_eq!(
             Data::from_str("9576f4ade6e9bc3a6458b506ce3e4e890df29cb14cb5d3d887672aef55647a2b")
                 .unwrap(),
-            sibling.unwrap().data
+            sibling.unwrap().get_data()
         );
     }
     #[test]
@@ -742,11 +778,11 @@ mod test {
         assert_eq!(
             Data::from_str("02242b37d8e851f1e86f46790298c7097df06893d6226b7c1453c213e91717de")
                 .unwrap(),
-            node.data
+            node.get_data()
         );
         let parent = node.get_parent();
         assert_eq!(
-            parent.unwrap().data.to_string(),
+            parent.unwrap().get_data().to_string(),
             String::from("df46b17be5f66f0750a4b3efa26d4679db170a72d41eb56c3e4ff75a58c65386")
         );
     }
@@ -765,9 +801,8 @@ mod test {
         let mut p = Pollard::new()
             .modify(hashes, vec![])
             .expect("Pollard should not fail");
-        p.delete_single(2).expect("msg");
+        p.delete_single(2).expect("Node 2 should exist");
         assert_eq!(p.get_roots().len(), 1);
-
         let root = p.get_roots()[0].clone();
         assert_eq!(root, PolNode::default().as_rc());
     }
@@ -803,7 +838,7 @@ mod test {
 
         assert_eq!(p.roots.len(), 1);
         let (_, node, _) = p.grab_node(8).expect("This tree should have pos 8");
-        assert_eq!(node.data, hashes[0]);
+        assert_eq!(node.get_data(), hashes[0]);
     }
     #[derive(Debug, Deserialize)]
     struct TestCase {
@@ -831,7 +866,7 @@ mod test {
             .into_iter()
             .map(|root| root.get_data())
             .collect::<Vec<_>>();
-        assert_eq!(expected_roots, roots, "Test case failed {case:?}");
+        assert_eq!(expected_roots, roots, "Test case failed {:?}", case);
     }
     fn run_case_with_deletion(case: TestCase) {
         let hashes = case
@@ -855,13 +890,12 @@ mod test {
             .iter()
             .map(|root| sha256::Hash::from_hex(&root).unwrap())
             .collect::<Vec<_>>();
-        // println!("{:?}", p.get_roots());
         let roots = p
             .get_roots()
             .into_iter()
             .map(|root| root.get_data())
             .collect::<Vec<_>>();
-        assert_eq!(expected_roots, roots, "Test case failed {case:?}");
+        assert_eq!(expected_roots, roots, "Test case failed {:?}", case);
     }
 
     #[test]
@@ -884,5 +918,17 @@ mod test {
         for i in tests.deletion_tests {
             run_case_with_deletion(i);
         }
+    }
+    #[test]
+    fn test() {
+        let values = vec![0, 1, 2, 3, 4, 5, 6, 7];
+        let hashes: Vec<Data> = values.into_iter().map(|val| hash_from_u8(val)).collect();
+
+        let p = Pollard::new()
+            .modify(hashes.clone(), vec![])
+            .expect("Pollard should not fail")
+            .modify(vec![], vec![0, 3])
+            .expect("Still should not fail");
+        println!("{:?}", p.get_roots()[0].get_data());
     }
 }
