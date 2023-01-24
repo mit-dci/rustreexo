@@ -122,10 +122,10 @@ impl Debug for PolNode {
                     write!(f, "---- ")?;
                 }
             }
-            write!(f, "\n")?;
+            writeln!(f)?;
             fmt_row(f, next_nodes, i + 1)
         }
-        fmt_row(f, vec![Some(self.clone().as_rc())], 0)?;
+        fmt_row(f, vec![Some(self.clone().into_rc())], 0)?;
         Ok(())
     }
 }
@@ -157,12 +157,10 @@ impl PolNode {
         let aunt = if root {
             self.set_aunt(None);
             aunt
+        } else if PolNode::_is_l_niece(&aunt.clone().unwrap(), &self.clone().into_rc()) {
+            aunt.expect("msg").get_l_niece()
         } else {
-            if PolNode::_is_l_niece(&aunt.clone().unwrap(), &self.clone().as_rc()) {
-                aunt.expect("msg").get_l_niece()
-            } else {
-                aunt.expect("msg").get_r_niece()
-            }
+            aunt.expect("msg").get_r_niece()
         };
         if let Some(l_niece) = self.get_l_niece() {
             l_niece._update_aunt(aunt.clone(), false);
@@ -173,11 +171,7 @@ impl PolNode {
     }
     /// Returns whether or not `n` is `aunt's` left niece
     fn _is_l_niece(aunt: &Node, n: &Node) -> bool {
-        if aunt.get_l_niece().as_ref().eq(&Some(n)) {
-            true
-        } else {
-            false
-        }
+        aunt.get_l_niece().as_ref().eq(&Some(n))
     }
     /// Returns whether or not `n` is `aunt's` right niece
     fn get_children(&self) -> (Option<Node>, Option<Node>) {
@@ -209,9 +203,7 @@ impl PolNode {
     /// most of the data is retrieved from this.
     fn get_parent(&self) -> Option<Node> {
         //I'm a root, so no parent
-        if self.get_aunt().is_none() {
-            return None;
-        }
+        self.get_aunt()?;
         if let Some(aunt) = self.get_aunt() {
             // If aunt also has an aunt, then I take his sibling, as he's my parent
             if let Some(grandpa) = aunt.get_aunt() {
@@ -281,7 +273,7 @@ impl PolNode {
             r_niece: RefCell::new(r_niece),
         };
 
-        node.as_rc()
+        node.into_rc()
     }
     /// Swap this node's aunt with `other`
     fn swap_aunt(&self, other: &Node) {
@@ -289,7 +281,7 @@ impl PolNode {
     }
     /// Returns the current node as an Reference Counted Container "[Rc]". This is how
     /// nodes are stored inside the tree.
-    fn as_rc(self) -> Node {
+    fn into_rc(self) -> Node {
         Rc::new(self)
     }
     /// Set this node's aunt
@@ -309,7 +301,7 @@ impl PolNode {
 }
 /// A Pollard is a collection of trees that may or may not be pruned. We store all roots in
 /// the `roots` field. If we choose not to prune, all nodes will be owned by its ancestor
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct Pollard {
     /// Leaves are the actual data in the accumulator. Each UTXO will be a leaf, this is how
     /// many leafs there are this acc. Note that with swappiless deletion, deleting leaves don't change
@@ -396,7 +388,7 @@ impl Pollard {
 
         // If deleting a root, we just place a default node in it's place
         if is_root_position(pos, self.leaves, tree_rows(self.leaves)) {
-            self.roots[tree as usize] = PolNode::default().as_rc();
+            self.roots[tree as usize] = PolNode::default().into_rc();
             return Ok(());
         }
         // Grab the node we'll move up
@@ -473,7 +465,7 @@ impl Pollard {
     /// Adds a single node. Addition is a loop over all new nodes, calling add_single for each
     /// of them
     fn add_single(mut roots: Vec<Node>, node: Hash, mut num_leaves: u64) -> Vec<Node> {
-        let mut node = PolNode::new(node, None, None, None).as_rc();
+        let mut node = PolNode::new(node, None, None, None).into_rc();
 
         while num_leaves & 1 == 1 {
             // If num_leaves & 1 == 1, roots cannot be None
@@ -559,7 +551,7 @@ mod test {
     #[test]
     fn test_grab_node() {
         let values = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14];
-        let hashes = values.into_iter().map(|val| hash_from_u8(val)).collect();
+        let hashes = values.into_iter().map(hash_from_u8).collect();
 
         let p = Pollard::new()
             .modify(hashes, vec![])
@@ -586,7 +578,7 @@ mod test {
     #[test]
     fn test_recompute_hashes() {
         let values = vec![0, 1, 2, 3];
-        let hashes = values.into_iter().map(|val| hash_from_u8(val)).collect();
+        let hashes = values.into_iter().map(hash_from_u8).collect();
 
         let p = Pollard::new()
             .modify(hashes, vec![])
@@ -611,7 +603,7 @@ mod test {
     #[test]
     fn test_aunt() {
         let values = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14];
-        let hashes = values.into_iter().map(|val| hash_from_u8(val)).collect();
+        let hashes = values.into_iter().map(hash_from_u8).collect();
 
         let p = Pollard::new()
             .modify(hashes, vec![])
@@ -649,7 +641,7 @@ mod test {
     #[test]
     fn test_delete() {
         let values = vec![0, 1, 2, 3, 4, 5, 6, 7];
-        let hashes = values.into_iter().map(|val| hash_from_u8(val)).collect();
+        let hashes = values.into_iter().map(hash_from_u8).collect();
 
         let p = Pollard::new()
             .modify(hashes, vec![])
@@ -665,7 +657,7 @@ mod test {
     #[test]
     fn test_add() {
         let values = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14];
-        let hashes = values.into_iter().map(|val| hash_from_u8(val)).collect();
+        let hashes = values.into_iter().map(hash_from_u8).collect();
 
         let roots = Pollard::add(vec![], hashes, 0);
 
@@ -695,7 +687,7 @@ mod test {
         // 00  01
         // If I delete `01`, then `00` will become a root, moving it's hash to `02`
         let values = vec![0, 1];
-        let hashes: Vec<Data> = values.into_iter().map(|val| hash_from_u8(val)).collect();
+        let hashes: Vec<Data> = values.into_iter().map(hash_from_u8).collect();
 
         let mut p = Pollard::new()
             .modify(hashes.clone(), vec![])
@@ -709,7 +701,7 @@ mod test {
     #[test]
     fn test_get_children() {
         let values = vec![0, 1, 2, 3, 4, 5, 6, 7];
-        let hashes: Vec<Data> = values.into_iter().map(|val| hash_from_u8(val)).collect();
+        let hashes: Vec<Data> = values.into_iter().map(hash_from_u8).collect();
 
         let p = Pollard::new()
             .modify(hashes.clone(), vec![])
@@ -740,10 +732,10 @@ mod test {
     #[test]
     fn test_get_sibling() {
         let values = vec![0, 1, 2, 3, 4, 5, 6, 7];
-        let hashes: Vec<Data> = values.into_iter().map(|val| hash_from_u8(val)).collect();
+        let hashes: Vec<Data> = values.into_iter().map(hash_from_u8).collect();
 
         let p = Pollard::new()
-            .modify(hashes.clone(), vec![])
+            .modify(hashes, vec![])
             .expect("Pollard should not fail");
 
         let (sibling, node, _) = p.grab_node(8).expect("Node exists");
@@ -768,10 +760,10 @@ mod test {
     #[test]
     fn test_get_parent() {
         let values = vec![0, 1, 2, 3, 4, 5, 6, 7];
-        let hashes: Vec<Data> = values.into_iter().map(|val| hash_from_u8(val)).collect();
+        let hashes: Vec<Data> = values.into_iter().map(hash_from_u8).collect();
 
         let p = Pollard::new()
-            .modify(hashes.clone(), vec![])
+            .modify(hashes, vec![])
             .expect("Pollard should not fail");
 
         let (_, node, _) = p.grab_node(8).expect("Node exists");
@@ -796,7 +788,7 @@ mod test {
         // If I delete `02`, then `02` will become an empty root, it'll point to nothing
         // and its data will be Data::default()
         let values = vec![0, 1];
-        let hashes: Vec<Data> = values.into_iter().map(|val| hash_from_u8(val)).collect();
+        let hashes: Vec<Data> = values.into_iter().map(hash_from_u8).collect();
 
         let mut p = Pollard::new()
             .modify(hashes, vec![])
@@ -804,7 +796,7 @@ mod test {
         p.delete_single(2).expect("Node 2 should exist");
         assert_eq!(p.get_roots().len(), 1);
         let root = p.get_roots()[0].clone();
-        assert_eq!(root, PolNode::default().as_rc());
+        assert_eq!(root, PolNode::default().into_rc());
     }
     #[test]
     fn test_delete_non_root() {
@@ -828,7 +820,7 @@ mod test {
         // Where 08's data is just 00's
 
         let values = vec![0, 1, 2, 3, 4, 5, 6, 7];
-        let hashes: Vec<Data> = values.into_iter().map(|val| hash_from_u8(val)).collect();
+        let hashes: Vec<Data> = values.into_iter().map(hash_from_u8).collect();
 
         let p = Pollard::new()
             .modify(hashes.clone(), vec![])
@@ -859,11 +851,11 @@ mod test {
         let expected_roots = case
             .expected_roots
             .iter()
-            .map(|root| sha256::Hash::from_hex(&root).unwrap())
+            .map(|root| sha256::Hash::from_hex(root).unwrap())
             .collect::<Vec<_>>();
         let roots = p
             .get_roots()
-            .into_iter()
+            .iter()
             .map(|root| root.get_data())
             .collect::<Vec<_>>();
         assert_eq!(expected_roots, roots, "Test case failed {:?}", case);
@@ -888,11 +880,11 @@ mod test {
         let expected_roots = case
             .expected_roots
             .iter()
-            .map(|root| sha256::Hash::from_hex(&root).unwrap())
+            .map(|root| sha256::Hash::from_hex(root).unwrap())
             .collect::<Vec<_>>();
         let roots = p
             .get_roots()
-            .into_iter()
+            .iter()
             .map(|root| root.get_data())
             .collect::<Vec<_>>();
         assert_eq!(expected_roots, roots, "Test case failed {:?}", case);
@@ -922,10 +914,10 @@ mod test {
     #[test]
     fn test() {
         let values = vec![0, 1, 2, 3, 4, 5, 6, 7];
-        let hashes: Vec<Data> = values.into_iter().map(|val| hash_from_u8(val)).collect();
+        let hashes: Vec<Data> = values.into_iter().map(hash_from_u8).collect();
 
         let p = Pollard::new()
-            .modify(hashes.clone(), vec![])
+            .modify(hashes, vec![])
             .expect("Pollard should not fail")
             .modify(vec![], vec![0, 3])
             .expect("Still should not fail");
