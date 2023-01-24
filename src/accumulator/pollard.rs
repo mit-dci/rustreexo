@@ -920,16 +920,4 @@ mod test {
             run_case_with_deletion(i);
         }
     }
-    #[test]
-    fn test() {
-        let values = vec![0, 1, 2, 3, 4, 5, 6, 7];
-        let hashes: Vec<Data> = values.into_iter().map(hash_from_u8).collect();
-
-        let p = Pollard::new()
-            .modify(hashes, vec![])
-            .expect("Pollard should not fail")
-            .modify(vec![], vec![0, 3])
-            .expect("Still should not fail");
-        println!("{:?}", p.get_roots()[0].get_data());
-    }
 }
