@@ -275,8 +275,9 @@ pub fn tree_rows(n: u64) -> u8 {
     if n == 0 {
         return 0;
     }
-
-    (u64::BITS - (n - 1).leading_zeros()) as u8
+    // 64 is the number of bits in an u64. We can't use use u64::BITS, because this
+    // was added on 1.53, and our MSRV is 1.41
+    (64 - (n - 1).leading_zeros()) as u8
 }
 
 // root_position returns the position of the root at a given row
