@@ -381,6 +381,53 @@ impl Pollard {
             full,
         })
     }
+    /// Public interface for verifying proofs. Returns a result with a bool or an Error
+    /// True means the proof is true given the current stump, false means the proof is
+    /// not valid given the current stump.
+    ///# Examples
+    /// ```
+    ///   use bitcoin_hashes::{sha256::Hash as Sha256, Hash, HashEngine};
+    ///   use std::str::FromStr;
+    ///   use rustreexo::accumulator::{pollard::Pollard, proof::Proof};
+    ///   let acc = Pollard::new();
+    ///   // Creates a tree with those values as leafs
+    ///   let test_values:Vec<u8> = vec![0, 1, 2, 3, 4, 5, 6, 7];
+    ///   // Targets are nodes witch we intend to prove
+    ///   let targets = vec![0];
+    ///
+    ///   let mut proof_hashes = Vec::new();
+    ///   // This tree will look like this
+    ///   // 14
+    ///   // |-----------------\
+    ///   // 12                13
+    ///   // |---------\       |--------\
+    ///   // 08       09       10       11
+    ///   // |----\   |----\   |----\   |----\
+    ///   // 00   01  02   03  04   05  06   07
+    ///   // For proving 0, we need 01, 09 and 13's hashes. 00, 08, 12 and 14 can be calculated
+    ///   proof_hashes.push(Sha256::from_str("4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a").unwrap());
+    ///   proof_hashes.push(Sha256::from_str("9576f4ade6e9bc3a6458b506ce3e4e890df29cb14cb5d3d887672aef55647a2b").unwrap());
+    ///   proof_hashes.push(Sha256::from_str("29590a14c1b09384b94a2c0e94bf821ca75b62eacebc47893397ca88e3bbcbd7").unwrap());
+    ///
+    ///   let mut hashes = Vec::new();
+    ///   for i in test_values {
+    ///       let mut engine = Sha256::engine();
+    ///       engine.input(&[i]);
+    ///       let hash = Sha256::from_engine(engine);
+    ///       hashes.push(hash);
+    ///   }
+    ///   let acc = acc.modify(hashes.clone(), vec![]).unwrap();
+    ///   let p = Proof::new(targets, proof_hashes);
+    ///   assert!(acc.verify(&vec![hashes[0]] , &p).expect("This proof is valid"));
+    ///```
+    pub fn verify(&self, del_hashes: &[sha256::Hash], proof: &Proof) -> Result<bool, String> {
+        let roots = self
+            .roots
+            .iter()
+            .map(|root| root.get_data())
+            .collect::<Vec<_>>();
+        proof.verify(del_hashes, &roots, self.leaves)
+    }
     /// Returns a reference to this acc roots. Usually, API consumers won't care much about
     /// roots, serialization should use standard APIs.
     pub fn get_roots(&self) -> &Vec<Node> {
@@ -388,6 +435,10 @@ impl Pollard {
     }
     /// Proves that a given utxo is in the current Pollard
     pub fn prove(&self, targets: &[u64]) -> Result<Proof, String> {
+        // Nothing to prove
+        if self.roots.is_empty() || targets.is_empty() {
+            return Ok(Proof::default());
+        }
         let total_rows = tree_rows(self.leaves);
         let targets = detwin(targets.into(), total_rows);
         let needed_pos = get_proof_positions(&targets, self.leaves, total_rows);
@@ -842,7 +893,8 @@ mod test {
         .iter()
         .map(|hash| Data::from_hex(hash).unwrap())
         .collect();
-
+        // Just for feature compatibility test, do the same with a Stump and see if the proof
+        // passes
         let del_proof = Proof::new(vec![0, 3], del_proof_hashes);
         let stump = Stump::new()
             .modify(&hashes, &vec![], &Proof::default())
@@ -851,7 +903,7 @@ mod test {
             .modify(&vec![], &vec![hashes[0], hashes[3]], &del_proof)
             .unwrap()
             .0;
-        assert_eq!(proof.verify(&vec![hashes[5], hashes[7]], &stump), Ok(true));
+        assert_eq!(stump.verify(&vec![hashes[5], hashes[7]], &proof), Ok(true));
     }
     #[test]
     fn test_delete_non_root() {
