@@ -527,7 +527,8 @@ impl Pollard {
         roots
     }
     /// Deletes nodes from the accumulator
-    fn delete(mut self, stxos: Vec<u64>) -> Result<Vec<Node>, String> {
+    fn delete(mut self, mut stxos: Vec<u64>) -> Result<Vec<Node>, String> {
+        stxos.sort();
         let stxos = util::detwin(stxos, util::tree_rows(self.leaves));
         for stxo in stxos {
             self.delete_single(stxo)?;
@@ -996,7 +997,25 @@ mod test {
             .collect::<Vec<_>>();
         assert_eq!(expected_roots, roots, "Test case failed {:?}", case);
     }
+    #[test]
+    fn test_multiple_modify() {
+        let initial_values = [0_u8, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+            .iter()
+            .map(|val| hash_from_u8(*val))
+            .collect::<Vec<_>>();
+        let acc = Pollard::new().modify(initial_values, vec![]).unwrap();
+        let acc = acc.modify(vec![], vec![0, 5, 7]).unwrap();
+        let additional_values = [0_u8, 1, 2, 3, 4]
+            .iter()
+            .map(|val| hash_from_u8(*val))
+            .collect::<Vec<_>>();
+        let acc = acc.modify(additional_values, vec![16, 18]).unwrap();
 
+        assert_eq!(
+            acc.get_roots()[0].get_data().to_hex(),
+            String::from("4fa7bf57f49ac06a6a54c22d033a30abcde83f3244e04b94e161d6e99a530607")
+        );
+    }
     #[test]
     fn run_tests_from_cases() {
         #[derive(Deserialize)]
