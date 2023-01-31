@@ -1,6 +1,6 @@
 use super::stump::UpdateData;
 use super::util::get_proof_positions;
-use crate::accumulator::{stump::Stump, types, util};
+use crate::accumulator::{types, util};
 use bitcoin_hashes::{sha256, Hash};
 
 #[derive(Debug, Default)]
@@ -73,59 +73,29 @@ impl Proof {
             hashes: hashes,
         }
     }
-    /// Public interface for verifying proofs. Returns a result with a bool or an Error
-    /// True means the proof is true given the current stump, false means the proof is
-    /// not valid given the current stump.
-    ///# Examples
-    /// ```
-    ///   use bitcoin_hashes::{sha256::Hash as Sha256, Hash, HashEngine};
-    ///   use std::str::FromStr;
-    ///   use rustreexo::accumulator::{stump::Stump, proof::Proof};
-    ///   let s = Stump::new();
-    ///   // Creates a tree with those values as leafs
-    ///   let test_values:Vec<u8> = vec![0, 1, 2, 3, 4, 5, 6, 7];
-    ///   // Targets are nodes witch we intend to prove
-    ///   let targets = vec![0];
-    ///
-    ///   let mut proof_hashes = Vec::new();
-    ///   // This tree will look like this
-    ///   // 14
-    ///   // |-----------------\
-    ///   // 12                13
-    ///   // |---------\       |--------\
-    ///   // 08       09       10       11
-    ///   // |----\   |----\   |----\   |----\
-    ///   // 00   01  02   03  04   05  06   07
-    ///   // For proving 0, we need 01, 09 and 13's hashes. 00, 08, 12 and 14 can be calculated
-    ///   proof_hashes.push(Sha256::from_str("4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a").unwrap());
-    ///   proof_hashes.push(Sha256::from_str("9576f4ade6e9bc3a6458b506ce3e4e890df29cb14cb5d3d887672aef55647a2b").unwrap());
-    ///   proof_hashes.push(Sha256::from_str("29590a14c1b09384b94a2c0e94bf821ca75b62eacebc47893397ca88e3bbcbd7").unwrap());
-    ///
-    ///   let mut hashes = Vec::new();
-    ///   for i in test_values {
-    ///       let mut engine = Sha256::engine();
-    ///       engine.input(&[i]);
-    ///       let hash = Sha256::from_engine(engine);
-    ///       hashes.push(hash);
-    ///   }
-    ///   let s = s.modify(&hashes, &vec![], &Proof::default()).unwrap().0;
-    ///   let p = Proof::new(targets, proof_hashes);
-    ///   assert!(p.verify(&vec![hashes[0]] , &s).expect("This proof is valid"));
-    ///```
-    pub fn verify(&self, del_hashes: &Vec<sha256::Hash>, stump: &Stump) -> Result<bool, String> {
+    /// Low level implementation for proof verification. We don't expose this method,
+    /// because different accumulators hold their roots in different formats. Since you need
+    /// those roots (and the number of leaves), you should call verify from a given acc, and this
+    /// acc will call this method in the appropriated way
+    pub(crate) fn verify(
+        &self,
+        del_hashes: &[sha256::Hash],
+        roots: &[sha256::Hash],
+        leaves: u64,
+    ) -> Result<bool, String> {
         if self.targets.len() == 0 {
             return Ok(true);
         }
 
         let mut calculated_roots = self
-            .calculate_hashes(del_hashes, stump)?
+            .calculate_hashes(del_hashes, leaves)?
             .1
             .into_iter()
             .peekable();
 
         let mut number_matched_roots = 0;
 
-        for root in stump.roots.iter().rev() {
+        for root in roots.iter().rev() {
             if let Some(next_calculated_root) = calculated_roots.peek() {
                 if *next_calculated_root == *root {
                     number_matched_roots += 1;
@@ -153,15 +123,15 @@ impl Proof {
     /// passing a `bitcoin_hashes::sha256::Hash::all_zeros()` instead of the actual hash.
     pub(crate) fn calculate_hashes(
         &self,
-        del_hashes: &Vec<sha256::Hash>,
-        stump: &Stump,
+        del_hashes: &[sha256::Hash],
+        leaves: u64,
     ) -> Result<(Vec<(u64, sha256::Hash)>, Vec<sha256::Hash>), String> {
         // Where all the root hashes that we've calculated will go to.
-        let total_rows = util::tree_rows(stump.leafs);
+        let total_rows = util::tree_rows(leaves);
 
         // Where all the parent hashes we've calculated in a given row will go to.
         let mut calculated_root_hashes =
-            Vec::<sha256::Hash>::with_capacity(util::num_roots(stump.leafs) as usize);
+            Vec::<sha256::Hash>::with_capacity(util::num_roots(leaves) as usize);
 
         // As we calculate nodes upwards, it accumulates here
         let mut nodes: Vec<_> = self
@@ -188,7 +158,7 @@ impl Proof {
             while let Some((pos, hash)) = row_nodes.next() {
                 let next_to_prove = util::parent(pos, total_rows);
                 // If the current position is a root, we add that to our result and don't go any further
-                if util::is_root_position(pos, stump.leafs, total_rows) {
+                if util::is_root_position(pos, leaves, total_rows) {
                     calculated_root_hashes.push(hash);
                     continue;
                 }
@@ -665,7 +635,7 @@ mod tests {
                 )
                 .unwrap();
 
-            let res = cached_proof.verify(&cached_hashes, &stump);
+            let res = stump.verify(&cached_hashes, &cached_proof);
 
             let expected_roots: Vec<_> = case_values
                 .expected_roots
@@ -830,7 +800,7 @@ mod tests {
             )
             .unwrap();
 
-        let res = new_proof.verify(&vec![hash_from_u8(0), hash_from_u8(7)], &stump);
+        let res = stump.verify(&vec![hash_from_u8(0), hash_from_u8(7)], &new_proof);
         assert_eq!(res, Ok(true));
     }
     fn hash_from_u8(value: u8) -> bitcoin_hashes::sha256::Hash {
@@ -900,7 +870,7 @@ mod tests {
             .map(|hash| bitcoin_hashes::sha256::Hash::from_str(hash).unwrap())
             .zip(&expected_pos);
 
-        let calculated = p.calculate_hashes(&del_hashes, &s);
+        let calculated = p.calculate_hashes(&del_hashes, s.leafs);
 
         // We don't expect any errors from this simple test
         assert!(calculated.is_ok());
@@ -940,7 +910,7 @@ mod tests {
             .target_preimages
             .into_iter()
             .map(|target| hash_from_u8(target))
-            .collect();
+            .collect::<Vec<_>>();
 
         let proof_hashes = case
             .proofhashes
@@ -951,7 +921,7 @@ mod tests {
         let p = Proof::new(targets, proof_hashes);
         let expected = case.expected;
 
-        let res = p.verify(&del_hashes, &s);
+        let res = s.verify(&del_hashes, &p);
         assert!(Ok(expected) == res);
     }
     #[test]

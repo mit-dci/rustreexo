@@ -327,6 +327,23 @@ pub fn is_right_sibling(node: u64, next: u64) -> bool {
     node | 1 == next
 }
 
+// get_roots_reverse gives you the positions of the tree roots, given a number of leaves.
+
+// next_pow2 returns the next power of 2
+// ex: n = 9 will return 16. n = 33 will return 64
+pub fn next_pow2(n: u64) -> u64 {
+    if n == 0 {
+        return 1;
+    }
+    let mut t = n - 1;
+    t |= t >> 1;
+    t |= t >> 2;
+    t |= t >> 4;
+    t |= t >> 8;
+    t |= t >> 16;
+    t |= t >> 32;
+    t + 1
+}
 /// Returns whether a and b are sibling or not
 fn is_sibling(a: u64, b: u64) -> bool {
     a ^ 1 == b
