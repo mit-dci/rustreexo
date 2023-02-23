@@ -9,4 +9,5 @@
 //! This lib have all basic building blocks to use Utreexo in a project. It is possible to create a
 //! new accumulator, add and delete elements, verify proofs, and serialize and deserialize then.
 //! For more information, check the documentation of each module.
+#![cfg_attr(any(bench), feature(test))]
 pub mod accumulator;

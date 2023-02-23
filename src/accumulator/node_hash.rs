@@ -189,19 +189,10 @@ impl NodeHash {
 
 #[cfg(test)]
 mod test {
+    use super::NodeHash;
+    use crate::accumulator::util::hash_from_u8;
     use std::str::FromStr;
 
-    use bitcoin_hashes::{sha256, Hash, HashEngine};
-
-    use super::NodeHash;
-
-    fn hash_from_u8(value: u8) -> NodeHash {
-        let mut engine = bitcoin_hashes::sha256::Hash::engine();
-
-        engine.input(&[value]);
-
-        sha256::Hash::from_engine(engine).into()
-    }
     #[test]
     fn test_parent_hash() {
         let hash1 = hash_from_u8(0);
