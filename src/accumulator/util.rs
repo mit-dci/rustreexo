@@ -279,7 +279,15 @@ pub fn get_proof_positions(targets: &[u64], num_leaves: u64, forest_rows: u8) ->
 
     proof_positions
 }
+#[cfg(test)]
+#[inline]
+pub (crate) fn hash_from_u8(value: u8) -> sha256::Hash {
+    let mut engine = bitcoin_hashes::sha256::Hash::engine();
 
+    bitcoin_hashes::HashEngine::input(&mut engine, &[value]);
+
+    sha256::Hash::from_engine(engine)
+}
 #[cfg(test)]
 mod tests {
     use super::roots_to_destroy;
