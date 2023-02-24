@@ -1,0 +1,20 @@
+[package]
+name = "librustreexo"
+description = "C Bindings for rustreexo"
+version = "0.1.0"
+authors = ["Davidson Souza <davidson.lucas.souza@gmail.com>"]
+license = "MIT"
+edition = "2018"
+homepage = "https://github.com/mit-dci/rustreexo"
+repository = "https://github.com/mit-dci/rustreexo"
+
+[workspace]
+members = ["."]
+
+[lib]
+name = "rustreexo"
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[dependencies]
+rustreexo = { path = "../" }
+bitcoin_hashes = "0.11"
