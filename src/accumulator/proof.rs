@@ -1,5 +1,7 @@
-use super::stump::UpdateData;
+use std::collections::HashMap;
+
 use super::util::get_proof_positions;
+use super::{stump::UpdateData, util::tree_rows};
 use crate::accumulator::{stump::Stump, types, util};
 use bitcoin_hashes::{sha256, Hash};
 
@@ -139,7 +141,55 @@ impl Proof {
         }
         Ok(true)
     }
+    /// Returns the elements needed to prove a subset of targets. For example, a tree with
+    /// 8 leaves, if we cache `[0, 2, 6, 7]`, and we need to prove `[2, 7]` only, we have to remove
+    /// elements for 0 and 7. The original proof is `[1, 3, 10]`, and we can compute `[8, 9, 11, 12, 13, 14]`.
+    /// But for `[2, 7]` we need `[3, 6, 8, 10]`, and compute `[9, 11, 12, 13, 14]`
+    /// // ```!
+    /// // 14
+    /// // |---------------\
+    /// // 12              13
+    /// // |------\        |-------\
+    /// // 8       9       10      11
+    /// // |---\   |---\   |---\   |---\
+    /// // 0   1   2   3   4   5   6   7
+    /// ```
+    pub fn get_proof_subset(
+        &self,
+        del_hashes: &[sha256::Hash],
+        new_targets: &[u64],
+        num_leaves: u64,
+    ) -> Result<Proof, String> {
+        let forest_rows = tree_rows(num_leaves);
+        let old_proof_positions = get_proof_positions(&self.targets, num_leaves, forest_rows);
+        let needed_positions = get_proof_positions(new_targets, num_leaves, forest_rows);
+        let (intermediate_positions, _) =
+            self.calculate_hashes(&del_hashes.to_vec(), num_leaves)?;
 
+        let mut old_proof = old_proof_positions
+            .iter()
+            .copied()
+            .zip(self.hashes.iter().copied())
+            .collect::<HashMap<u64, sha256::Hash>>();
+
+        old_proof.extend(intermediate_positions);
+
+        let mut new_proof = Vec::new();
+        let mut missing_positions = Vec::new();
+        for pos in needed_positions {
+            if old_proof.contains_key(&pos) {
+                new_proof.push((pos, *old_proof.get(&pos).unwrap()));
+            } else {
+                missing_positions.push(pos);
+            }
+        }
+        new_proof.sort();
+        let (_, new_proof): (Vec<u64>, Vec<sha256::Hash>) = new_proof.into_iter().unzip();
+        Ok(Proof {
+            targets: new_targets.to_vec(),
+            hashes: new_proof,
+        })
+    }
     /// Returns how many targets this proof has
     pub fn targets(&self) -> usize {
         self.targets.len()
@@ -336,7 +386,8 @@ impl Proof {
 
         final_targets.sort();
 
-        let (new_target_pos, target_hashes) = final_targets.clone().into_iter().unzip();
+        let (new_target_pos, target_hashes): (Vec<_>, Vec<_>) =
+            final_targets.clone().into_iter().unzip();
         // Grab all the new nodes after this add.
         let mut needed_proof_positions =
             util::get_proof_positions(&new_target_pos, num_leaves, util::tree_rows(num_leaves));
@@ -922,6 +973,42 @@ mod tests {
             }
         }
     }
+    #[test]
+    fn test_get_proof_subset() {
+        // Tests if the calculated roots and nodes are correct.
+        // The values we use to get some hashes
+        let preimages = vec![0, 1, 2, 3, 4, 5, 6, 7];
+        let hashes = preimages
+            .into_iter()
+            .map(|preimage| hash_from_u8(preimage))
+            .collect();
+        // Create a new stump with 8 leaves and 1 root
+        let s = Stump::new()
+            .modify(&hashes, &vec![], &Proof::default())
+            .expect("This stump is valid")
+            .0;
+
+        // Nodes that will be deleted
+        let del_hashes = vec![hashes[0], hashes[2], hashes[4], hashes[6]];
+        let proof = vec![
+            "4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a",
+            "084fed08b978af4d7d196a7446a86b58009e636b611db16211b65a9aadff29c5",
+            "e77b9a9ae9e30b0dbdb6f510a264ef9de781501d7b6b92ae89eb059c5ab743db",
+            "ca358758f6d27e6cf45272937977a748fd88391db679ceda7dc7bf1f005ee879",
+        ];
+        let proof_hashes = proof
+            .into_iter()
+            .map(|hash| bitcoin_hashes::sha256::Hash::from_str(hash).unwrap())
+            .collect();
+
+        let p = Proof::new(vec![0, 2, 4, 6], proof_hashes);
+
+        let subset = p.get_proof_subset(&del_hashes, &[0], s.leafs).unwrap();
+
+        assert_eq!(subset.verify(&vec![del_hashes[0]], &s), Ok(true));
+        assert_eq!(subset.verify(&vec![del_hashes[2]], &s), Ok(false));
+    }
+
     fn run_single_case(case: &serde_json::Value) {
         let case = serde_json::from_value::<TestCase>(case.clone()).expect("Invalid test case");
         let roots = case
@@ -953,6 +1040,17 @@ mod tests {
 
         let res = p.verify(&del_hashes, &s);
         assert!(Ok(expected) == res);
+        // Test getting proof subset (only if the original proof is valid)
+        if expected {
+            let (subset, _) = p.targets.split_at(p.targets() / 2);
+            let proof = p.get_proof_subset(&del_hashes, subset, s.leafs).unwrap();
+            let set_hashes = subset
+                .iter()
+                .map(|preimage| hash_from_u8(*preimage as u8))
+                .collect();
+
+            assert_eq!(proof.verify(&set_hashes, &s), Ok(true));
+        }
     }
     #[test]
     fn test_proof_verify() {

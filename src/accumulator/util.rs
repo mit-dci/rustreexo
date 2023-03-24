@@ -333,9 +333,9 @@ fn is_sibling(a: u64, b: u64) -> bool {
 }
 /// Returns which node should have its hashes on the proof, along with all nodes
 /// whose hashes will be calculated to reach a root
-pub fn get_proof_positions(targets: &Vec<u64>, num_leaves: u64, forest_rows: u8) -> Vec<u64> {
+pub fn get_proof_positions(targets: &[u64], num_leaves: u64, forest_rows: u8) -> Vec<u64> {
     let mut proof_positions = vec![];
-    let mut computed_positions = targets.clone();
+    let mut computed_positions: Vec<_> = targets.iter().copied().collect();
     computed_positions.sort();
 
     for row in 0..=forest_rows {
