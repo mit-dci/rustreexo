@@ -118,7 +118,7 @@ impl Proof {
         }
 
         let mut calculated_roots = self
-            .calculate_hashes(del_hashes, stump)?
+            .calculate_hashes(del_hashes, stump.leafs)?
             .1
             .into_iter()
             .peekable();
@@ -154,14 +154,14 @@ impl Proof {
     pub(crate) fn calculate_hashes(
         &self,
         del_hashes: &Vec<sha256::Hash>,
-        stump: &Stump,
+        num_leaves: u64,
     ) -> Result<(Vec<(u64, sha256::Hash)>, Vec<sha256::Hash>), String> {
         // Where all the root hashes that we've calculated will go to.
-        let total_rows = util::tree_rows(stump.leafs);
+        let total_rows = util::tree_rows(num_leaves);
 
         // Where all the parent hashes we've calculated in a given row will go to.
         let mut calculated_root_hashes =
-            Vec::<sha256::Hash>::with_capacity(util::num_roots(stump.leafs) as usize);
+            Vec::<sha256::Hash>::with_capacity(util::num_roots(num_leaves) as usize);
 
         // As we calculate nodes upwards, it accumulates here
         let mut nodes: Vec<_> = self
@@ -188,7 +188,7 @@ impl Proof {
             while let Some((pos, hash)) = row_nodes.next() {
                 let next_to_prove = util::parent(pos, total_rows);
                 // If the current position is a root, we add that to our result and don't go any further
-                if util::is_root_position(pos, stump.leafs, total_rows) {
+                if util::is_root_position(pos, num_leaves, total_rows) {
                     calculated_root_hashes.push(hash);
                     continue;
                 }
@@ -900,7 +900,7 @@ mod tests {
             .map(|hash| bitcoin_hashes::sha256::Hash::from_str(hash).unwrap())
             .zip(&expected_pos);
 
-        let calculated = p.calculate_hashes(&del_hashes, &s);
+        let calculated = p.calculate_hashes(&del_hashes, s.leafs);
 
         // We don't expect any errors from this simple test
         assert!(calculated.is_ok());
