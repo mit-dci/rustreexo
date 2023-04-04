@@ -9,7 +9,7 @@ use super::{
     transform
 };
 
-use bitcoin::hashes::{sha256, Hash, HashEngine};
+use bitcoin::hashes::{sha512_256, Hash, HashEngine};
 
 /// Pollard is the sparse representation of the utreexo forest
 /// It is a collection of multitude of trees with leaves that are
@@ -66,7 +66,7 @@ impl Pollard {
     // AddSingle adds a single given utxo to the tree
     // TODO activate caching (use remember). This isn't done in the
     // Go repo either yet
-    fn add_single(&mut self, utxo: sha256::Hash, remember: bool) {
+    fn add_single(&mut self, utxo: sha512_256::Hash, remember: bool) {
 
         // recurse from the right side of the tree until we hit a tree with no root
         // Destorys roots along the way
@@ -289,7 +289,7 @@ impl Pollard {
 #[derive(Clone)]
 pub struct PolNode {
     // The hash
-    pub data: sha256::Hash,
+    pub data: sha512_256::Hash,
 
     pub l_niece: Option<Box<PolNode>>,
     pub r_niece: Option<Box<PolNode>>,
@@ -298,7 +298,7 @@ pub struct PolNode {
 impl PolNode {
     /// aunt_op returns the hash of a nodes' nieces. Errors if called on nieces
     /// that are nil.
-    fn aunt_op(&self) -> sha256::Hash {
+    fn aunt_op(&self) -> sha512_256::Hash {
         types::parent_hash(&self.l_niece.as_ref().unwrap().data, &self.r_niece.as_ref().unwrap().data)
     }
 
@@ -355,7 +355,7 @@ fn pol_swap<'a, 'b>(mut a: &'a mut PolNode, mut asib: &'b mut PolNode, mut b: &'
 #[cfg(test)]
 mod tests {
     fn pollard_add_five() {
-        use bitcoin::hashes::{sha256, Hash, HashEngine};
+        use bitcoin::hashes::{sha512_256, Hash, HashEngine};
         use super::types;
 
         let mut pollard = super::Pollard::new();
@@ -363,10 +363,10 @@ mod tests {
         for i in 1..5 {
             // boilerplate hashgen
             // TODO maybe there's a better way?
-            let mut engine = bitcoin::hashes::sha256::Hash::engine();
+            let mut engine = bitcoin::hashes::sha512_256::Hash::engine();
             let num: &[u8; 1] = &[i as u8];
             engine.input(num);
-            let h = sha256::Hash::from_engine(engine);
+            let h = sha512_256::Hash::from_engine(engine);
             let leaf = types::Leaf{hash: h, remember: false};
 
             // add one leaf
@@ -414,7 +414,7 @@ mod tests {
     }
 
     fn test_pol_del() {
-        use bitcoin::hashes::{sha256, Hash, HashEngine};
+        use bitcoin::hashes::{sha512_256, Hash, HashEngine};
         use super::types;
 
         let mut pol = super::Pollard::new();
@@ -422,10 +422,10 @@ mod tests {
         for i in 0..5 {
             // boilerplate hashgen
             // TODO maybe there's a better way?
-            let mut engine = bitcoin::hashes::sha256::Hash::engine();
+            let mut engine = bitcoin::hashes::sha512_256::Hash::engine();
             let num: &[u8; 1] = &[i as u8];
             engine.input(num);
-            let h = sha256::Hash::from_engine(engine);
+            let h = sha512_256::Hash::from_engine(engine);
             println!("for i {}: {:?}", i, &h);
             let leaf = types::Leaf{hash: h, remember: false};
 
@@ -438,10 +438,10 @@ mod tests {
             match node {
                 Err(e) => (panic!("no pollard node found")),
                 Ok((node, node_sib, hn)) => {
-                    let mut engine = bitcoin::hashes::sha256::Hash::engine();
+                    let mut engine = bitcoin::hashes::sha512_256::Hash::engine();
                     let num: &[u8; 1] = &[i as u8];
                     engine.input(num);
-                    let h = sha256::Hash::from_engine(engine);
+                    let h = sha512_256::Hash::from_engine(engine);
 
                     println!("fetched node hash {}: {:?}", i, &node.l_niece.unwrap().data);
                     println!("fetched node_sib hash: {:?}", &node_sib.data);
@@ -463,16 +463,16 @@ mod tests {
 
     #[test]
     fn test_pol_add() {
-        use bitcoin::hashes::{sha256, Hash, HashEngine};
+        use bitcoin::hashes::{sha512_256, Hash, HashEngine};
         use super::types;
 
         let mut pol = super::Pollard::new();
 
         for i in 0..50000 {
-            let mut engine = bitcoin::hashes::sha256::Hash::engine();
+            let mut engine = bitcoin::hashes::sha512_256::Hash::engine();
             let num: &[u8; 1] = &[(i % 255) as u8];
             engine.input(num);
-            let h = sha256::Hash::from_engine(engine);
+            let h = sha512_256::Hash::from_engine(engine);
             let leaf = types::Leaf{hash: h, remember: false};
 
             pol.modify(vec![leaf], vec![]);
@@ -494,31 +494,31 @@ mod tests {
 
     #[test]
     fn test_pol_swap() {
-        use bitcoin::hashes::{sha256, Hash, HashEngine};
+        use bitcoin::hashes::{sha512_256, Hash, HashEngine};
         use std::mem;
 
-        let mut engine = bitcoin::hashes::sha256::Hash::engine();
+        let mut engine = bitcoin::hashes::sha512_256::Hash::engine();
         let num: &[u8; 1] = &[1 as u8];
         engine.input(num);
-        let h1 = sha256::Hash::from_engine(engine);
+        let h1 = sha512_256::Hash::from_engine(engine);
         let h1_copy = h1.clone();
 
-        let mut engine1 = bitcoin::hashes::sha256::Hash::engine();
+        let mut engine1 = bitcoin::hashes::sha512_256::Hash::engine();
         let num2: &[u8; 1] = &[2 as u8];
         engine1.input(num2);
-        let h2 = sha256::Hash::from_engine(engine1);
+        let h2 = sha512_256::Hash::from_engine(engine1);
         let h2_copy = h2.clone();
 
-        let mut engine2 = bitcoin::hashes::sha256::Hash::engine();
+        let mut engine2 = bitcoin::hashes::sha512_256::Hash::engine();
         let num3: &[u8; 1] = &[3 as u8];
         engine2.input(num3);
-        let h3 = sha256::Hash::from_engine(engine2);
+        let h3 = sha512_256::Hash::from_engine(engine2);
         let h3_copy = h3.clone();
 
-        let mut engine3 = bitcoin::hashes::sha256::Hash::engine();
+        let mut engine3 = bitcoin::hashes::sha512_256::Hash::engine();
         let num4: &[u8; 1] = &[3 as u8];
         engine3.input(num4);
-        let h4 = sha256::Hash::from_engine(engine3);
+        let h4 = sha512_256::Hash::from_engine(engine3);
         let h4_copy = h4.clone();
 
         //let mut a = super::PolNode{
