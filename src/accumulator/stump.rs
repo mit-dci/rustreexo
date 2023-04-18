@@ -56,7 +56,7 @@ impl Stump {
         proof: &Proof,
     ) -> Result<(Stump, UpdateData), String> {
         let mut root_candidates = proof
-            .calculate_hashes(del_hashes, self)?
+            .calculate_hashes(del_hashes, self.leafs)?
             .1
             .into_iter()
             .rev()
@@ -126,7 +126,7 @@ impl Stump {
         }
 
         let del_hashes = vec![sha256::Hash::all_zeros(); proof.targets()];
-        proof.calculate_hashes(&del_hashes, self)
+        proof.calculate_hashes(&del_hashes, self.leafs)
     }
     /// Adds new leafs into the root
     fn add(
