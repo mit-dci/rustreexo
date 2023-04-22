@@ -1,11 +1,11 @@
 use super::{proof::Proof, types, util};
-use bitcoin_hashes::{sha256, Hash};
+use bitcoin_hashes::{sha512_256, Hash};
 use std::vec;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Stump {
     pub leafs: u64,
-    pub roots: Vec<bitcoin_hashes::sha256::Hash>,
+    pub roots: Vec<bitcoin_hashes::sha512_256::Hash>,
 }
 #[derive(Debug, Clone, Default)]
 pub struct UpdateData {
@@ -14,9 +14,9 @@ pub struct UpdateData {
     /// pre_num_leaves is the numLeaves of the stump before the add.
     pub(crate) prev_num_leaves: u64,
     /// new_add are the new hashes for the newly created roots after the addition.
-    pub(crate) new_add: Vec<(u64, sha256::Hash)>,
+    pub(crate) new_add: Vec<(u64, sha512_256::Hash)>,
     /// new_del are the new hashes after the deletion.
-    pub(crate) new_del: Vec<(u64, sha256::Hash)>,
+    pub(crate) new_del: Vec<(u64, sha512_256::Hash)>,
 }
 
 impl Stump {
@@ -39,7 +39,7 @@ impl Stump {
     ///# Example
     /// ```
     ///   use rustreexo::accumulator::{stump::Stump, proof::Proof};
-    ///   use bitcoin_hashes::sha256::Hash;
+    ///   use bitcoin_hashes::sha512_256::Hash;
     ///   use std::str::FromStr;
     ///
     ///   let s = Stump::new();
@@ -51,8 +51,8 @@ impl Stump {
     /// ```
     pub fn modify(
         &self,
-        utxos: &Vec<bitcoin_hashes::sha256::Hash>,
-        del_hashes: &Vec<bitcoin_hashes::sha256::Hash>,
+        utxos: &Vec<bitcoin_hashes::sha512_256::Hash>,
+        del_hashes: &Vec<bitcoin_hashes::sha512_256::Hash>,
         proof: &Proof,
     ) -> Result<(Stump, UpdateData), String> {
         let mut root_candidates = proof
@@ -118,24 +118,28 @@ impl Stump {
 
     fn remove(
         &self,
-        del_hashes: &Vec<bitcoin_hashes::sha256::Hash>,
+        del_hashes: &Vec<bitcoin_hashes::sha512_256::Hash>,
         proof: &Proof,
-    ) -> Result<(Vec<(u64, sha256::Hash)>, Vec<sha256::Hash>), String> {
+    ) -> Result<(Vec<(u64, sha512_256::Hash)>, Vec<sha512_256::Hash>), String> {
         if del_hashes.len() == 0 {
             return Ok((vec![], self.roots.clone()));
         }
 
-        let del_hashes = vec![sha256::Hash::all_zeros(); proof.targets()];
+        let del_hashes = vec![sha512_256::Hash::all_zeros(); proof.targets()];
         proof.calculate_hashes(&del_hashes, self.leafs)
     }
     /// Adds new leafs into the root
     fn add(
-        mut roots: Vec<bitcoin_hashes::sha256::Hash>,
-        utxos: &Vec<bitcoin_hashes::sha256::Hash>,
+        mut roots: Vec<bitcoin_hashes::sha512_256::Hash>,
+        utxos: &Vec<bitcoin_hashes::sha512_256::Hash>,
         mut leaves: u64,
-    ) -> (Vec<sha256::Hash>, Vec<(u64, sha256::Hash)>, Vec<u64>) {
+    ) -> (
+        Vec<sha512_256::Hash>,
+        Vec<(u64, sha512_256::Hash)>,
+        Vec<u64>,
+    ) {
         let after_rows = util::tree_rows(leaves + (utxos.len() as u64));
-        let mut updated_subtree: Vec<(u64, sha256::Hash)> = vec![];
+        let mut updated_subtree: Vec<(u64, sha512_256::Hash)> = vec![];
         let all_deleted = util::roots_to_destroy(utxos.len() as u64, leaves, &roots);
 
         for (i, add) in utxos.iter().enumerate() {
@@ -162,7 +166,7 @@ impl Stump {
                 let root = roots.pop();
 
                 if let Some(root) = root {
-                    if root != sha256::Hash::all_zeros() {
+                    if root != sha512_256::Hash::all_zeros() {
                         updated_subtree.push((util::left_sibling(pos), root));
                         updated_subtree.push((pos, to_add));
                         pos = util::parent(pos, after_rows);
@@ -188,7 +192,7 @@ impl Stump {
 mod test {
     use super::Stump;
     use crate::accumulator::proof::Proof;
-    use bitcoin_hashes::{hex::ToHex, sha256, Hash, HashEngine};
+    use bitcoin_hashes::{sha256, sha512_256, Hash, HashEngine};
     use serde::Deserialize;
     use std::{str::FromStr, vec};
 
@@ -242,7 +246,7 @@ mod test {
             let roots = data
                 .roots
                 .iter()
-                .map(|hash| sha256::Hash::from_str(hash).unwrap())
+                .map(|hash| sha512_256::Hash::from_str(hash).unwrap())
                 .collect();
             let stump = Stump {
                 leafs: data.leaves,
@@ -257,12 +261,12 @@ mod test {
             let del_hashes = data
                 .del_hashes
                 .iter()
-                .map(|hash| sha256::Hash::from_str(hash).unwrap())
+                .map(|hash| sha512_256::Hash::from_str(hash).unwrap())
                 .collect();
             let proof_hashes = data
                 .proof_hashes
                 .iter()
-                .map(|hash| sha256::Hash::from_str(hash).unwrap())
+                .map(|hash| sha512_256::Hash::from_str(hash).unwrap())
                 .collect();
             let proof = Proof::new(data.proof_targets, proof_hashes);
             let (_, updated) = stump.modify(&utxos, &del_hashes, &proof).unwrap();
@@ -270,7 +274,7 @@ mod test {
             let new_add_hash: Vec<_> = data
                 .new_add_hash
                 .iter()
-                .map(|hash| sha256::Hash::from_str(hash).unwrap())
+                .map(|hash| sha512_256::Hash::from_str(hash).unwrap())
                 .collect();
             let new_add: Vec<_> = data
                 .new_add_pos
@@ -281,7 +285,7 @@ mod test {
             let new_del_hash: Vec<_> = data
                 .new_del_hashes
                 .iter()
-                .map(|hash| sha256::Hash::from_str(hash).unwrap())
+                .map(|hash| sha512_256::Hash::from_str(hash).unwrap())
                 .collect();
             let new_del: Vec<_> = data
                 .new_del_pos
@@ -319,19 +323,19 @@ mod test {
             "df46b17be5f66f0750a4b3efa26d4679db170a72d41eb56c3e4ff75a58c65386",
         ]
         .iter()
-        .map(|hash| sha256::Hash::from_str(*hash).unwrap())
+        .map(|hash| sha512_256::Hash::from_str(*hash).unwrap())
         .collect();
 
         let positions: Vec<_> = positions.into_iter().zip(hashes.into_iter()).collect();
 
         assert_eq!(positions, updated.new_add);
     }
-    fn hash_from_u8(value: u8) -> sha256::Hash {
+    fn hash_from_u8(value: u8) -> sha512_256::Hash {
         let mut engine = bitcoin_hashes::sha256::Hash::engine();
 
         engine.input(&[value]);
 
-        sha256::Hash::from_engine(engine)
+        sha512_256::Hash::from_slice(sha256::Hash::from_engine(engine).as_byte_array()).unwrap()
     }
 
     fn run_case_with_deletion(case: TestCase) {
@@ -353,7 +357,9 @@ mod test {
             .proofhashes
             .unwrap_or_default()
             .into_iter()
-            .map(|hash| sha256::Hash::from_str(hash.as_str()).expect("Test case hashes are valid"))
+            .map(|hash| {
+                sha512_256::Hash::from_str(hash.as_str()).expect("Test case hashes are valid")
+            })
             .collect();
 
         let proof = Proof::new(case.target_values.unwrap(), proof_hashes);
@@ -361,8 +367,10 @@ mod test {
         let roots = case
             .expected_roots
             .into_iter()
-            .map(|hash| sha256::Hash::from_str(hash.as_str()).expect("Test case hashes are valid"))
-            .collect::<Vec<sha256::Hash>>();
+            .map(|hash| {
+                sha512_256::Hash::from_str(hash.as_str()).expect("Test case hashes are valid")
+            })
+            .collect::<Vec<sha512_256::Hash>>();
 
         let (stump, _) = Stump::new()
             .modify(&leaf_hashes, &vec![], &Proof::default())
@@ -389,7 +397,7 @@ mod test {
         assert_eq!(s.leafs, hashes.len() as u64);
 
         for i in 0..roots.len() {
-            assert_eq!(roots[i].as_str(), s.roots[i].to_hex());
+            assert_eq!(roots[i].as_str(), s.roots[i].to_string().as_str());
         }
     }
     #[test]
