@@ -1,8 +1,6 @@
 // Rustreexo
+use super::types::NodeHash;
 
-use std::vec::Vec;
-
-use bitcoin_hashes::{sha512_256, Hash};
 // isRootPosition checks if the current position is a root given the number of
 // leaves and the entire rows of the forest.
 pub fn is_root_position(position: u64, num_leaves: u64, forest_rows: u8) -> bool {
@@ -87,23 +85,10 @@ pub fn is_left_niece(position: u64) -> bool {
 pub fn left_sibling(position: u64) -> u64 {
     (position | 1) ^ 1
 }
-
-// We need a non-zero value while calculating roots to destroy, since this function is called
-// very often during block processing, reconstructing this hash every time causes a huge
-// performance impact. Using lazy static makes sure we only instantiate
-// this once (and if needed), and use as a global static variable during the program's lifetime.
-lazy_static::lazy_static!(
-    static ref ONE_AS_HASH: sha512_256::Hash = bitcoin_hashes::sha512_256::Hash::from_slice(&[1; 32]).unwrap();
-);
-
 // roots_to_destroy returns the empty roots that get written over after num_adds
 // amount of leaves have been added.
-pub fn roots_to_destroy(
-    num_adds: u64,
-    mut num_leaves: u64,
-    orig_roots: &Vec<sha512_256::Hash>,
-) -> Vec<u64> {
-    let mut roots = orig_roots.clone();
+pub fn roots_to_destroy(num_adds: u64, mut num_leaves: u64, orig_roots: &[NodeHash]) -> Vec<u64> {
+    let mut roots = orig_roots.to_vec();
     let mut deleted = vec![];
     let mut h = 0;
     for add in 0..num_adds {
@@ -111,7 +96,7 @@ pub fn roots_to_destroy(
             let root = roots
                 .pop()
                 .expect("If (num_leaves >> h) & 1 == 1, it must have at least one root left");
-            if root == sha512_256::Hash::all_zeros() {
+            if root.is_empty() {
                 let root_pos =
                     root_position(num_leaves, h, tree_rows(num_leaves + (num_adds - add)));
                 deleted.push(root_pos);
@@ -119,7 +104,7 @@ pub fn roots_to_destroy(
             h += 1;
         }
         // Just adding a non-zero value to the slice.
-        roots.push(*ONE_AS_HASH);
+        roots.push(NodeHash::placeholder());
         num_leaves += 1;
     }
 
@@ -373,9 +358,8 @@ pub fn get_proof_positions(targets: &[u64], num_leaves: u64, forest_rows: u8) ->
 #[cfg(test)]
 mod tests {
     use super::roots_to_destroy;
-    use crate::accumulator::util::tree_rows;
-    use bitcoin_hashes::sha512_256;
-    use std::{str::FromStr, vec};
+    use crate::accumulator::{types::NodeHash, util::tree_rows};
+    use std::vec;
 
     #[test]
     fn test_proof_pos() {
@@ -420,8 +404,9 @@ mod tests {
         ];
         let roots = roots
             .iter()
-            .map(|hash| sha512_256::Hash::from_str(*hash).unwrap())
-            .collect();
+            .map(|hash| NodeHash::from_str(*hash).unwrap())
+            .collect::<Vec<_>>();
+
         let deleted = roots_to_destroy(1, 15, &roots);
 
         assert_eq!(deleted, vec![22, 28])
