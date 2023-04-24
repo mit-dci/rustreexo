@@ -10,4 +10,4 @@
 pub mod node_hash;
 pub mod proof;
 pub mod stump;
-pub mod util;
+pub(super) mod util;
