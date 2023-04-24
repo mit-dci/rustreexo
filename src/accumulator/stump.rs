@@ -1,4 +1,27 @@
-use super::{proof::Proof, types::NodeHash, util};
+//! A [Stump] is a basic data structure used in Utreexo. It only holds the roots and the number of leaves
+//! in the accumulator. This is useful to create lightweight nodes, the still validates, but is more compact,
+//! perfect to clients running on low-power devices.
+//!
+//! ## Example
+//! ```
+//!   use rustreexo::accumulator::{node_hash::NodeHash, stump::Stump, proof::Proof};
+//!   use std::str::FromStr;
+//!   // Create a new empty Stump
+//!   let s = Stump::new();
+//!   // The newly create outputs
+//!   let utxos = vec![NodeHash::from_str("b151a956139bb821d4effa34ea95c17560e0135d1e4661fc23cedc3af49dac42").unwrap()];
+//!   // The spent outputs
+//!   let stxos = vec![];
+//!   // Modify the Stump, adding the new outputs and removing the spent ones, notice how
+//!   // it returns a new Stump, instead of modifying the old one. This is due to the fact
+//!   // that modify is a pure function that doesn't modify the old Stump.
+//!   let s = s.modify(&utxos, &stxos, &Proof::default());
+//!   assert!(s.is_ok());
+//!   assert_eq!(s.unwrap().0.roots, utxos);
+//! ```
+//!
+
+use super::{node_hash::NodeHash, proof::Proof, util};
 use std::vec;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -37,7 +60,7 @@ impl Stump {
     /// empty.
     ///# Example
     /// ```
-    ///   use rustreexo::accumulator::{types::NodeHash, stump::Stump, proof::Proof};
+    ///   use rustreexo::accumulator::{node_hash::NodeHash, stump::Stump, proof::Proof};
     ///   use std::str::FromStr;
     ///
     ///   let s = Stump::new();
@@ -185,7 +208,7 @@ impl Stump {
 #[cfg(test)]
 mod test {
     use super::Stump;
-    use crate::accumulator::{proof::Proof, types::NodeHash};
+    use crate::accumulator::{node_hash::NodeHash, proof::Proof};
     use bitcoin_hashes::{sha256, Hash, HashEngine};
     use serde::Deserialize;
     use std::vec;

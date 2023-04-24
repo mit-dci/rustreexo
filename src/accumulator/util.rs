@@ -1,5 +1,5 @@
 // Rustreexo
-use super::types::NodeHash;
+use super::node_hash::NodeHash;
 
 // isRootPosition checks if the current position is a root given the number of
 // leaves and the entire rows of the forest.
@@ -358,7 +358,7 @@ pub fn get_proof_positions(targets: &[u64], num_leaves: u64, forest_rows: u8) ->
 #[cfg(test)]
 mod tests {
     use super::roots_to_destroy;
-    use crate::accumulator::{types::NodeHash, util::tree_rows};
+    use crate::accumulator::{node_hash::NodeHash, util::tree_rows};
     use std::vec;
 
     #[test]
