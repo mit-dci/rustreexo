@@ -60,7 +60,7 @@ pub struct Proof {
 
     /// All the nodes in the tree that are needed to hash up to the root of
     /// the tree. Here, the root is 06. If Targets are [00, 01], then Proof
-    /// would be [05] as you need 04 and 05 to hash to 06. 04 can be calculated
+    /// would be \[05\] as you need 04 and 05 to hash to 06. 04 can be calculated
     /// by hashing 00 and 01.
     ///```!
     /// // 06

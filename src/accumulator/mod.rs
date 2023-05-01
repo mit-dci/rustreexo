@@ -3,8 +3,8 @@
 //! you may use different data structures to represent the accumulator. Each with its own advantages
 //! and disadvantages, and may be selected based on your use case.
 //!
-//! If you only need to verify and cache proofs used in your wallet, see [Stump],
-//! a lightweight implementation of utreexo that only stores roots. Although the [Stump]
+//! If you only need to verify and cache proofs used in your wallet, see [stump::Stump],
+//! a lightweight implementation of utreexo that only stores roots. Although the [stump::Stump]
 //! only keeps the accumulator's roots, it still trustlessly update this state, not requiring
 //! a trusted third party to learn about the current state.
 pub mod node_hash;
