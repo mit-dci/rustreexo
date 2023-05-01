@@ -106,10 +106,7 @@ impl Proof {
     ///   Proof::new(targets, proof_hashes);
     /// ```
     pub fn new(targets: Vec<u64>, hashes: Vec<NodeHash>) -> Self {
-        Proof {
-            targets: targets,
-            hashes: hashes,
-        }
+        Proof { targets, hashes }
     }
     /// Public interface for verifying proofs. Returns a result with a bool or an Error
     /// True means the proof is true given the current stump, false means the proof is
