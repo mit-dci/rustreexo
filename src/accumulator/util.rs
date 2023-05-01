@@ -111,8 +111,8 @@ pub fn roots_to_destroy(num_adds: u64, mut num_leaves: u64, orig_roots: &[NodeHa
     deleted
 }
 
-pub fn num_roots(leafs: u64) -> usize {
-    leafs.count_ones() as usize
+pub fn num_roots(leaves: u64) -> usize {
+    leaves.count_ones() as usize
 }
 // detectRow finds the current row of a node, given the position
 // and the total forest rows.

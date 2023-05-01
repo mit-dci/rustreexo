@@ -26,7 +26,7 @@ use std::vec;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Stump {
-    pub leafs: u64,
+    pub leaves: u64,
     pub roots: Vec<NodeHash>,
 }
 #[derive(Debug, Clone, Default)]
@@ -50,7 +50,7 @@ impl Stump {
     /// ```
     pub fn new() -> Self {
         Stump {
-            leafs: 0,
+            leaves: 0,
             roots: Vec::new(),
         }
     }
@@ -77,7 +77,7 @@ impl Stump {
         proof: &Proof,
     ) -> Result<(Stump, UpdateData), String> {
         let mut root_candidates = proof
-            .calculate_hashes(del_hashes, self.leafs)?
+            .calculate_hashes(del_hashes, self.leaves)?
             .1
             .into_iter()
             .rev()
@@ -101,15 +101,15 @@ impl Stump {
 
             new_roots.push(*root);
         }
-        let (roots, updated, destroyed) = Stump::add(new_roots, utxos, self.leafs);
+        let (roots, updated, destroyed) = Stump::add(new_roots, utxos, self.leaves);
 
         let new_stump = Stump {
-            leafs: self.leafs + utxos.len() as u64,
+            leaves: self.leaves + utxos.len() as u64,
             roots,
         };
         let update_data = UpdateData {
             new_add: updated,
-            prev_num_leaves: self.leafs,
+            prev_num_leaves: self.leaves,
             to_destroy: destroyed,
             new_del: intermediate,
         };
@@ -133,7 +133,7 @@ impl Stump {
     ///   s_new.undo(s_old);
     ///```
     pub fn undo(&mut self, old_state: Stump) {
-        self.leafs = old_state.leafs;
+        self.leaves = old_state.leaves;
         self.roots = old_state.roots;
     }
 
@@ -147,9 +147,9 @@ impl Stump {
         }
 
         let del_hashes = vec![NodeHash::empty(); proof.targets()];
-        proof.calculate_hashes(&del_hashes, self.leafs)
+        proof.calculate_hashes(&del_hashes, self.leaves)
     }
-    /// Adds new leafs into the root
+    /// Adds new leaves into the root
     fn add(
         mut roots: Vec<NodeHash>,
         utxos: &[NodeHash],
@@ -176,7 +176,7 @@ impl Stump {
             // when find an empty root.
 
             // You can say if a root is empty, by looking a the binary representations of the
-            // number of leafs. If the h'th bit is one, then this position is occupied, empty
+            // number of leaves. If the h'th bit is one, then this position is occupied, empty
             // otherwise.
             let mut to_add = add.clone();
             while (leaves >> h) & 1 == 1 {
@@ -225,7 +225,7 @@ mod test {
     // Make a few simple tests about stump creation
     fn test_stump() {
         let s = Stump::new();
-        assert!(s.leafs == 0);
+        assert!(s.leaves == 0);
         assert!(s.roots.len() == 0);
     }
     #[test]
@@ -266,7 +266,7 @@ mod test {
                 .map(|hash| NodeHash::from_str(hash).unwrap())
                 .collect();
             let stump = Stump {
-                leafs: data.leaves,
+                leaves: data.leaves,
                 roots,
             };
 
@@ -407,7 +407,7 @@ mod test {
             .modify(&hashes, &vec![], &Proof::default())
             .expect("Stump from test cases are valid");
 
-        assert_eq!(s.leafs, hashes.len() as u64);
+        assert_eq!(s.leaves, hashes.len() as u64);
 
         for i in 0..roots.len() {
             assert_eq!(roots[i].as_str(), s.roots[i].to_string().as_str());
