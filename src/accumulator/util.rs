@@ -1,5 +1,5 @@
 // Rustreexo
-use super::types::NodeHash;
+use super::node_hash::NodeHash;
 
 // isRootPosition checks if the current position is a root given the number of
 // leaves and the entire rows of the forest.
@@ -110,52 +110,9 @@ pub fn roots_to_destroy(num_adds: u64, mut num_leaves: u64, orig_roots: &[NodeHa
 
     deleted
 }
-// detectSubTreeHight finds the rows of the subtree a given LEAF position and
-// the number of leaves (& the forest rows which is redundant)
-// Go left to right through the bits of numLeaves,
-// and subtract that from position until it goes negative.
-// (Does not work for nodes that are not at the bottom)
-pub fn detect_sub_tree_rows(pos: u64, num_leaves: u64, forest_rows: u8) -> u8 {
-    let mut h = forest_rows;
-    let mut marker = pos;
 
-    while marker >= (1 << h) & num_leaves {
-        marker -= (1 << h) & num_leaves;
-        h -= 1;
-    }
-
-    return h;
-}
-
-pub fn detect_row_hashes(
-    targets: &Vec<u64>,
-    target_row: u8,
-    forest_rows: u8,
-) -> Result<(u64, u64), String> {
-    let mut start: i64 = -1;
-    let mut end: i64 = -1;
-
-    for i in 0..targets.len() {
-        if detect_row(targets[i], forest_rows) == target_row as u8 {
-            if start == -1 {
-                start = i as i64;
-            }
-            end = i as i64;
-        } else {
-            if start != -1 {
-                break;
-            }
-        }
-    }
-
-    if start == -1 || end == -1 {
-        return Err(String::from("Row not found!"));
-    }
-
-    Ok((start as u64, end as u64))
-}
-pub fn num_roots(leafs: u64) -> usize {
-    leafs.count_ones() as usize
+pub fn num_roots(leaves: u64) -> usize {
+    leaves.count_ones() as usize
 }
 // detectRow finds the current row of a node, given the position
 // and the total forest rows.
@@ -219,40 +176,6 @@ pub fn detect_offset(pos: u64, num_leaves: u64) -> (u8, u8, u64) {
 // parent returns the parent position of the passed in child
 pub fn parent(pos: u64, forest_rows: u8) -> u64 {
     (pos >> 1) | (1 << forest_rows)
-}
-
-// n_grandparent returns the parent position of the passed in child
-// the generations to go will be determined by rise
-// ex: rise = 3 will return a great-grandparent
-pub fn n_grandparent(pos: u64, rise: u8, forest_rows: u8) -> Result<u64, u8> {
-    if rise == 0 {
-        return Ok(pos);
-    }
-    if rise > forest_rows {
-        return Err(1);
-    }
-    let mask = (2 << forest_rows) - 1;
-    Ok((pos >> rise | (mask << (forest_rows - (rise - 1)))) & mask)
-}
-
-pub fn in_forest(mut pos: u64, num_leaves: u64, forest_rows: u8) -> bool {
-    // quick yes
-    if pos < num_leaves {
-        return true;
-    }
-
-    let marker = 1 << forest_rows;
-    let mask = (marker << 1) - 1;
-
-    if pos >= mask {
-        return false;
-    }
-
-    while pos & marker != 0 {
-        pos = ((pos << 1) & mask) | 1;
-    }
-
-    return pos < num_leaves;
 }
 
 // tree_rows returns the number of rows given n leaves
@@ -358,7 +281,7 @@ pub fn get_proof_positions(targets: &[u64], num_leaves: u64, forest_rows: u8) ->
 #[cfg(test)]
 mod tests {
     use super::roots_to_destroy;
-    use crate::accumulator::{types::NodeHash, util::tree_rows};
+    use crate::accumulator::{node_hash::NodeHash, util::tree_rows};
     use std::vec;
 
     #[test]
@@ -496,10 +419,5 @@ mod tests {
 
         let res = super::calc_next_pos(1, 9, 3);
         assert_eq!(Ok(9), res);
-    }
-    #[test]
-    fn test_detect_subtree_rows() {
-        let h = super::detect_sub_tree_rows(0, 8, 3);
-        assert_eq!(h, 3);
     }
 }

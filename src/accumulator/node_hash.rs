@@ -1,4 +1,39 @@
-// Rustreexo
+//! [NodeHash] is an internal type for representing Hashes in an utreexo accumulator. It's
+//! just a wrapper around [[u8; 32]] but with some useful methods.
+//! # Examples
+//! Building from a str
+//! ```
+//! use rustreexo::accumulator::node_hash::NodeHash;
+//! let hash =
+//! NodeHash::from_str("0000000000000000000000000000000000000000000000000000000000000000")
+//!     .unwrap();
+//! assert_eq!(
+//!     hash.to_string().as_str(),
+//!     "0000000000000000000000000000000000000000000000000000000000000000"
+//! );
+//! ```
+//! Building from a slice
+//! ```
+//! use rustreexo::accumulator::node_hash::NodeHash;
+//! let hash1 = NodeHash::new([0; 32]);
+//! // ... or ...
+//! let hash2 = NodeHash::from([0; 32]);
+//! assert_eq!(hash1, hash2);
+//! assert_eq!(
+//!     hash1.to_string().as_str(),
+//!     "0000000000000000000000000000000000000000000000000000000000000000"
+//! );
+//! ```
+//!
+//! Computing a parent hash (i.e a hash of two nodes concatenated)
+//! ```
+//! use rustreexo::accumulator::node_hash::NodeHash;
+//! let left = NodeHash::new([0; 32]);
+//! let right = NodeHash::new([1; 32]);
+//! let parent = NodeHash::parent_hash(&left, &right);
+//! let expected_parent = NodeHash::from_str("34e33ca0c40b7bd33d28932ca9e35170def7309a3bf91ecda5e1ceb067548a12").unwrap();
+//! assert_eq!(parent, expected_parent);
+//! ```
 use bitcoin_hashes::{hex, sha256, sha512_256, Hash, HashEngine};
 use std::{convert::TryFrom, fmt::Display, ops::Deref};
 
@@ -6,7 +41,7 @@ use std::{convert::TryFrom, fmt::Display, ops::Deref};
 /// NodeHash is a wrapper around a 32 byte array that represents a hash of a node in the tree.
 /// # Example
 /// ```
-/// use rustreexo::accumulator::types::NodeHash;
+/// use rustreexo::accumulator::node_hash::NodeHash;
 /// let hash = NodeHash::new([0; 32]);
 /// assert_eq!(hash.to_string().as_str(), "0000000000000000000000000000000000000000000000000000000000000000");
 /// ```
@@ -103,7 +138,7 @@ impl NodeHash {
     /// Creates a new NodeHash from a 32 byte array.
     /// # Example
     /// ```
-    /// use rustreexo::accumulator::types::NodeHash;
+    /// use rustreexo::accumulator::node_hash::NodeHash;
     /// let hash = NodeHash::new([0; 32]);
     /// assert_eq!(hash.to_string().as_str(), "0000000000000000000000000000000000000000000000000000000000000000");
     /// ```
@@ -113,7 +148,7 @@ impl NodeHash {
     /// Creates an empty hash. This is used to represent leaves we want to delete.
     /// # Example
     /// ```
-    /// use rustreexo::accumulator::types::NodeHash;
+    /// use rustreexo::accumulator::node_hash::NodeHash;
     /// let hash = NodeHash::empty();
     /// assert!(hash.is_empty());
     /// ```
@@ -123,7 +158,7 @@ impl NodeHash {
     /// parent_hash return the merkle parent of the two passed in nodes.
     /// # Example
     /// ```
-    /// use rustreexo::accumulator::types::NodeHash;
+    /// use rustreexo::accumulator::node_hash::NodeHash;
     /// let left = NodeHash::new([0; 32]);
     /// let right = NodeHash::new([1; 32]);
     /// let parent = NodeHash::parent_hash(&left, &right);
@@ -139,7 +174,7 @@ impl NodeHash {
     /// Creates a NodeHash from a hex string, you can also use the `TryFrom<&str>` trait.
     /// # Example
     /// ```
-    /// use rustreexo::accumulator::types::NodeHash;
+    /// use rustreexo::accumulator::node_hash::NodeHash;
     /// let hash = NodeHash::from_str("34e33ca0c40b7bd33d28932ca9e35170def7309a3bf91ecda5e1ceb067548a12").unwrap();
     /// assert_eq!(hash.to_string(), "34e33ca0c40b7bd33d28932ca9e35170def7309a3bf91ecda5e1ceb067548a12");
     /// ```

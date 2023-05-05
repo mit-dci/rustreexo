@@ -1,6 +1,42 @@
+//! A proof is a data structure that proves that a given element is in the accumulator. It is used
+//! to validate a transaction. A proof is composed of a list of hashes and a list of integers. The
+//! hashes are the hashes need to calculate the root hash for validation. The integers are the position of the
+//! element in the accumulator.
+//! ## Example
+//! ```
+//!   use bitcoin_hashes::{sha256, Hash, HashEngine};
+//!   use std::str::FromStr;
+//!   use rustreexo::accumulator::{node_hash::NodeHash, stump::Stump, proof::Proof};
+//!   let s = Stump::new();
+//!   // Creates a tree with those values as leaves
+//!   let test_values:Vec<u8> = vec![0, 1, 2, 3, 4, 5, 6, 7];
+//!   // Targets are the nodes we intend to prove
+//!   let targets = vec![0];
+//!
+//!   // The hashes used to prove an element.
+//!   let mut proof_hashes = Vec::new();
+
+//!   proof_hashes.push(NodeHash::from_str("4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a").unwrap());
+//!   proof_hashes.push(NodeHash::from_str("9576f4ade6e9bc3a6458b506ce3e4e890df29cb14cb5d3d887672aef55647a2b").unwrap());
+//!   proof_hashes.push(NodeHash::from_str("29590a14c1b09384b94a2c0e94bf821ca75b62eacebc47893397ca88e3bbcbd7").unwrap());
+//!
+//!   // Hashes of the leaves UTXOs we'll add to the accumulator
+//!   let mut hashes = Vec::new();
+//!   for i in test_values {
+//!       let mut engine = sha256::Hash::engine();
+//!       engine.input(&[i]);
+//!       hashes.push(sha256::Hash::from_engine(engine).into())
+//!   }
+//!   // Add the UTXOs to the accumulator
+//!   let s = s.modify(&hashes, &vec![], &Proof::default()).unwrap().0;
+//!   // Create a proof for the targets
+//!   let p = Proof::new(targets, proof_hashes);
+//!   // Verify the proof
+//!   assert!(p.verify(&vec![hashes[0]] , &s).expect("This proof is valid"));
+//! ```
 use super::{
+    node_hash::NodeHash,
     stump::{Stump, UpdateData},
-    types::NodeHash,
     util,
     util::{get_proof_positions, tree_rows},
 };
@@ -24,7 +60,7 @@ pub struct Proof {
 
     /// All the nodes in the tree that are needed to hash up to the root of
     /// the tree. Here, the root is 06. If Targets are [00, 01], then Proof
-    /// would be [05] as you need 04 and 05 to hash to 06. 04 can be calculated
+    /// would be \[05\] as you need 04 and 05 to hash to 06. 04 can be calculated
     /// by hashing 00 and 01.
     ///```!
     /// // 06
@@ -38,7 +74,7 @@ pub struct Proof {
 
 impl Proof {
     /// Creates a proof from a vector of target and hashes.
-    /// `targets` are u64s and indicates the position of the leafs we are
+    /// `targets` are u64s and indicates the position of the leaves we are
     /// trying to prove.
     /// `hashes` are of type `NodeHash` and are all hashes we need for computing the roots.
     ///
@@ -60,7 +96,7 @@ impl Proof {
     /// # Example
     /// ```
     ///   use bitcoin_hashes::{Hash, HashEngine};
-    ///   use rustreexo::accumulator::{types::NodeHash, proof::Proof};
+    ///   use rustreexo::accumulator::{node_hash::NodeHash, proof::Proof};
     ///   let targets = vec![0];
     ///
     ///   let mut proof_hashes = Vec::new();
@@ -70,10 +106,7 @@ impl Proof {
     ///   Proof::new(targets, proof_hashes);
     /// ```
     pub fn new(targets: Vec<u64>, hashes: Vec<NodeHash>) -> Self {
-        Proof {
-            targets: targets,
-            hashes: hashes,
-        }
+        Proof { targets, hashes }
     }
     /// Public interface for verifying proofs. Returns a result with a bool or an Error
     /// True means the proof is true given the current stump, false means the proof is
@@ -82,11 +115,11 @@ impl Proof {
     /// ```
     ///   use bitcoin_hashes::{sha256, Hash, HashEngine};
     ///   use std::str::FromStr;
-    ///   use rustreexo::accumulator::{types::NodeHash, stump::Stump, proof::Proof};
+    ///   use rustreexo::accumulator::{node_hash::NodeHash, stump::Stump, proof::Proof};
     ///   let s = Stump::new();
-    ///   // Creates a tree with those values as leafs
+    ///   // Creates a tree with those values as leaves
     ///   let test_values:Vec<u8> = vec![0, 1, 2, 3, 4, 5, 6, 7];
-    ///   // Targets are nodes witch we intend to prove
+    ///   // Targets are the nodes we intend to prove
     ///   let targets = vec![0];
     ///
     ///   let mut proof_hashes = Vec::new();
@@ -119,7 +152,7 @@ impl Proof {
         }
 
         let mut calculated_roots = self
-            .calculate_hashes(del_hashes, stump.leafs)?
+            .calculate_hashes(del_hashes, stump.leaves)?
             .1
             .into_iter()
             .peekable();
@@ -144,7 +177,7 @@ impl Proof {
     /// 8 leaves, if we cache `[0, 2, 6, 7]`, and we need to prove `[2, 7]` only, we have to remove
     /// elements for 0 and 7. The original proof is `[1, 3, 10]`, and we can compute `[8, 9, 11, 12, 13, 14]`.
     /// But for `[2, 7]` we need `[3, 6, 8, 10]`, and compute `[9, 11, 12, 13, 14]`
-    /// // ```!
+    ///```!
     /// // 14
     /// // |---------------\
     /// // 12              13
@@ -588,7 +621,7 @@ impl Proof {
 #[cfg(test)]
 mod tests {
     use super::Proof;
-    use crate::accumulator::{stump::Stump, types::NodeHash};
+    use crate::accumulator::{node_hash::NodeHash, stump::Stump};
     use bitcoin_hashes::{sha256, Hash, HashEngine};
     use serde::Deserialize;
     #[derive(Deserialize)]
@@ -672,7 +705,7 @@ mod tests {
                 .collect();
 
             let stump = Stump {
-                leafs: case_values.initial_leaves,
+                leaves: case_values.initial_leaves,
                 roots,
             };
 
@@ -944,7 +977,7 @@ mod tests {
             .map(|hash| NodeHash::from_str(hash).unwrap())
             .zip(&expected_pos);
 
-        let calculated = p.calculate_hashes(&del_hashes, s.leafs);
+        let calculated = p.calculate_hashes(&del_hashes, s.leaves);
 
         // We don't expect any errors from this simple test
         assert!(calculated.is_ok());
@@ -996,7 +1029,7 @@ mod tests {
 
         let p = Proof::new(vec![0, 2, 4, 6], proof_hashes);
 
-        let subset = p.get_proof_subset(&del_hashes, &[0], s.leafs).unwrap();
+        let subset = p.get_proof_subset(&del_hashes, &[0], s.leaves).unwrap();
 
         assert_eq!(subset.verify(&vec![del_hashes[0]], &s), Ok(true));
         assert_eq!(subset.verify(&vec![del_hashes[2]], &s), Ok(false));
@@ -1011,7 +1044,7 @@ mod tests {
             .collect();
 
         let s = Stump {
-            leafs: case.numleaves as u64,
+            leaves: case.numleaves as u64,
             roots,
         };
 
@@ -1036,7 +1069,7 @@ mod tests {
         // Test getting proof subset (only if the original proof is valid)
         if expected {
             let (subset, _) = p.targets.split_at(p.targets() / 2);
-            let proof = p.get_proof_subset(&del_hashes, subset, s.leafs).unwrap();
+            let proof = p.get_proof_subset(&del_hashes, subset, s.leaves).unwrap();
             let set_hashes = subset
                 .iter()
                 .map(|preimage| hash_from_u8(*preimage as u8).into())
