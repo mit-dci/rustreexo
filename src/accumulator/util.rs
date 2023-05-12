@@ -9,7 +9,7 @@ pub fn is_root_position(position: u64, num_leaves: u64, forest_rows: u8) -> bool
     let root_present = num_leaves & (1 << row) != 0;
     let root_pos = root_position(num_leaves, row, forest_rows);
 
-    return root_present && root_pos == position;
+    root_present && root_pos == position
 }
 
 // removeBit removes the nth bit from the val passed in. For example, if the 2nd
@@ -23,7 +23,7 @@ pub fn remove_bit(val: u64, bit: u64) -> u64 {
     let lower_mask = !(std::u64::MAX ^ mask);
     let lower = val & lower_mask;
 
-    ((upper >> 1) | lower) as u64
+    (upper >> 1) | lower
 }
 pub fn calc_next_pos(position: u64, del_pos: u64, forest_rows: u8) -> Result<u64, String> {
     let del_row = detect_row(del_pos, forest_rows);
@@ -47,14 +47,14 @@ pub fn calc_next_pos(position: u64, del_pos: u64, forest_rows: u8) -> Result<u64
     Ok(higher_bits | lower_bits)
 }
 pub fn detwin(nodes: Vec<u64>, forest_rows: u8) -> Vec<u64> {
-    let mut dels_after = nodes.clone();
+    let mut dels_after = nodes;
     let mut n = 0;
 
     while (n + 1) < dels_after.len() {
         // If the next node in line is the current node's sibling
         // grab the parent as well
-        let i = dels_after[(n) as usize];
-        let j = dels_after[(n + 1) as usize];
+        let i = dels_after[n];
+        let j = dels_after[n + 1];
 
         if is_right_sibling(i, j) {
             dels_after.drain(n..n + 2);
@@ -125,7 +125,7 @@ pub fn detect_row(pos: u64, forest_rows: u8) -> u8 {
         h += 1;
     }
 
-    return h;
+    h
 }
 
 pub fn detect_offset(pos: u64, num_leaves: u64) -> (u8, u8, u64) {
@@ -170,7 +170,7 @@ pub fn detect_offset(pos: u64, num_leaves: u64) -> (u8, u8, u64) {
         tr -= 1;
     }
 
-    return (bigger_trees, tr - nr, !marker);
+    (bigger_trees, tr - nr, !marker)
 }
 
 // parent returns the parent position of the passed in child
@@ -243,14 +243,16 @@ fn is_sibling(a: u64, b: u64) -> bool {
 /// whose hashes will be calculated to reach a root
 pub fn get_proof_positions(targets: &[u64], num_leaves: u64, forest_rows: u8) -> Vec<u64> {
     let mut proof_positions = vec![];
-    let mut computed_positions: Vec<_> = targets.iter().copied().collect();
+    let mut computed_positions = targets.to_vec();
     computed_positions.sort();
 
     for row in 0..=forest_rows {
         let mut row_targets = computed_positions
-            .to_owned()
-            .into_iter()
+            .iter()
+            .copied()
             .filter(|x| super::util::detect_row(*x, forest_rows) == row)
+            .collect::<Vec<_>>()
+            .into_iter()
             .peekable();
 
         while let Some(node) = row_targets.next() {
@@ -282,13 +284,13 @@ pub fn get_proof_positions(targets: &[u64], num_leaves: u64, forest_rows: u8) ->
 mod tests {
     use super::roots_to_destroy;
     use crate::accumulator::{node_hash::NodeHash, util::tree_rows};
-    use std::vec;
+    use std::{str::FromStr, vec};
 
     #[test]
     fn test_proof_pos() {
         let unsorted = vec![33, 35, 32, 34, 50, 52];
         let sorted = vec![33, 35, 32, 34, 50, 52];
-        let num_leaves = 32 as u64;
+        let num_leaves = 32_u64;
         let num_rows = tree_rows(num_leaves);
 
         // Test that un-sorted targets results in the same result as the sorted vec.
@@ -299,11 +301,10 @@ mod tests {
     }
     #[test]
     fn test_is_sibling() {
-        assert_eq!(super::is_sibling(0, 1), true);
-        assert_eq!(super::is_sibling(1, 0), true);
-
-        assert_eq!(super::is_sibling(1, 2), false);
-        assert_eq!(super::is_sibling(2, 1), false);
+        assert!(super::is_sibling(0, 1));
+        assert!(super::is_sibling(1, 0));
+        assert!(!super::is_sibling(1, 2));
+        assert!(!super::is_sibling(2, 1));
     }
     #[test]
     fn test_root_position() {
@@ -327,7 +328,7 @@ mod tests {
         ];
         let roots = roots
             .iter()
-            .map(|hash| NodeHash::from_str(*hash).unwrap())
+            .map(|hash| NodeHash::from_str(hash).unwrap())
             .collect::<Vec<_>>();
 
         let deleted = roots_to_destroy(1, 15, &roots);
@@ -410,7 +411,7 @@ mod tests {
     #[test]
     fn test_is_root_position() {
         let h = super::is_root_position(14, 8, 3);
-        assert_eq!(h, true);
+        assert!(h);
     }
     #[test]
     fn test_calc_next_pos() {

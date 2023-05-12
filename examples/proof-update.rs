@@ -10,6 +10,8 @@
 //! leaf cached, you can still prove some elements, given a block Proof. CSNs can always prove their
 //! own UTXOs if the can access proofs.
 
+use std::str::FromStr;
+
 use rustreexo::accumulator::{node_hash::NodeHash, proof::Proof, stump::Stump};
 
 fn main() {
@@ -18,7 +20,7 @@ fn main() {
     let utxos = get_utxo_hashes1();
     // Add the UTXOs to the accumulator. update_data is the data we need to update the proof
     // after the accumulator is updated.
-    let (s, update_data) = s.modify(&utxos, &vec![], &Proof::default()).unwrap();
+    let (s, update_data) = s.modify(&utxos, &[], &Proof::default()).unwrap();
     // Create an empty proof, we'll update it to hold our UTXOs
     let p = Proof::default();
     // Update the proof with the UTXOs we added to the accumulator. This proof was initially empty,
