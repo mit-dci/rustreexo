@@ -10,42 +10,46 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  Tests:
-    name: Tests
+  build:
+
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - rust: stable
-            env:
-              DO_COV: true
-              DO_LINT: true
-              AS_DEPENDENCY: true
-              DO_NO_STD: true
-          - rust: beta
-            env:
-              AS_DEPENDENCY: true
-              DO_NO_STD: true
-          - rust: nightly
-            env:
-              DO_BENCH: true
-              AS_DEPENDENCY: true
-              DO_NO_STD: true
-              DO_DOCS: true
-          - rust: 1.41.1
-            env:
-              AS_DEPENDENCY: true
-          - rust: 1.47
-            env:
-              AS_DEPENDENCY: true
-              DO_NO_STD: true
+
     steps:
+    # try to build
     - uses: actions/checkout@v3
-      with:
-        profile: minimal
-        toolchain: ${{ matrix.rust }}
     - name: Build
       run: cargo build --verbose
+    # run all tests
+    - uses: actions/checkout@v3
     - name: Run tests
       run: cargo test --verbose
+
+  linting:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    # cargo fmt
+    - uses: actions/checkout@v3
+    - name: fmt
+      run: cargo fmt --all --check
+
+    # run cargo clippy
+    - uses: actions/checkout@v3
+    - name: Clippy
+      run: cargo clippy --all
+
+  cross-testing:
+    strategy:
+      matrix:
+        rust: [stable, nightly, 1.41]
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          toolchain: ${{ matrix.rust }}
+
+      - name: Cross compile
+        run: cargo test --verbose
