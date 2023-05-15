@@ -21,14 +21,19 @@
 //! ```
 //!
 
-use super::{node_hash::NodeHash, proof::Proof, util};
+use super::{
+    node_hash::NodeHash,
+    proof::{EnumeratedTargetsAndHashPosition, Proof},
+    util,
+};
 use std::vec;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct Stump {
     pub leaves: u64,
     pub roots: Vec<NodeHash>,
 }
+
 #[derive(Debug, Clone, Default)]
 pub struct UpdateData {
     /// to_destroy is the positions of the empty roots removed after the add.
@@ -141,8 +146,8 @@ impl Stump {
         &self,
         del_hashes: &[NodeHash],
         proof: &Proof,
-    ) -> Result<(Vec<(u64, NodeHash)>, Vec<NodeHash>), String> {
-        if del_hashes.len() == 0 {
+    ) -> Result<EnumeratedTargetsAndHashPosition, String> {
+        if del_hashes.is_empty() {
             return Ok((vec![], self.roots.clone()));
         }
 
@@ -178,7 +183,7 @@ impl Stump {
             // You can say if a root is empty, by looking a the binary representations of the
             // number of leaves. If the h'th bit is one, then this position is occupied, empty
             // otherwise.
-            let mut to_add = add.clone();
+            let mut to_add = *add;
             while (leaves >> h) & 1 == 1 {
                 let root = roots.pop();
 
@@ -211,7 +216,7 @@ mod test {
     use crate::accumulator::{node_hash::NodeHash, proof::Proof};
     use bitcoin_hashes::{sha256, Hash, HashEngine};
     use serde::Deserialize;
-    use std::vec;
+    use std::{str::FromStr, vec};
 
     #[derive(Debug, Deserialize)]
     struct TestCase {
@@ -226,7 +231,7 @@ mod test {
     fn test_stump() {
         let s = Stump::new();
         assert!(s.leaves == 0);
-        assert!(s.roots.len() == 0);
+        assert!(s.roots.is_empty());
     }
     #[test]
     fn test_updated_data() {
@@ -319,13 +324,10 @@ mod test {
     #[test]
     fn test_update_data_add() {
         let preimages = vec![0, 1, 2, 3];
-        let hashes = preimages
-            .into_iter()
-            .map(|preimage| hash_from_u8(preimage))
-            .collect::<Vec<_>>();
+        let hashes = preimages.into_iter().map(hash_from_u8).collect::<Vec<_>>();
 
         let (_, updated) = Stump::new()
-            .modify(&hashes, &vec![], &Proof::default())
+            .modify(&hashes, &[], &Proof::default())
             .unwrap();
 
         let positions = vec![0, 1, 2, 3, 4, 5, 6];
@@ -340,7 +342,7 @@ mod test {
             "df46b17be5f66f0750a4b3efa26d4679db170a72d41eb56c3e4ff75a58c65386",
         ]
         .iter()
-        .map(|hash| NodeHash::from_str(*hash).unwrap())
+        .map(|hash| NodeHash::from_str(hash).unwrap())
         .collect();
 
         let positions: Vec<_> = positions.into_iter().zip(hashes.into_iter()).collect();
@@ -359,7 +361,7 @@ mod test {
         let leaf_hashes = case
             .leaf_preimages
             .into_iter()
-            .map(|leaf| hash_from_u8(leaf))
+            .map(hash_from_u8)
             .collect::<Vec<_>>();
 
         let target_hashes = case
@@ -386,9 +388,9 @@ mod test {
             .collect::<Vec<NodeHash>>();
 
         let (stump, _) = Stump::new()
-            .modify(&leaf_hashes, &vec![], &Proof::default())
+            .modify(&leaf_hashes, &[], &Proof::default())
             .expect("This stump is valid");
-        let (stump, _) = stump.modify(&vec![], &target_hashes, &proof).unwrap();
+        let (stump, _) = stump.modify(&[], &target_hashes, &proof).unwrap();
 
         assert_eq!(stump.roots, roots);
     }
@@ -404,38 +406,38 @@ mod test {
             .collect::<Vec<_>>();
 
         let (s, _) = s
-            .modify(&hashes, &vec![], &Proof::default())
+            .modify(&hashes, &[], &Proof::default())
             .expect("Stump from test cases are valid");
 
         assert_eq!(s.leaves, hashes.len() as u64);
 
-        for i in 0..roots.len() {
-            assert_eq!(roots[i].as_str(), s.roots[i].to_string().as_str());
+        for (i, root) in roots.into_iter().enumerate() {
+            assert_eq!(root, s.roots[i].to_string());
         }
     }
     #[test]
     fn test_undo() {
         let mut hashes = vec![];
         // Add 100 initial UTXOs
-        for i in 0..100 as u8 {
+        for i in 0..100_u8 {
             hashes.push(hash_from_u8(i));
         }
 
         let s_old = Stump::new();
         let s_old = s_old
-            .modify(&hashes, &vec![], &Proof::default())
+            .modify(&hashes, &[], &Proof::default())
             .expect("Stump from test cases are valid")
             .0;
 
         let mut s_new = s_old.clone();
 
         // Add 100 more UTXOS
-        for i in 0..100 as u8 {
+        for i in 0..100_u8 {
             hashes.push(hash_from_u8(i));
         }
 
         s_new
-            .modify(&hashes, &vec![], &Proof::default())
+            .modify(&hashes, &[], &Proof::default())
             .expect("Stump from test cases are valid");
         let s_old_copy = s_old.clone();
 

@@ -71,6 +71,10 @@ pub struct Proof {
     /// ```
     hashes: Vec<NodeHash>,
 }
+/// We often need to return the targets paired with hashes, and the proof position.
+/// Even not using full qualifications, it gets long and complex, and clippy doesn't like
+/// it. This type alias helps with that.
+pub(crate) type EnumeratedTargetsAndHashPosition = (Vec<(u64, NodeHash)>, Vec<NodeHash>);
 
 impl Proof {
     /// Creates a proof from a vector of target and hashes.
@@ -147,7 +151,7 @@ impl Proof {
     ///   assert!(p.verify(&vec![hashes[0]] , &s).expect("This proof is valid"));
     ///```
     pub fn verify(&self, del_hashes: &[NodeHash], stump: &Stump) -> Result<bool, String> {
-        if self.targets.len() == 0 {
+        if self.targets.is_empty() {
             return Ok(true);
         }
 
@@ -195,8 +199,7 @@ impl Proof {
         let forest_rows = tree_rows(num_leaves);
         let old_proof_positions = get_proof_positions(&self.targets, num_leaves, forest_rows);
         let needed_positions = get_proof_positions(new_targets, num_leaves, forest_rows);
-        let (intermediate_positions, _) =
-            self.calculate_hashes(&del_hashes.to_vec(), num_leaves)?;
+        let (intermediate_positions, _) = self.calculate_hashes(del_hashes, num_leaves)?;
 
         let mut old_proof = old_proof_positions
             .iter()
@@ -232,24 +235,24 @@ impl Proof {
     /// those targets are deleted. In this context null means [NodeHash::default].
     ///
     /// It's the caller's responsibility to null out the targets if desired by
-    /// passing a `NodeHash::all_zeros()` instead of the actual hash.
+    /// passing a `NodeHash::empty()` instead of the actual hash.
     pub(crate) fn calculate_hashes(
         &self,
         del_hashes: &[NodeHash],
         num_leaves: u64,
-    ) -> Result<(Vec<(u64, NodeHash)>, Vec<NodeHash>), String> {
+    ) -> Result<EnumeratedTargetsAndHashPosition, String> {
         // Where all the root hashes that we've calculated will go to.
         let total_rows = util::tree_rows(num_leaves);
 
         // Where all the parent hashes we've calculated in a given row will go to.
         let mut calculated_root_hashes =
-            Vec::<NodeHash>::with_capacity(util::num_roots(num_leaves) as usize);
+            Vec::<NodeHash>::with_capacity(util::num_roots(num_leaves));
 
         // As we calculate nodes upwards, it accumulates here
         let mut nodes: Vec<_> = self
             .targets
-            .to_owned()
-            .into_iter()
+            .iter()
+            .copied()
             .zip(del_hashes.to_owned())
             .collect();
 
@@ -261,6 +264,10 @@ impl Proof {
 
         for row in 0..=total_rows {
             // An iterator that only contains nodes of the current row
+            // We can't use a iterator over nodes, because we also need no mutable borrow it,
+            // clippy will suggest to use nodes.iter().cloned, but this will cause row_nodes to
+            // immutably borrow nodes.
+            #[allow(clippy::unnecessary_to_owned)]
             let mut row_nodes = nodes
                 .to_owned()
                 .into_iter()
@@ -288,7 +295,7 @@ impl Proof {
                         } else if next_hash.is_empty() {
                             Proof::sorted_push(&mut nodes, (next_to_prove, hash));
                         } else {
-                            let hash = NodeHash::parent_hash(&hash, &next_hash);
+                            let hash = NodeHash::parent_hash(&hash, next_hash);
 
                             Proof::sorted_push(&mut nodes, (next_to_prove, hash));
                         }
@@ -339,14 +346,14 @@ impl Proof {
     ) -> Result<(Proof, Vec<NodeHash>), String> {
         let (proof_after_deletion, cached_hashes) = self.update_proof_remove(
             block_targets,
-            cached_hashes.clone(),
+            cached_hashes,
             update_data.new_del,
             update_data.prev_num_leaves,
         )?;
 
         let data_after_addition = proof_after_deletion.update_proof_add(
             add_hashes,
-            cached_hashes.clone(),
+            cached_hashes,
             remembers,
             update_data.new_add,
             update_data.prev_num_leaves,
@@ -367,8 +374,8 @@ impl Proof {
         // Combine the hashes with the targets.
         let orig_targets_with_hash: Vec<(u64, NodeHash)> = self
             .targets
-            .to_owned()
-            .into_iter()
+            .iter()
+            .copied()
             .zip(cached_del_hashes.into_iter())
             .collect();
 
@@ -378,19 +385,12 @@ impl Proof {
             before_num_leaves,
             util::tree_rows(before_num_leaves),
         );
-        let proof_with_pos = proof_pos
-            .clone()
-            .into_iter()
-            .zip(self.hashes.clone())
-            .collect();
+        let proof_with_pos = proof_pos.into_iter().zip(self.hashes).collect();
 
         // Remap the positions if we moved up a after the addition row.
-        let targets_after_remap = Proof::maybe_remap(
-            before_num_leaves,
-            adds.len() as u64,
-            orig_targets_with_hash.clone(),
-        );
-        let mut final_targets = targets_after_remap.clone();
+        let targets_after_remap =
+            Proof::maybe_remap(before_num_leaves, adds.len() as u64, orig_targets_with_hash);
+        let mut final_targets = targets_after_remap;
         let mut new_nodes_iter = new_nodes.iter();
         let mut proof_with_pos =
             Proof::maybe_remap(before_num_leaves, adds.len() as u64, proof_with_pos);
@@ -439,7 +439,7 @@ impl Proof {
             } else {
                 // This node must be in either new_nodes or in the old proof, otherwise we can't
                 // update our proof
-                if let None = new_proof.iter().find(|(proof_pos, _)| *proof_pos == pos) {
+                if !new_proof.iter().any(|(proof_pos, _)| *proof_pos == pos) {
                     return Err(format!("Missing position {}", pos));
                 }
             }
@@ -496,13 +496,13 @@ impl Proof {
 
         let targets_with_hash: Vec<(u64, NodeHash)> = self
             .targets
-            .clone()
-            .into_iter()
-            .zip(cached_hashes.clone().into_iter())
+            .iter()
+            .cloned()
+            .zip(cached_hashes.into_iter())
             .filter(|(pos, _)| !block_targets.contains(pos))
             .collect();
 
-        let (targets, _): (Vec<_>, Vec<_>) = targets_with_hash.to_owned().into_iter().unzip();
+        let (targets, _): (Vec<_>, Vec<_>) = targets_with_hash.iter().cloned().unzip();
         let proof_positions =
             util::get_proof_positions(&self.targets, num_leaves, util::tree_rows(num_leaves));
 
@@ -600,12 +600,8 @@ impl Proof {
                 }
             }
 
-            if append_roots {
+            if append_roots || !util::is_root_position(next_pos, num_leaves, total_rows) {
                 new_positions.push((next_pos, *hash));
-            } else {
-                if !util::is_root_position(next_pos, num_leaves, total_rows) {
-                    new_positions.push((next_pos, *hash));
-                }
             }
         }
         new_positions.sort();
@@ -620,6 +616,8 @@ impl Proof {
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
     use super::Proof;
     use crate::accumulator::{node_hash::NodeHash, stump::Stump};
     use bitcoin_hashes::{sha256, Hash, HashEngine};
@@ -859,12 +857,9 @@ mod tests {
     #[test]
     fn test_update_proof_delete() {
         let preimages = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
-        let hashes = preimages
-            .into_iter()
-            .map(|preimage| hash_from_u8(preimage))
-            .collect::<Vec<_>>();
+        let hashes = preimages.into_iter().map(hash_from_u8).collect::<Vec<_>>();
         let (stump, _) = Stump::new()
-            .modify(&hashes, &vec![], &Proof::default())
+            .modify(&hashes, &[], &Proof::default())
             .unwrap();
 
         let proof_hashes = vec![
@@ -893,8 +888,8 @@ mod tests {
 
         let (stump, modified) = stump
             .modify(
-                &vec![],
-                &vec![hash_from_u8(1), hash_from_u8(2), hash_from_u8(6)],
+                &[],
+                &[hash_from_u8(1), hash_from_u8(2), hash_from_u8(6)],
                 &proof,
             )
             .unwrap();
@@ -907,7 +902,7 @@ mod tests {
             )
             .unwrap();
 
-        let res = new_proof.verify(&vec![hash_from_u8(0), hash_from_u8(7)], &stump);
+        let res = new_proof.verify(&[hash_from_u8(0), hash_from_u8(7)], &stump);
         assert_eq!(res, Ok(true));
     }
     fn hash_from_u8(value: u8) -> NodeHash {
@@ -922,13 +917,10 @@ mod tests {
         // Tests if the calculated roots and nodes are correct.
         // The values we use to get some hashes
         let preimages = vec![0, 1, 2, 3, 4, 5, 6, 7];
-        let hashes = preimages
-            .into_iter()
-            .map(|preimage| hash_from_u8(preimage))
-            .collect::<Vec<_>>();
+        let hashes = preimages.into_iter().map(hash_from_u8).collect::<Vec<_>>();
         // Create a new stump with 8 leaves and 1 root
         let s = Stump::new()
-            .modify(&hashes, &vec![], &Proof::default())
+            .modify(&hashes, &[], &Proof::default())
             .expect("This stump is valid")
             .0;
 
@@ -1004,13 +996,10 @@ mod tests {
         // Tests if the calculated roots and nodes are correct.
         // The values we use to get some hashes
         let preimages = vec![0, 1, 2, 3, 4, 5, 6, 7];
-        let hashes = preimages
-            .into_iter()
-            .map(|preimage| hash_from_u8(preimage))
-            .collect::<Vec<_>>();
+        let hashes = preimages.into_iter().map(hash_from_u8).collect::<Vec<_>>();
         // Create a new stump with 8 leaves and 1 root
         let s = Stump::new()
-            .modify(&hashes, &vec![], &Proof::default())
+            .modify(&hashes, &[], &Proof::default())
             .expect("This stump is valid")
             .0;
 
@@ -1031,8 +1020,8 @@ mod tests {
 
         let subset = p.get_proof_subset(&del_hashes, &[0], s.leaves).unwrap();
 
-        assert_eq!(subset.verify(&vec![del_hashes[0]], &s), Ok(true));
-        assert_eq!(subset.verify(&vec![del_hashes[2]], &s), Ok(false));
+        assert_eq!(subset.verify(&[del_hashes[0]], &s), Ok(true));
+        assert_eq!(subset.verify(&[del_hashes[2]], &s), Ok(false));
     }
 
     fn run_single_case(case: &serde_json::Value) {
@@ -1052,7 +1041,7 @@ mod tests {
         let del_hashes = case
             .target_preimages
             .into_iter()
-            .map(|target| hash_from_u8(target))
+            .map(hash_from_u8)
             .collect::<Vec<_>>();
 
         let proof_hashes = case
@@ -1072,7 +1061,7 @@ mod tests {
             let proof = p.get_proof_subset(&del_hashes, subset, s.leaves).unwrap();
             let set_hashes = subset
                 .iter()
-                .map(|preimage| hash_from_u8(*preimage as u8).into())
+                .map(|preimage| hash_from_u8(*preimage as u8))
                 .collect::<Vec<NodeHash>>();
 
             assert_eq!(proof.verify(&set_hashes, &s), Ok(true));

@@ -2,7 +2,7 @@
 //! the roots of the accumulator. It's meant for light clients, that don't need to prove membership
 //! of arbitrary elements. Instead, they only need to verify.
 
-use std::vec;
+use std::{str::FromStr, vec};
 
 use rustreexo::accumulator::{node_hash::NodeHash, proof::Proof, stump::Stump};
 
