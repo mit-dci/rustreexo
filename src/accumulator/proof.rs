@@ -568,7 +568,7 @@ impl Proof {
         Ok((Proof { hashes, targets }, target_hashes))
     }
 
-    fn calc_next_positions(
+    pub(crate) fn calc_next_positions(
         block_targets: &Vec<u64>,
         old_positions: &Vec<(u64, NodeHash)>,
         num_leaves: u64,

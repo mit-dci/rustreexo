@@ -423,5 +423,8 @@ mod tests {
 
         let res = super::calc_next_pos(1, 9, 3);
         assert_eq!(Ok(9), res);
+
+        let res = super::calc_next_pos(5, 13, tree_rows(8));
+        assert_eq!(Ok(9), res);
     }
 }
