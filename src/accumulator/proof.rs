@@ -32,11 +32,11 @@
 //!   // Create a proof for the targets
 //!   let p = Proof::new(targets, proof_hashes);
 //!   // Verify the proof
-//!   assert!(p.verify(&vec![hashes[0]] , &s).expect("This proof is valid"));
+//!   assert!(s.verify(&p, &vec![hashes[0]]).expect("This proof is valid"));
 //! ```
 use super::{
     node_hash::NodeHash,
-    stump::{Stump, UpdateData},
+    stump::UpdateData,
     util::{self, read_u64},
     util::{get_proof_positions, tree_rows},
 };
@@ -64,7 +64,7 @@ pub struct Proof {
     ///  // |---\   |---\
     ///  //         02  03
     /// ```
-    targets: Vec<u64>,
+    pub targets: Vec<u64>,
 
     /// All the nodes in the tree that are needed to hash up to the root of
     /// the tree. Here, the root is 06. If Targets are [00, 01], then Proof
@@ -77,7 +77,7 @@ pub struct Proof {
     /// // |---\   |---\
     /// // 00  01  02  03
     /// ```
-    hashes: Vec<NodeHash>,
+    pub hashes: Vec<NodeHash>,
 }
 /// We often need to return the targets paired with hashes, and the proof position.
 /// Even not using full qualifications, it gets long and complex, and clippy doesn't like
@@ -156,22 +156,27 @@ impl Proof {
     ///   }
     ///   let s = s.modify(&hashes, &vec![], &Proof::default()).unwrap().0;
     ///   let p = Proof::new(targets, proof_hashes);
-    ///   assert!(p.verify(&vec![hashes[0]] , &s).expect("This proof is valid"));
+    ///   assert!(s.verify(&p, &[hashes[0]]).expect("This proof is valid"));
     ///```
-    pub fn verify(&self, del_hashes: &[NodeHash], stump: &Stump) -> Result<bool, String> {
+    pub fn verify(
+        &self,
+        del_hashes: &[NodeHash],
+        roots: &[NodeHash],
+        num_leaves: u64,
+    ) -> Result<bool, String> {
         if self.targets.is_empty() {
             return Ok(true);
         }
 
-        let mut calculated_roots = self
-            .calculate_hashes(del_hashes, stump.leaves)?
+        let mut calculated_roots: std::iter::Peekable<std::vec::IntoIter<NodeHash>> = self
+            .calculate_hashes(del_hashes, num_leaves)?
             .1
             .into_iter()
             .peekable();
 
         let mut number_matched_roots = 0;
 
-        for root in stump.roots.iter().rev() {
+        for root in roots.iter().rev() {
             if let Some(next_calculated_root) = calculated_roots.peek() {
                 if *next_calculated_root == *root {
                     number_matched_roots += 1;
@@ -673,7 +678,6 @@ impl Proof {
         new_positions.sort();
         Ok(new_positions)
     }
-
     fn sorted_push(nodes: &mut Vec<(u64, NodeHash)>, to_add: (u64, NodeHash)) {
         nodes.push(to_add);
         nodes.sort();
@@ -805,7 +809,7 @@ mod tests {
                 )
                 .unwrap();
 
-            let res = cached_proof.verify(&cached_hashes, &stump);
+            let res = stump.verify(&cached_proof, &cached_hashes);
 
             let expected_roots: Vec<_> = case_values
                 .expected_roots
@@ -967,7 +971,7 @@ mod tests {
             )
             .unwrap();
 
-        let res = new_proof.verify(&[hash_from_u8(0), hash_from_u8(7)], &stump);
+        let res = stump.verify(&new_proof, &[hash_from_u8(0), hash_from_u8(7)]);
         assert_eq!(res, Ok(true));
     }
     #[test]
@@ -1087,8 +1091,8 @@ mod tests {
 
         let subset = p.get_proof_subset(&del_hashes, &[0], s.leaves).unwrap();
 
-        assert_eq!(subset.verify(&[del_hashes[0]], &s), Ok(true));
-        assert_eq!(subset.verify(&[del_hashes[2]], &s), Ok(false));
+        assert_eq!(s.verify(&subset, &[del_hashes[0]]), Ok(true));
+        assert_eq!(s.verify(&subset, &[del_hashes[2]]), Ok(false));
     }
     #[test]
     #[cfg(feature = "with-serde")]
@@ -1129,7 +1133,7 @@ mod tests {
         let p = Proof::new(targets, proof_hashes);
         let expected = case.expected;
 
-        let res = p.verify(&del_hashes, &s);
+        let res = s.verify(&p, &del_hashes);
         assert!(Ok(expected) == res);
         // Test getting proof subset (only if the original proof is valid)
         if expected {
@@ -1140,7 +1144,7 @@ mod tests {
                 .map(|preimage| hash_from_u8(*preimage as u8))
                 .collect::<Vec<NodeHash>>();
 
-            assert_eq!(proof.verify(&set_hashes, &s), Ok(true));
+            assert_eq!(s.verify(&proof, &set_hashes), Ok(true));
         }
     }
     #[test]

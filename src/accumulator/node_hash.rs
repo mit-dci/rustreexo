@@ -38,12 +38,17 @@
 //! assert_eq!(parent, expected_parent);
 //! ```
 use bitcoin_hashes::{hex, sha256, sha512_256, Hash, HashEngine};
-use std::{convert::TryFrom, fmt::Display, ops::Deref, str::FromStr};
+use std::{
+    convert::TryFrom,
+    fmt::{Debug, Display},
+    ops::Deref,
+    str::FromStr,
+};
 
 #[cfg(feature = "with-serde")]
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Eq, PartialEq, Copy, Clone, Hash, PartialOrd, Ord)]
+#[derive(Eq, PartialEq, Copy, Clone, Hash, PartialOrd, Ord)]
 #[cfg_attr(feature = "with-serde", derive(Serialize, Deserialize))]
 /// NodeHash is a wrapper around a 32 byte array that represents a hash of a node in the tree.
 /// # Example
@@ -52,11 +57,14 @@ use serde::{Deserialize, Serialize};
 /// let hash = NodeHash::new([0; 32]);
 /// assert_eq!(hash.to_string().as_str(), "0000000000000000000000000000000000000000000000000000000000000000");
 /// ```
+#[derive(Default)]
 pub enum NodeHash {
+    #[default]
     Empty,
     Placeholder,
     Some([u8; 32]),
 }
+
 impl Deref for NodeHash {
     type Target = [u8; 32];
 
@@ -80,7 +88,19 @@ impl Display for NodeHash {
         }
     }
 }
-
+impl Debug for NodeHash {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
+        if let NodeHash::Some(ref inner) = self {
+            let mut s = String::new();
+            for byte in inner.iter() {
+                s.push_str(&format!("{:02x}", byte));
+            }
+            write!(f, "{}", s)
+        } else {
+            write!(f, "empty")
+        }
+    }
+}
 impl From<sha512_256::Hash> for NodeHash {
     fn from(hash: sha512_256::Hash) -> Self {
         NodeHash::Some(hash.to_byte_array())

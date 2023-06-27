@@ -35,12 +35,12 @@ fn main() {
         .unwrap();
     // This should be a valid proof over 0 and 1.
     assert_eq!(p.targets(), 2);
-    assert_eq!(p.verify(&cached_hashes, &s), Ok(true));
+    assert_eq!(s.verify(&p, &cached_hashes), Ok(true));
 
     // Get a subset of the proof, for the first UTXO only
     let p1 = p.get_proof_subset(&cached_hashes, &[0], s.leaves).unwrap();
 
-    assert_eq!(p1.verify(&cached_hashes, &s), Ok(true));
+    assert_eq!(s.verify(&p1, &cached_hashes), Ok(true));
 
     // Assume we have a block that (beyond coinbase) spends our UTXO `0` and creates 7 new UTXOs
     // We'll remove `0` as it got spent, and add 1..7 to our cache.
@@ -57,7 +57,8 @@ fn main() {
             update_data,
         )
         .unwrap();
-    assert_eq!(p2.verify(&cached_hashes, &stump), Ok(true));
+    // This should be a valid proof over 1..7
+    assert_eq!(stump.verify(&p2, &cached_hashes), Ok(true));
 }
 
 /// Returns the hashes for UTXOs in the first block in this fictitious example, there's nothing

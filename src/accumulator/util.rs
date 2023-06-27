@@ -175,6 +175,25 @@ pub fn detect_offset(pos: u64, num_leaves: u64) -> (u8, u8, u64) {
     (bigger_trees, tr - nr, !marker)
 }
 
+pub fn children(pos: u64, forest_rows: u8) -> u64 {
+    let mask = (2 << forest_rows) - 1;
+    (pos << 1) & mask
+}
+pub fn left_child(pos: u64, forest_rows: u8) -> u64 {
+    children(pos, forest_rows)
+}
+pub fn right_child(pos: u64, forest_rows: u8) -> u64 {
+    children(pos, forest_rows) + 1
+}
+
+pub fn is_root_populated(row: u8, num_leaves: u64) -> bool {
+    (num_leaves >> row) & 1 == 1
+}
+/// max_position_at_row returns the biggest position an accumulator can have for the
+/// requested row for the given num_leaves.
+pub fn max_position_at_row(row: u8, total_rows: u8, num_leaves: u64) -> Result<u64, String> {
+    Ok(parent_many(num_leaves, row, total_rows)?.saturating_sub(1))
+}
 // parent returns the parent position of the passed in child
 pub fn parent(pos: u64, forest_rows: u8) -> u64 {
     (pos >> 1) | (1 << forest_rows)
@@ -298,7 +317,10 @@ pub fn hash_from_u8(value: u8) -> NodeHash {
 #[cfg(test)]
 mod tests {
     use super::roots_to_destroy;
-    use crate::accumulator::{node_hash::NodeHash, util::tree_rows};
+    use crate::accumulator::{
+        node_hash::NodeHash,
+        util::{children, tree_rows},
+    };
     use std::{str::FromStr, vec};
 
     #[test]
@@ -427,6 +449,13 @@ mod tests {
     fn test_is_root_position() {
         let h = super::is_root_position(14, 8, 3);
         assert!(h);
+    }
+    #[test]
+    fn test_children_pos() {
+        assert_eq!(children(4, 2), 0);
+        assert_eq!(children(49, 5), 34);
+        assert_eq!(children(50, 5), 36);
+        assert_eq!(children(44, 5), 24);
     }
     #[test]
     fn test_calc_next_pos() {
