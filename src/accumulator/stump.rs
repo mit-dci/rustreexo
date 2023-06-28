@@ -26,8 +26,16 @@ use super::{
     proof::{EnumeratedTargetsAndHashPosition, Proof},
     util,
 };
-use std::vec;
+use std::{
+    io::{Read, Write},
+    vec,
+};
+
+#[cfg(feature = "with-serde")]
+use serde::{Deserialize, Serialize};
+
 #[derive(Debug, Clone, PartialEq, Default)]
+#[cfg_attr(feature = "with-serde", derive(Serialize, Deserialize))]
 pub struct Stump {
     pub leaves: u64,
     pub roots: Vec<NodeHash>,
@@ -120,7 +128,74 @@ impl Stump {
 
         Ok((new_stump, update_data))
     }
+    /// Serialize the Stump into a byte array
+    /// # Example
+    /// ```
+    /// use rustreexo::accumulator::{node_hash::NodeHash, stump::Stump, proof::Proof};
+    /// let hashes = [0, 1, 2, 3, 4, 5, 6, 7]
+    ///     .iter()
+    ///     .map(|&el| NodeHash::from([el; 32]))
+    ///     .collect::<Vec<_>>();
+    /// let (stump, _) = Stump::new()
+    ///     .modify(&hashes, &[], &Proof::default())
+    ///     .unwrap();
+    /// let mut writer = Vec::new();
+    /// stump.serialize(&mut writer).unwrap();
+    /// assert_eq!(
+    ///     writer,
+    ///     vec![
+    ///         8, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 150, 124, 244, 241, 98, 69, 217, 222,
+    ///         235, 97, 61, 137, 135, 76, 197, 134, 232, 173, 253, 8, 28, 17, 124, 123, 16, 4, 66, 30,
+    ///         63, 113, 246, 74,
+    ///     ]
+    /// );
+    /// ```
+    pub fn serialize<Dst: Write>(&self, writer: &mut Dst) -> std::io::Result<usize> {
+        let mut len = 8;
+        writer.write_all(&self.leaves.to_le_bytes())?;
+        writer.write_all(&self.roots.len().to_le_bytes())?;
+        for root in self.roots.iter() {
+            len += 32;
+            writer.write_all(&**root)?;
+        }
+        Ok(len)
+    }
+    /// Deserialize the Stump from a Reader
+    /// # Example
+    /// ```
+    /// use rustreexo::accumulator::{node_hash::NodeHash, stump::Stump, proof::Proof};
+    /// let buffer = vec![
+    ///         8, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 150, 124, 244, 241, 98, 69, 217, 222,
+    ///         235, 97, 61, 137, 135, 76, 197, 134, 232, 173, 253, 8, 28, 17, 124, 123, 16, 4, 66, 30,
+    ///         63, 113, 246, 74,
+    ///     ];
+    /// let mut buffer = std::io::Cursor::new(buffer);
+    /// let hashes = [0, 1, 2, 3, 4, 5, 6, 7]
+    ///     .iter()
+    ///     .map(|&el| NodeHash::from([el; 32]))
+    ///     .collect::<Vec<_>>();
+    /// let (stump, _) = Stump::new()
+    ///     .modify(&hashes, &[], &Proof::default())
+    ///     .unwrap();
+    /// assert_eq!(
+    ///     stump,
+    ///     Stump::deserialize(buffer).unwrap()
+    /// );
+    /// ```
+    pub fn deserialize<Source: Read>(data: Source) -> Result<Self, String> {
+        let mut data = data;
+        let leaves = util::read_u64(&mut data)?;
+        let roots_len = util::read_u64(&mut data)?;
+        let mut roots = vec![];
 
+        for _ in 0..roots_len {
+            let mut root = [0u8; 32];
+            data.read_exact(&mut root).map_err(|e| e.to_string())?;
+
+            roots.push(NodeHash::from(root));
+        }
+        Ok(Stump { leaves, roots })
+    }
     /// Rewinds old tree state, this should be used in case of reorgs.
     /// Takes the ownership over `old_state`.
     ///# Example
@@ -348,6 +423,18 @@ mod test {
         assert_eq!(positions, updated.new_add);
     }
 
+    #[test]
+    #[cfg(feature = "with-serde")]
+    fn test_serde_rtt() {
+        let stump = Stump::new()
+            .modify(&[hash_from_u8(0), hash_from_u8(1)], &[], &Proof::default())
+            .unwrap()
+            .0;
+        let serialized = serde_json::to_string(&stump).expect("Serialization failed");
+        let deserialized: Stump =
+            serde_json::from_str(&serialized).expect("Deserialization failed");
+        assert_eq!(stump, deserialized);
+    }
     fn run_case_with_deletion(case: TestCase) {
         let leaf_hashes = case
             .leaf_preimages
@@ -438,6 +525,22 @@ mod test {
         assert!(s_new == s_old_copy);
     }
 
+    #[test]
+    fn test_serialize() {
+        let hashes = [0, 1, 2, 3, 4, 5, 6, 7]
+            .iter()
+            .map(|&el| NodeHash::from([el; 32]))
+            .collect::<Vec<_>>();
+        let (stump, _) = Stump::new()
+            .modify(&hashes, &[], &Proof::default())
+            .unwrap();
+        let mut writer = Vec::new();
+        stump.serialize(&mut writer).unwrap();
+
+        let mut reader = std::io::Cursor::new(writer);
+        let stump2 = Stump::deserialize(&mut reader).unwrap();
+        assert_eq!(stump, stump2);
+    }
     #[test]
     fn run_test_cases() {
         #[derive(Deserialize)]

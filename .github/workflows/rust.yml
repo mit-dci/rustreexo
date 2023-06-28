@@ -44,6 +44,7 @@ jobs:
       matrix:
         rust: [stable, nightly, 1.41]
         os: [ubuntu-latest, windows-latest, macos-latest]
+        feature: [default, with-serde]
 
     runs-on: ${{ matrix.os }}
     steps:
@@ -52,4 +53,4 @@ jobs:
           toolchain: ${{ matrix.rust }}
 
       - name: Cross compile
-        run: cargo test --verbose
+        run: cargo test --verbose --features ${{ matrix.feature }}
