@@ -41,7 +41,7 @@ use super::{
     util::{get_proof_positions, tree_rows},
 };
 use std::collections::HashMap;
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 /// A proof is a collection of hashes and positions. Each target position
 /// points to a leaf to be proven. Hashes are all
 /// hashes that can't be calculated from the data itself.
@@ -619,8 +619,7 @@ mod tests {
     use std::str::FromStr;
 
     use super::Proof;
-    use crate::accumulator::{node_hash::NodeHash, stump::Stump};
-    use bitcoin_hashes::{sha256, Hash, HashEngine};
+    use crate::accumulator::{node_hash::NodeHash, stump::Stump, util::hash_from_u8};
     use serde::Deserialize;
     #[derive(Deserialize)]
     struct TestCase {
@@ -905,13 +904,6 @@ mod tests {
         let res = new_proof.verify(&[hash_from_u8(0), hash_from_u8(7)], &stump);
         assert_eq!(res, Ok(true));
     }
-    fn hash_from_u8(value: u8) -> NodeHash {
-        let mut engine = bitcoin_hashes::sha256::Hash::engine();
-
-        engine.input(&[value]);
-
-        sha256::Hash::from_engine(engine).into()
-    }
     #[test]
     fn test_calculate_hashes() {
         // Tests if the calculated roots and nodes are correct.
@@ -1023,7 +1015,6 @@ mod tests {
         assert_eq!(subset.verify(&[del_hashes[0]], &s), Ok(true));
         assert_eq!(subset.verify(&[del_hashes[2]], &s), Ok(false));
     }
-
     fn run_single_case(case: &serde_json::Value) {
         let case = serde_json::from_value::<TestCase>(case.clone()).expect("Invalid test case");
         let roots = case
@@ -1078,5 +1069,47 @@ mod tests {
         for test in tests {
             run_single_case(test);
         }
+    }
+}
+
+#[cfg(bench)]
+mod bench {
+    extern crate test;
+    use super::Stump;
+    use crate::accumulator::{proof::Proof, util::hash_from_u8};
+    use test::Bencher;
+
+    #[bench]
+    fn bench_proof_update(bencher: &mut Bencher) {
+        let preimages = [0_u8, 1, 2, 3, 4, 5];
+        let utxos = preimages
+            .iter()
+            .map(|&preimage| hash_from_u8(preimage))
+            .collect::<Vec<_>>();
+
+        let (_, modified) = Stump::new().modify(&utxos, &[], &Proof::default()).unwrap();
+        let proof = Proof::default();
+        let (proof, cached_hashes) = proof
+            .update(vec![], utxos.clone(), vec![], vec![0, 3, 5], modified)
+            .unwrap();
+        let preimages = [6, 7, 8, 9, 10, 11, 12, 13, 14];
+        let utxos = preimages
+            .iter()
+            .map(|&preimage| hash_from_u8(preimage))
+            .collect::<Vec<_>>();
+        let (_, modified) = Stump::new().modify(&utxos, &cached_hashes, &proof).unwrap();
+
+        bencher.iter(move || {
+            proof
+                .clone()
+                .update(
+                    cached_hashes.clone(),
+                    utxos.clone(),
+                    vec![0, 3, 5],
+                    vec![1, 2, 3, 4, 5, 6, 7],
+                    modified.clone(),
+                )
+                .unwrap();
+        })
     }
 }

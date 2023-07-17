@@ -27,7 +27,6 @@ use super::{
     util,
 };
 use std::vec;
-
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Stump {
     pub leaves: u64,
@@ -213,8 +212,7 @@ impl Stump {
 #[cfg(test)]
 mod test {
     use super::Stump;
-    use crate::accumulator::{node_hash::NodeHash, proof::Proof};
-    use bitcoin_hashes::{sha256, Hash, HashEngine};
+    use crate::accumulator::{node_hash::NodeHash, proof::Proof, util::hash_from_u8};
     use serde::Deserialize;
     use std::{str::FromStr, vec};
 
@@ -349,13 +347,6 @@ mod test {
 
         assert_eq!(positions, updated.new_add);
     }
-    fn hash_from_u8(value: u8) -> NodeHash {
-        let mut engine = bitcoin_hashes::sha256::Hash::engine();
-
-        engine.input(&[value]);
-
-        NodeHash::from(sha256::Hash::from_engine(engine))
-    }
 
     fn run_case_with_deletion(case: TestCase) {
         let leaf_hashes = case
@@ -446,6 +437,7 @@ mod test {
 
         assert!(s_new == s_old_copy);
     }
+
     #[test]
     fn run_test_cases() {
         #[derive(Deserialize)]
@@ -466,5 +458,61 @@ mod test {
         for i in tests.deletion_tests {
             run_case_with_deletion(i);
         }
+    }
+}
+
+#[cfg(bench)]
+mod bench {
+    extern crate test;
+    use super::Stump;
+    use crate::accumulator::{node_hash::NodeHash, proof::Proof, util::hash_from_u8};
+    use std::convert::TryFrom;
+    use test::Bencher;
+
+    #[bench]
+    fn bench_addition(bencher: &mut Bencher) {
+        let hash = [
+            "4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a",
+            "4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459b",
+            "4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459c",
+            "4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459d",
+            "4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459e",
+            "4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459f",
+        ]
+        .iter()
+        .map(|&hash| NodeHash::try_from(hash).unwrap())
+        .collect::<Vec<_>>();
+        let proof = &Proof::default();
+        bencher.iter(move || {
+            let _ = Stump::new().modify(&hash, &[], &proof);
+        });
+    }
+    #[bench]
+    fn bench_add_del(bencher: &mut Bencher) {
+        let leaf_preimages = [0_u8, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
+        let leaves = leaf_preimages
+            .iter()
+            .map(|preimage| hash_from_u8(*preimage))
+            .collect::<Vec<_>>();
+        let target_values = [0, 4, 5, 6, 7, 8];
+        let target_hashes = target_values
+            .iter()
+            .map(|val| hash_from_u8(*val as u8))
+            .collect::<Vec<_>>();
+        let proofhashes = [
+            "4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a",
+            "2b4c342f5433ebe591a1da77e013d1b72475562d48578dca8b84bac6651c3cb9",
+            "9576f4ade6e9bc3a6458b506ce3e4e890df29cb14cb5d3d887672aef55647a2b",
+            "c413035120e8c9b0ca3e40c93d06fe60a0d056866138300bb1f1dd172b4923c3",
+        ]
+        .iter()
+        .map(|&value| NodeHash::try_from(value).unwrap())
+        .collect::<Vec<_>>();
+        let acc = Stump::new()
+            .modify(&leaves, &vec![], &Proof::default())
+            .unwrap()
+            .0;
+        let proof = Proof::new(target_values.to_vec(), proofhashes);
+        bencher.iter(move || acc.modify(&leaves, &target_hashes, &proof));
     }
 }
