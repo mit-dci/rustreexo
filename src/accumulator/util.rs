@@ -1,3 +1,5 @@
+use std::io::Read;
+
 // Rustreexo
 use super::node_hash::NodeHash;
 
@@ -177,7 +179,12 @@ pub fn detect_offset(pos: u64, num_leaves: u64) -> (u8, u8, u64) {
 pub fn parent(pos: u64, forest_rows: u8) -> u64 {
     (pos >> 1) | (1 << forest_rows)
 }
-
+pub fn read_u64<Source: Read>(buf: &mut Source) -> Result<u64, String> {
+    let mut bytes = [0u8; 8];
+    buf.read_exact(&mut bytes)
+        .map_err(|_| "Failed to read u64")?;
+    Ok(u64::from_le_bytes(bytes))
+}
 // tree_rows returns the number of rows given n leaves
 pub fn tree_rows(n: u64) -> u8 {
     if n == 0 {

@@ -15,7 +15,7 @@
 //!
 //!   // The hashes used to prove an element.
 //!   let mut proof_hashes = Vec::new();
-
+//!
 //!   proof_hashes.push(NodeHash::from_str("4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a").unwrap());
 //!   proof_hashes.push(NodeHash::from_str("9576f4ade6e9bc3a6458b506ce3e4e890df29cb14cb5d3d887672aef55647a2b").unwrap());
 //!   proof_hashes.push(NodeHash::from_str("29590a14c1b09384b94a2c0e94bf821ca75b62eacebc47893397ca88e3bbcbd7").unwrap());
@@ -37,11 +37,19 @@
 use super::{
     node_hash::NodeHash,
     stump::{Stump, UpdateData},
-    util,
+    util::{self, read_u64},
     util::{get_proof_positions, tree_rows},
 };
-use std::collections::HashMap;
-#[derive(Clone, Debug, Default)]
+
+#[cfg(feature = "with-serde")]
+use serde::{Deserialize, Serialize};
+
+use std::{
+    collections::HashMap,
+    io::{Read, Write},
+};
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[cfg_attr(feature = "with-serde", derive(Serialize, Deserialize))]
 /// A proof is a collection of hashes and positions. Each target position
 /// points to a leaf to be proven. Hashes are all
 /// hashes that can't be calculated from the data itself.
@@ -224,6 +232,64 @@ impl Proof {
             targets: new_targets.to_vec(),
             hashes: new_proof,
         })
+    }
+
+    /// Serializes the proof into a byte array.
+    /// The format is (all integers are little endian):
+    /// - number of targets (u64)
+    /// - targets (u64)
+    /// - number of hashes (u64)
+    /// - hashes (32 bytes)
+    /// # Example
+    /// ```
+    /// use rustreexo::accumulator::{node_hash::NodeHash, stump::Stump, proof::Proof};
+    ///
+    /// let proof = Proof::default();
+    /// let mut serialized_proof = vec![];
+    /// proof.serialize(&mut serialized_proof).unwrap();
+    /// // An empty proof is only 16 bytes of zeros, meaning no targets and no hashes
+    /// assert_eq!(vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], serialized_proof);
+    /// ```
+    pub fn serialize<W: Write>(&self, mut writer: W) -> std::io::Result<usize> {
+        let mut len = 16;
+        writer.write_all(&self.targets.len().to_le_bytes())?;
+        for target in &self.targets {
+            len += 8;
+            writer.write_all(&target.to_le_bytes())?;
+        }
+        writer.write_all(&self.hashes.len().to_le_bytes())?;
+        for hash in &self.hashes {
+            len += 32;
+            writer.write_all(&**hash)?;
+        }
+        Ok(len)
+    }
+    /// Deserializes a proof from a byte array.
+    /// # Example
+    /// ```
+    /// use rustreexo::accumulator::{node_hash::NodeHash, stump::Stump, proof::Proof};
+    /// use std::io::Cursor;
+    /// let proof = Cursor::new(vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    /// let deserialized_proof = Proof::deserialize(proof).unwrap();
+    /// // An empty proof is only 16 bytes of zeros, meaning no targets and no hashes
+    /// assert_eq!(Proof::default(), deserialized_proof);
+    /// ```
+    pub fn deserialize<Source: Read>(mut buf: Source) -> Result<Self, String> {
+        let targets_len = read_u64(&mut buf)? as usize;
+
+        let mut targets = Vec::with_capacity(targets_len);
+        for _ in 0..targets_len {
+            targets.push(read_u64(&mut buf).map_err(|_| "Failed to parse target")?);
+        }
+        let hashes_len = read_u64(&mut buf)? as usize;
+        let mut hashes = Vec::with_capacity(hashes_len);
+        for _ in 0..hashes_len {
+            let mut hash = [0u8; 32];
+            buf.read_exact(&mut hash)
+                .map_err(|_| "Failed to read hash")?;
+            hashes.push(hash.into());
+        }
+        Ok(Proof { targets, hashes })
     }
     /// Returns how many targets this proof has
     pub fn targets(&self) -> usize {
@@ -984,6 +1050,15 @@ mod tests {
         }
     }
     #[test]
+    fn test_serialize_rtt() {
+        // Tests if the serialized proof can be deserialized again
+        let p = Proof::new(vec![0, 2, 4, 6], vec![]);
+        let mut serialized = vec![];
+        p.serialize(&mut serialized).unwrap();
+        let deserialized = Proof::deserialize(&mut serialized.as_slice()).unwrap();
+        assert_eq!(p, deserialized);
+    }
+    #[test]
     fn test_get_proof_subset() {
         // Tests if the calculated roots and nodes are correct.
         // The values we use to get some hashes
@@ -1014,6 +1089,16 @@ mod tests {
 
         assert_eq!(subset.verify(&[del_hashes[0]], &s), Ok(true));
         assert_eq!(subset.verify(&[del_hashes[2]], &s), Ok(false));
+    }
+    #[test]
+    #[cfg(feature = "with-serde")]
+    fn test_serde_rtt() {
+        // This proof is invalid, but don't care for this test
+        let proof = Proof::new(vec![0, 1], vec![hash_from_u8(0), hash_from_u8(1)]);
+        let serialized = serde_json::to_string(&proof).expect("Serialization failed");
+        let deserialized: Proof =
+            serde_json::from_str(&serialized).expect("Deserialization failed");
+        assert_eq!(proof, deserialized);
     }
     fn run_single_case(case: &serde_json::Value) {
         let case = serde_json::from_value::<TestCase>(case.clone()).expect("Invalid test case");
