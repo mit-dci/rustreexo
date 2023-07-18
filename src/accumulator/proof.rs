@@ -568,7 +568,7 @@ impl Proof {
         Ok((Proof { hashes, targets }, target_hashes))
     }
 
-    fn calc_next_positions(
+    pub(crate) fn calc_next_positions(
         block_targets: &Vec<u64>,
         old_positions: &Vec<(u64, NodeHash)>,
         num_leaves: u64,
@@ -589,8 +589,8 @@ impl Proof {
                     break;
                 }
                 // If these positions are in different subtrees, continue.
-                let (sub_tree, _, _) = util::detect_offset(*target, num_leaves);
-                let (sub_tree1, _, _) = util::detect_offset(next_pos, num_leaves);
+                let (sub_tree, _, _) = util::detect_offset(*target, num_leaves)?;
+                let (sub_tree1, _, _) = util::detect_offset(next_pos, num_leaves)?;
                 if sub_tree != sub_tree1 {
                     continue;
                 }
