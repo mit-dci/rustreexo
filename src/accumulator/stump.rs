@@ -66,6 +66,9 @@ impl Stump {
             roots: Vec::new(),
         }
     }
+    pub fn verify(&self, proof: &Proof, del_hashes: &[NodeHash]) -> Result<bool, String> {
+        proof.verify(del_hashes, &self.roots, self.leaves)
+    }
     /// Modify is the external API to change the accumulator state. Since order
     /// matters, you can only modify, providing a list of utxos to be added,
     /// and txos to be removed, along with it's proof. Either may be

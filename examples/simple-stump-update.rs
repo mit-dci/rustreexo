@@ -26,7 +26,7 @@ fn main() {
         .0;
     // Create a proof that the first utxo is in the Stump.
     let proof = Proof::new(vec![0], vec![utxos[1]]);
-    assert_eq!(proof.verify(&[utxos[0]], &s), Ok(true));
+    assert_eq!(s.verify(&proof, &[utxos[0]]), Ok(true));
 
     // Now we want to update the Stump, by removing the first utxo, and adding a new one.
     // This would be in case we received a new block with a transaction spending the first utxo,
@@ -35,9 +35,8 @@ fn main() {
         NodeHash::from_str("d3bd63d53c5a70050a28612a2f4b2019f40951a653ae70736d93745efb1124fa")
             .unwrap();
     let s = s.modify(&[new_utxo], &[utxos[0]], &proof).unwrap().0;
-
     // Now we can verify that the new utxo is in the Stump, and the old one is not.
     let new_proof = Proof::new(vec![2], vec![new_utxo]);
-    assert_eq!(new_proof.verify(&[new_utxo], &s), Ok(true));
-    assert_eq!(proof.verify(&[utxos[0]], &s), Ok(false));
+    assert_eq!(s.verify(&new_proof, &[new_utxo]), Ok(true));
+    assert_eq!(s.verify(&proof, &[utxos[0]]), Ok(false));
 }
