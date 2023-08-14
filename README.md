@@ -1,6 +1,9 @@
 # rustreexo - Utreexo in rust
 
 ![Build Status](https://github.com/mit-dci/rustreexo/actions/workflows/rust.yml/badge.svg)
+![License](https://img.shields.io/crates/l/rustreexo)
+![Version](https://img.shields.io/crates/v/rustreexo)
+![Downloads](https://img.shields.io/crates/d/rustreexo)
 
 Utreexo is a dynamic hash-based accumulator designed to be used as a set membership proof system and it is used in the Bitcoin network to compress the UTXO set. This is a pure-rust implementation of the accumulator, allowing proving and verifying set membership proofs.
 
