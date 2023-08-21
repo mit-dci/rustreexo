@@ -254,28 +254,22 @@ impl Pollard {
     /// let hashes = vec![0, 1, 2, 3, 4, 5, 6, 7].iter().map(|n| NodeHash::from([*n; 32])).collect::<Vec<_>>();
     /// pollard.modify(&hashes, &[]).unwrap();
     /// // We want to prove that the first two hashes are in the accumulator.
-    /// let (proof, del_hashes) = pollard.prove(&[hashes[1], hashes[0]]).unwrap();
-    /// assert_eq!(del_hashes, vec![hashes[0], hashes[1]]);
+    /// let proof = pollard.prove(&[hashes[1], hashes[0]]).unwrap();
     /// //TODO: Verify the proof
     /// ```
-    pub fn prove(&self, targets: &[NodeHash]) -> Result<(Proof, Vec<NodeHash>), String> {
+    pub fn prove(&self, targets: &[NodeHash]) -> Result<Proof, String> {
         let mut positions = Vec::new();
         for target in targets {
             let node = self.map.get(target).ok_or("Could not find node")?;
             let position = self.get_pos(node);
             positions.push(position);
         }
-        positions.sort();
-        let del_hashes = positions
-            .iter()
-            .map(|pos| self.get_hash(*pos).unwrap())
-            .collect::<Vec<_>>();
         let needed = get_proof_positions(&positions, self.leaves, tree_rows(self.leaves));
         let proof = needed
             .iter()
             .map(|pos| self.get_hash(*pos).unwrap())
             .collect::<Vec<_>>();
-        Ok((Proof::new(positions, proof), del_hashes))
+        Ok(Proof::new(positions, proof))
     }
     /// Returns a reference to the roots in this Pollard.
     pub fn get_roots(&self) -> &[Rc<Node>] {
@@ -579,7 +573,6 @@ mod test {
     use crate::accumulator::node_hash::NodeHash;
     use crate::accumulator::pollard::Node;
     use crate::accumulator::proof::Proof;
-    use crate::accumulator::stump::Stump;
     use std::vec;
     use std::{convert::TryFrom, str::FromStr};
 
@@ -635,8 +628,8 @@ mod test {
         let mut p = Pollard::new();
         p.modify(&hashes, &[]).unwrap();
 
-        let (proof, del_hashes) = p.prove(&[hashes[0], hashes[1]]).unwrap();
-        assert!(p.verify(&proof, &del_hashes).unwrap());
+        let proof = p.prove(&[hashes[0], hashes[1]]).unwrap();
+        assert!(p.verify(&proof, &[hashes[0], hashes[1]]).unwrap());
     }
     #[test]
     fn test_add() {
@@ -888,22 +881,32 @@ mod test {
     #[test]
     fn test_proof() {
         let hashes = get_hash_vec_of(&[0, 1, 2, 3, 4, 5, 6, 7]);
-        let (_, update_data): (Stump, crate::accumulator::stump::UpdateData) = Stump::new()
-            .modify(&hashes, &[], &Proof::default())
-            .unwrap();
+        let del_hashes = [hashes[2], hashes[1], hashes[4], hashes[6]];
 
         let mut p = Pollard::new();
         p.modify(&hashes, &[]).expect("Test pollards are valid");
 
-        let proof = p
-            .prove(&[hashes[0], hashes[2], hashes[4], hashes[6]])
-            .expect("Should be able to prove")
-            .0;
+        let proof = p.prove(&del_hashes).expect("Should be able to prove");
 
-        let (expected_proof, _) = Proof::default()
-            .update(vec![], hashes, vec![], vec![0, 2, 4, 6], update_data)
-            .unwrap();
+        let expected_proof = Proof::new(
+            [2, 1, 4, 6].to_vec(),
+            vec![
+                "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d"
+                    .parse()
+                    .unwrap(),
+                "084fed08b978af4d7d196a7446a86b58009e636b611db16211b65a9aadff29c5"
+                    .parse()
+                    .unwrap(),
+                "e77b9a9ae9e30b0dbdb6f510a264ef9de781501d7b6b92ae89eb059c5ab743db"
+                    .parse()
+                    .unwrap(),
+                "ca358758f6d27e6cf45272937977a748fd88391db679ceda7dc7bf1f005ee879"
+                    .parse()
+                    .unwrap(),
+            ],
+        );
         assert_eq!(proof, expected_proof);
+        assert!(p.verify(&proof, &del_hashes).unwrap());
     }
     fn get_hash_vec_of(elements: &[u8]) -> Vec<NodeHash> {
         elements.iter().map(|el| hash_from_u8(*el)).collect()

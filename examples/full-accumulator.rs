@@ -19,13 +19,13 @@ fn main() {
     p.modify(&elements, &[]).unwrap();
 
     // Create a proof that the first utxo is in the Pollard
-    let (proof, del_hashes) = p.prove(&[elements[0]]).unwrap();
+    let proof = p.prove(&[elements[0]]).unwrap();
     // Verify the proof. Notice how we use the del_hashes returned by `prove` here.
     let s = Stump::new()
         .modify(&elements, &[], &Proof::default())
         .unwrap()
         .0;
-    assert_eq!(s.verify(&proof, &del_hashes,), Ok(true));
+    assert_eq!(s.verify(&proof, &[elements[0]]), Ok(true));
     // Now we want to update the Pollard, by removing the first utxo, and adding a new one.
     // This would be in case we received a new block with a transaction spending the first utxo,
     // and creating a new one.
