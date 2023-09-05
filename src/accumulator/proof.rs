@@ -1164,10 +1164,31 @@ mod tests {
 #[cfg(bench)]
 mod bench {
     extern crate test;
-    use super::Stump;
+    use crate::accumulator::stump::Stump;
     use crate::accumulator::{proof::Proof, util::hash_from_u8};
     use test::Bencher;
+    #[bench]
+    fn bench_calculate_hashes(bencher: &mut Bencher) {
+        let preimages = 0..255_u8;
+        let utxos = preimages
+            .into_iter()
+            .map(|preimage| hash_from_u8(preimage))
+            .collect::<Vec<_>>();
 
+        let (stump, modified) = Stump::new().modify(&utxos, &[], &Proof::default()).unwrap();
+        let proof = Proof::default();
+        let (proof, cached_hashes) = proof
+            .update(
+                vec![],
+                utxos.clone(),
+                vec![],
+                (0..128).into_iter().collect(),
+                modified,
+            )
+            .unwrap();
+
+        bencher.iter(|| proof.calculate_hashes(&cached_hashes, stump.leaves))
+    }
     #[bench]
     fn bench_proof_update(bencher: &mut Bencher) {
         let preimages = [0_u8, 1, 2, 3, 4, 5];
