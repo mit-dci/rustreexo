@@ -679,8 +679,10 @@ impl Proof {
         Ok(new_positions)
     }
     fn sorted_push(nodes: &mut Vec<(u64, NodeHash)>, to_add: (u64, NodeHash)) {
-        nodes.push(to_add);
-        nodes.sort();
+        let pos = nodes
+            .binary_search_by(|(pos, _)| pos.cmp(&to_add.0))
+            .unwrap_or_else(|x| x);
+        nodes.insert(pos, to_add);
     }
 }
 
