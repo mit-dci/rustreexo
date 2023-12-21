@@ -4,10 +4,11 @@
 //! Building from a str
 //! ```
 //! use std::str::FromStr;
+//!
 //! use rustreexo::accumulator::node_hash::NodeHash;
 //! let hash =
-//! NodeHash::from_str("0000000000000000000000000000000000000000000000000000000000000000")
-//!     .unwrap();
+//!     NodeHash::from_str("0000000000000000000000000000000000000000000000000000000000000000")
+//!         .unwrap();
 //! assert_eq!(
 //!     hash.to_string().as_str(),
 //!     "0000000000000000000000000000000000000000000000000000000000000000"
@@ -16,6 +17,7 @@
 //! Building from a slice
 //! ```
 //! use std::str::FromStr;
+//!
 //! use rustreexo::accumulator::node_hash::NodeHash;
 //! let hash1 = NodeHash::new([0; 32]);
 //! // ... or ...
@@ -30,23 +32,31 @@
 //! Computing a parent hash (i.e a hash of two nodes concatenated)
 //! ```
 //! use std::str::FromStr;
+//!
 //! use rustreexo::accumulator::node_hash::NodeHash;
 //! let left = NodeHash::new([0; 32]);
 //! let right = NodeHash::new([1; 32]);
 //! let parent = NodeHash::parent_hash(&left, &right);
-//! let expected_parent = NodeHash::from_str("34e33ca0c40b7bd33d28932ca9e35170def7309a3bf91ecda5e1ceb067548a12").unwrap();
+//! let expected_parent =
+//!     NodeHash::from_str("34e33ca0c40b7bd33d28932ca9e35170def7309a3bf91ecda5e1ceb067548a12")
+//!         .unwrap();
 //! assert_eq!(parent, expected_parent);
 //! ```
-use bitcoin_hashes::{hex, sha256, sha512_256, Hash, HashEngine};
-use std::{
-    convert::TryFrom,
-    fmt::{Debug, Display},
-    ops::Deref,
-    str::FromStr,
-};
+use std::convert::TryFrom;
+use std::fmt::Debug;
+use std::fmt::Display;
+use std::ops::Deref;
+use std::str::FromStr;
 
+use bitcoin_hashes::hex;
+use bitcoin_hashes::sha256;
+use bitcoin_hashes::sha512_256;
+use bitcoin_hashes::Hash;
+use bitcoin_hashes::HashEngine;
 #[cfg(feature = "with-serde")]
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+#[cfg(feature = "with-serde")]
+use serde::Serialize;
 
 #[derive(Eq, PartialEq, Copy, Clone, Hash, PartialOrd, Ord)]
 #[cfg_attr(feature = "with-serde", derive(Serialize, Deserialize))]
@@ -55,7 +65,10 @@ use serde::{Deserialize, Serialize};
 /// ```
 /// use rustreexo::accumulator::node_hash::NodeHash;
 /// let hash = NodeHash::new([0; 32]);
-/// assert_eq!(hash.to_string().as_str(), "0000000000000000000000000000000000000000000000000000000000000000");
+/// assert_eq!(
+///     hash.to_string().as_str(),
+///     "0000000000000000000000000000000000000000000000000000000000000000"
+/// );
 /// ```
 pub enum NodeHash {
     Empty,
@@ -175,7 +188,10 @@ impl NodeHash {
     /// ```
     /// use rustreexo::accumulator::node_hash::NodeHash;
     /// let hash = NodeHash::new([0; 32]);
-    /// assert_eq!(hash.to_string().as_str(), "0000000000000000000000000000000000000000000000000000000000000000");
+    /// assert_eq!(
+    ///     hash.to_string().as_str(),
+    ///     "0000000000000000000000000000000000000000000000000000000000000000"
+    /// );
     /// ```
     pub fn new(inner: [u8; 32]) -> Self {
         NodeHash::Some(inner)
@@ -194,11 +210,14 @@ impl NodeHash {
     /// # Example
     /// ```
     /// use std::str::FromStr;
+    ///
     /// use rustreexo::accumulator::node_hash::NodeHash;
     /// let left = NodeHash::new([0; 32]);
     /// let right = NodeHash::new([1; 32]);
     /// let parent = NodeHash::parent_hash(&left, &right);
-    /// let expected_parent = NodeHash::from_str("34e33ca0c40b7bd33d28932ca9e35170def7309a3bf91ecda5e1ceb067548a12").unwrap();
+    /// let expected_parent =
+    ///     NodeHash::from_str("34e33ca0c40b7bd33d28932ca9e35170def7309a3bf91ecda5e1ceb067548a12")
+    ///         .unwrap();
     /// assert_eq!(parent, expected_parent);
     /// ```
     pub fn parent_hash(left: &NodeHash, right: &NodeHash) -> NodeHash {
@@ -217,9 +236,10 @@ impl NodeHash {
 
 #[cfg(test)]
 mod test {
+    use std::str::FromStr;
+
     use super::NodeHash;
     use crate::accumulator::util::hash_from_u8;
-    use std::str::FromStr;
 
     #[test]
     fn test_parent_hash() {

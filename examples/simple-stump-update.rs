@@ -2,9 +2,12 @@
 //! the roots of the accumulator. It's meant for light clients, that don't need to prove membership
 //! of arbitrary elements. Instead, they only need to verify.
 
-use std::{str::FromStr, vec};
+use std::str::FromStr;
+use std::vec;
 
-use rustreexo::accumulator::{node_hash::NodeHash, proof::Proof, stump::Stump};
+use rustreexo::accumulator::node_hash::NodeHash;
+use rustreexo::accumulator::proof::Proof;
+use rustreexo::accumulator::stump::Stump;
 
 fn main() {
     // These are the utxos that we want to add to the Stump, in Bitcoin, these would be the

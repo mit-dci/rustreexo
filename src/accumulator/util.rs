@@ -307,7 +307,9 @@ pub fn get_proof_positions(targets: &[u64], num_leaves: u64, forest_rows: u8) ->
 }
 #[cfg(any(test, bench))]
 pub fn hash_from_u8(value: u8) -> NodeHash {
-    use bitcoin_hashes::{sha256, Hash, HashEngine};
+    use bitcoin_hashes::sha256;
+    use bitcoin_hashes::Hash;
+    use bitcoin_hashes::HashEngine;
     let mut engine = bitcoin_hashes::sha256::Hash::engine();
 
     engine.input(&[value]);
@@ -316,12 +318,13 @@ pub fn hash_from_u8(value: u8) -> NodeHash {
 }
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+    use std::vec;
+
     use super::roots_to_destroy;
-    use crate::accumulator::{
-        node_hash::NodeHash,
-        util::{children, tree_rows},
-    };
-    use std::{str::FromStr, vec};
+    use crate::accumulator::node_hash::NodeHash;
+    use crate::accumulator::util::children;
+    use crate::accumulator::util::tree_rows;
 
     #[test]
     fn test_proof_pos() {

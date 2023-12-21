@@ -12,7 +12,9 @@
 
 use std::str::FromStr;
 
-use rustreexo::accumulator::{node_hash::NodeHash, proof::Proof, stump::Stump};
+use rustreexo::accumulator::node_hash::NodeHash;
+use rustreexo::accumulator::proof::Proof;
+use rustreexo::accumulator::stump::Stump;
 
 fn main() {
     let s = Stump::new();
