@@ -70,17 +70,15 @@ use serde::Serialize;
 ///     "0000000000000000000000000000000000000000000000000000000000000000"
 /// );
 /// ```
+#[derive(Default)]
 pub enum NodeHash {
+    #[default]
     Empty,
     Placeholder,
     Some([u8; 32]),
 }
 
-impl Default for NodeHash {
-    fn default() -> Self {
-        NodeHash::Empty
-    }
-}
+
 impl Deref for NodeHash {
     type Target = [u8; 32];
 

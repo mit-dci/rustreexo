@@ -486,7 +486,7 @@ impl Proof {
             .targets
             .iter()
             .copied()
-            .zip(cached_del_hashes.into_iter())
+            .zip(cached_del_hashes)
             .collect();
 
         // Attach positions to the proof.
@@ -608,7 +608,7 @@ impl Proof {
             .targets
             .iter()
             .cloned()
-            .zip(cached_hashes.into_iter())
+            .zip(cached_hashes)
             .filter(|(pos, _)| !block_targets.contains(pos))
             .collect();
 
