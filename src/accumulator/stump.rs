@@ -427,13 +427,15 @@ mod test {
 
         let positions = vec![0, 1, 2, 3, 4, 5, 6];
 
-        let hashes: Vec<_> = ["6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+        let hashes: Vec<_> = [
+            "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
             "4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a",
             "dbc1b4c900ffe48d575b5da5c638040125f65db0fe3e24494b76ea986457d986",
             "084fed08b978af4d7d196a7446a86b58009e636b611db16211b65a9aadff29c5",
             "02242b37d8e851f1e86f46790298c7097df06893d6226b7c1453c213e91717de",
             "9576f4ade6e9bc3a6458b506ce3e4e890df29cb14cb5d3d887672aef55647a2b",
-            "df46b17be5f66f0750a4b3efa26d4679db170a72d41eb56c3e4ff75a58c65386"]
+            "df46b17be5f66f0750a4b3efa26d4679db170a72d41eb56c3e4ff75a58c65386",
+        ]
         .iter()
         .map(|hash| NodeHash::from_str(hash).unwrap())
         .collect();

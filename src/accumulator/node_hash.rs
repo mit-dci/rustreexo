@@ -78,7 +78,6 @@ pub enum NodeHash {
     Some([u8; 32]),
 }
 
-
 impl Deref for NodeHash {
     type Target = [u8; 32];
 

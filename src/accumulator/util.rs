@@ -360,10 +360,12 @@ mod tests {
     }
     #[test]
     fn test_roots_to_destroy() {
-        let roots = ["0000000000000000000000000000000000000000000000000000000000000000",
+        let roots = [
+            "0000000000000000000000000000000000000000000000000000000000000000",
             "aad41f1d55e1a111ca193f6fa4e13dfc0cbdfbea851b30f3eacfe8d9d6be4302",
             "0000000000000000000000000000000000000000000000000000000000000000",
-            "3c2d8cbe4336bbe05fff898102d413ab6356de2598aad4d5a7f916c5b316cb42"];
+            "3c2d8cbe4336bbe05fff898102d413ab6356de2598aad4d5a7f916c5b316cb42",
+        ];
         let roots = roots
             .iter()
             .map(|hash| NodeHash::from_str(hash).unwrap())
