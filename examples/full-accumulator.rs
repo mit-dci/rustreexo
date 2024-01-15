@@ -1,11 +1,13 @@
 //! An example of a full accumulator. A full accumulator is an accumulator that holds all the
 //! elements in the set. It's meant for full nodes, that need to prove membership of arbitrary
 //! elements. Clients that only need to verify membership should use a Stump instead.
-//!
 
 use std::str::FromStr;
 
-use rustreexo::accumulator::{node_hash::NodeHash, pollard::Pollard, proof::Proof, stump::Stump};
+use rustreexo::accumulator::node_hash::NodeHash;
+use rustreexo::accumulator::pollard::Pollard;
+use rustreexo::accumulator::proof::Proof;
+use rustreexo::accumulator::stump::Stump;
 
 fn main() {
     let elements = vec![

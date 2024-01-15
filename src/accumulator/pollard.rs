@@ -4,38 +4,47 @@
 //!
 //! # Example
 //! ```
-//! use rustreexo::accumulator::{pollard::Pollard, node_hash::NodeHash};
+//! use rustreexo::accumulator::node_hash::NodeHash;
+//! use rustreexo::accumulator::pollard::Pollard;
 //! let values = vec![0, 1, 2, 3, 4, 5, 6, 7];
-//! let hashes: Vec<NodeHash> = values.into_iter().map(|i| NodeHash::from([i; 32])).collect();
+//! let hashes: Vec<NodeHash> = values
+//!     .into_iter()
+//!     .map(|i| NodeHash::from([i; 32]))
+//!     .collect();
 //!
 //! let mut p = Pollard::new();
 //!
 //! p.modify(&hashes, &[]).expect("Pollard should not fail");
 //! assert_eq!(p.get_roots().len(), 1);
 //!
-//! p.modify(&[], &hashes).expect("Still should not fail");   // Remove leaves from the accumulator
+//! p.modify(&[], &hashes).expect("Still should not fail"); // Remove leaves from the accumulator
 //!
 //! assert_eq!(p.get_roots().len(), 1);
 //! assert_eq!(p.get_roots()[0].get_data(), NodeHash::default());
 //! ```
 
 use core::fmt;
-use std::{
-    cell::{Cell, RefCell},
-    collections::HashMap,
-    fmt::{Debug, Display, Formatter},
-    io::{Read, Write},
-    rc::Rc,
-};
+use std::cell::Cell;
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::fmt::Debug;
+use std::fmt::Display;
+use std::fmt::Formatter;
+use std::io::Read;
+use std::io::Write;
+use std::rc::Rc;
 
-use super::{
-    node_hash::NodeHash,
-    proof::Proof,
-    util::{
-        detect_offset, get_proof_positions, is_left_niece, is_root_populated, left_child,
-        max_position_at_row, right_child, root_position, tree_rows,
-    },
-};
+use super::node_hash::NodeHash;
+use super::proof::Proof;
+use super::util::detect_offset;
+use super::util::get_proof_positions;
+use super::util::is_left_niece;
+use super::util::is_root_populated;
+use super::util::left_child;
+use super::util::max_position_at_row;
+use super::util::right_child;
+use super::util::root_position;
+use super::util::tree_rows;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum NodeType {
     Branch,
@@ -201,7 +210,10 @@ impl Pollard {
     /// let mut serialized = Vec::new();
     /// pollard.serialize(&mut serialized).unwrap();
     ///
-    /// assert_eq!(serialized, vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    /// assert_eq!(
+    ///     serialized,
+    ///     vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    /// );
     /// ```
     pub fn serialize<W: Write>(&self, mut writer: W) -> std::io::Result<()> {
         writer.write_all(&self.leaves.to_le_bytes())?;
@@ -216,8 +228,9 @@ impl Pollard {
     /// Deserializes a pollard from a reader.
     /// # Example
     /// ```
-    /// use rustreexo::accumulator::pollard::Pollard;
     /// use std::io::Cursor;
+    ///
+    /// use rustreexo::accumulator::pollard::Pollard;
     /// let mut serialized = Cursor::new(vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
     /// let pollard = Pollard::deserialize(&mut serialized).unwrap();
     /// assert_eq!(pollard.leaves, 0);
@@ -249,9 +262,13 @@ impl Pollard {
     /// and the hashes that we what to prove, but sorted by position in the tree.
     /// # Example
     /// ```
-    /// use rustreexo::accumulator::{pollard::Pollard, node_hash::NodeHash};
+    /// use rustreexo::accumulator::node_hash::NodeHash;
+    /// use rustreexo::accumulator::pollard::Pollard;
     /// let mut pollard = Pollard::new();
-    /// let hashes = vec![0, 1, 2, 3, 4, 5, 6, 7].iter().map(|n| NodeHash::from([*n; 32])).collect::<Vec<_>>();
+    /// let hashes = vec![0, 1, 2, 3, 4, 5, 6, 7]
+    ///     .iter()
+    ///     .map(|n| NodeHash::from([*n; 32]))
+    ///     .collect::<Vec<_>>();
     /// pollard.modify(&hashes, &[]).unwrap();
     /// // We want to prove that the first two hashes are in the accumulator.
     /// let proof = pollard.prove(&[hashes[1], hashes[0]]).unwrap();
@@ -284,21 +301,28 @@ impl Pollard {
     ///
     /// # Example
     /// ```
-    /// use rustreexo::accumulator::{pollard::Pollard, node_hash::NodeHash};
-    /// use bitcoin_hashes::{sha256::Hash as Data, Hash, HashEngine};
+    /// use bitcoin_hashes::sha256::Hash as Data;
+    /// use bitcoin_hashes::Hash;
+    /// use bitcoin_hashes::HashEngine;
+    /// use rustreexo::accumulator::node_hash::NodeHash;
+    /// use rustreexo::accumulator::pollard::Pollard;
     /// let values = vec![0, 1, 2, 3, 4, 5, 6, 7];
-    /// let hashes = values.into_iter().map(|val|{
-    ///     let mut engine = Data::engine();
-    ///     engine.input(&[val]);
-    ///     NodeHash::from(Data::from_engine(engine).as_byte_array())
-    /// })
-    /// .collect::<Vec<_>>();
+    /// let hashes = values
+    ///     .into_iter()
+    ///     .map(|val| {
+    ///         let mut engine = Data::engine();
+    ///         engine.input(&[val]);
+    ///         NodeHash::from(Data::from_engine(engine).as_byte_array())
+    ///     })
+    ///     .collect::<Vec<_>>();
     /// // Add 8 leaves to the pollard
     /// let mut p = Pollard::new();
-    /// p.modify(&hashes, &[])
-    ///   .expect("Pollard should not fail");
+    /// p.modify(&hashes, &[]).expect("Pollard should not fail");
     ///
-    /// assert_eq!(p.get_roots()[0].get_data().to_string(), String::from("b151a956139bb821d4effa34ea95c17560e0135d1e4661fc23cedc3af49dac42"));
+    /// assert_eq!(
+    ///     p.get_roots()[0].get_data().to_string(),
+    ///     String::from("b151a956139bb821d4effa34ea95c17560e0135d1e4661fc23cedc3af49dac42")
+    /// );
     /// ```
     pub fn modify(&mut self, add: &[NodeHash], del: &[NodeHash]) -> Result<(), String> {
         self.del(del)?;
@@ -570,15 +594,19 @@ impl Display for Pollard {
 }
 #[cfg(test)]
 mod test {
+    use std::convert::TryFrom;
+    use std::str::FromStr;
+    use std::vec;
+
+    use bitcoin_hashes::sha256::Hash as Data;
+    use bitcoin_hashes::Hash;
+    use bitcoin_hashes::HashEngine;
+    use serde::Deserialize;
+
+    use super::Pollard;
     use crate::accumulator::node_hash::NodeHash;
     use crate::accumulator::pollard::Node;
     use crate::accumulator::proof::Proof;
-    use std::vec;
-    use std::{convert::TryFrom, str::FromStr};
-
-    use super::Pollard;
-    use bitcoin_hashes::{sha256::Hash as Data, Hash, HashEngine};
-    use serde::Deserialize;
 
     fn hash_from_u8(value: u8) -> NodeHash {
         let mut engine = Data::engine();
@@ -818,7 +846,7 @@ mod test {
     #[test]
     fn test_get_pos() {
         macro_rules! test_get_pos {
-            ($p: ident, $pos: literal) => {
+            ($p:ident, $pos:literal) => {
                 assert_eq!($p.get_pos(&$p.grab_node($pos).unwrap().0), $pos);
             };
         }

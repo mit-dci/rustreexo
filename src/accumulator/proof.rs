@@ -4,50 +4,65 @@
 //! element in the accumulator.
 //! ## Example
 //! ```
-//!   use bitcoin_hashes::{sha256, Hash, HashEngine};
-//!   use std::str::FromStr;
-//!   use rustreexo::accumulator::{node_hash::NodeHash, stump::Stump, proof::Proof};
-//!   let s = Stump::new();
-//!   // Creates a tree with those values as leaves
-//!   let test_values:Vec<u8> = vec![0, 1, 2, 3, 4, 5, 6, 7];
-//!   // Targets are the nodes we intend to prove
-//!   let targets = vec![0];
+//! use std::str::FromStr;
 //!
-//!   // The hashes used to prove an element.
-//!   let mut proof_hashes = Vec::new();
+//! use bitcoin_hashes::sha256;
+//! use bitcoin_hashes::Hash;
+//! use bitcoin_hashes::HashEngine;
+//! use rustreexo::accumulator::node_hash::NodeHash;
+//! use rustreexo::accumulator::proof::Proof;
+//! use rustreexo::accumulator::stump::Stump;
+//! let s = Stump::new();
+//! // Creates a tree with those values as leaves
+//! let test_values: Vec<u8> = vec![0, 1, 2, 3, 4, 5, 6, 7];
+//! // Targets are the nodes we intend to prove
+//! let targets = vec![0];
 //!
-//!   proof_hashes.push(NodeHash::from_str("4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a").unwrap());
-//!   proof_hashes.push(NodeHash::from_str("9576f4ade6e9bc3a6458b506ce3e4e890df29cb14cb5d3d887672aef55647a2b").unwrap());
-//!   proof_hashes.push(NodeHash::from_str("29590a14c1b09384b94a2c0e94bf821ca75b62eacebc47893397ca88e3bbcbd7").unwrap());
+//! // The hashes used to prove an element.
+//! let mut proof_hashes = Vec::new();
 //!
-//!   // Hashes of the leaves UTXOs we'll add to the accumulator
-//!   let mut hashes = Vec::new();
-//!   for i in test_values {
-//!       let mut engine = sha256::Hash::engine();
-//!       engine.input(&[i]);
-//!       hashes.push(sha256::Hash::from_engine(engine).into())
-//!   }
-//!   // Add the UTXOs to the accumulator
-//!   let s = s.modify(&hashes, &vec![], &Proof::default()).unwrap().0;
-//!   // Create a proof for the targets
-//!   let p = Proof::new(targets, proof_hashes);
-//!   // Verify the proof
-//!   assert!(s.verify(&p, &vec![hashes[0]]).expect("This proof is valid"));
+//! proof_hashes.push(
+//!     NodeHash::from_str("4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a")
+//!         .unwrap(),
+//! );
+//! proof_hashes.push(
+//!     NodeHash::from_str("9576f4ade6e9bc3a6458b506ce3e4e890df29cb14cb5d3d887672aef55647a2b")
+//!         .unwrap(),
+//! );
+//! proof_hashes.push(
+//!     NodeHash::from_str("29590a14c1b09384b94a2c0e94bf821ca75b62eacebc47893397ca88e3bbcbd7")
+//!         .unwrap(),
+//! );
+//!
+//! // Hashes of the leaves UTXOs we'll add to the accumulator
+//! let mut hashes = Vec::new();
+//! for i in test_values {
+//!     let mut engine = sha256::Hash::engine();
+//!     engine.input(&[i]);
+//!     hashes.push(sha256::Hash::from_engine(engine).into())
+//! }
+//! // Add the UTXOs to the accumulator
+//! let s = s.modify(&hashes, &vec![], &Proof::default()).unwrap().0;
+//! // Create a proof for the targets
+//! let p = Proof::new(targets, proof_hashes);
+//! // Verify the proof
+//! assert!(s.verify(&p, &vec![hashes[0]]).expect("This proof is valid"));
 //! ```
-use super::{
-    node_hash::NodeHash,
-    stump::UpdateData,
-    util::{self, read_u64},
-    util::{get_proof_positions, tree_rows},
-};
+use std::collections::HashMap;
+use std::io::Read;
+use std::io::Write;
 
 #[cfg(feature = "with-serde")]
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+#[cfg(feature = "with-serde")]
+use serde::Serialize;
 
-use std::{
-    collections::HashMap,
-    io::{Read, Write},
-};
+use super::node_hash::NodeHash;
+use super::stump::UpdateData;
+use super::util::get_proof_positions;
+use super::util::read_u64;
+use super::util::tree_rows;
+use super::util::{self};
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 #[cfg_attr(feature = "with-serde", derive(Serialize, Deserialize))]
 /// A proof is a collection of hashes and positions. Each target position
@@ -107,15 +122,17 @@ impl Proof {
     /// proof, in this case 00, 08, 12 and 14.
     /// # Example
     /// ```
-    ///   use bitcoin_hashes::{Hash, HashEngine};
-    ///   use rustreexo::accumulator::{node_hash::NodeHash, proof::Proof};
-    ///   let targets = vec![0];
+    /// use bitcoin_hashes::Hash;
+    /// use bitcoin_hashes::HashEngine;
+    /// use rustreexo::accumulator::node_hash::NodeHash;
+    /// use rustreexo::accumulator::proof::Proof;
+    /// let targets = vec![0];
     ///
-    ///   let mut proof_hashes = Vec::new();
-    ///   let targets = vec![0];
-    ///   // For proving 0, we need 01, 09 and 13's hashes. 00, 08, 12 and 14 can be calculated
-    ///   // Fill `proof_hashes` up with all hashes
-    ///   Proof::new(targets, proof_hashes);
+    /// let mut proof_hashes = Vec::new();
+    /// let targets = vec![0];
+    /// // For proving 0, we need 01, 09 and 13's hashes. 00, 08, 12 and 14 can be calculated
+    /// // Fill `proof_hashes` up with all hashes
+    /// Proof::new(targets, proof_hashes);
     /// ```
     pub fn new(targets: Vec<u64>, hashes: Vec<NodeHash>) -> Self {
         Proof { targets, hashes }
@@ -125,39 +142,53 @@ impl Proof {
     /// not valid given the current stump.
     ///# Examples
     /// ```
-    ///   use bitcoin_hashes::{sha256, Hash, HashEngine};
-    ///   use std::str::FromStr;
-    ///   use rustreexo::accumulator::{node_hash::NodeHash, stump::Stump, proof::Proof};
-    ///   let s = Stump::new();
-    ///   // Creates a tree with those values as leaves
-    ///   let test_values:Vec<u8> = vec![0, 1, 2, 3, 4, 5, 6, 7];
-    ///   // Targets are the nodes we intend to prove
-    ///   let targets = vec![0];
+    /// use std::str::FromStr;
     ///
-    ///   let mut proof_hashes = Vec::new();
-    ///   // This tree will look like this
-    ///   // 14
-    ///   // |-----------------\
-    ///   // 12                13
-    ///   // |---------\       |--------\
-    ///   // 08       09       10       11
-    ///   // |----\   |----\   |----\   |----\
-    ///   // 00   01  02   03  04   05  06   07
-    ///   // For proving 0, we need 01, 09 and 13's hashes. 00, 08, 12 and 14 can be calculated
-    ///   proof_hashes.push(NodeHash::from_str("4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a").unwrap());
-    ///   proof_hashes.push(NodeHash::from_str("9576f4ade6e9bc3a6458b506ce3e4e890df29cb14cb5d3d887672aef55647a2b").unwrap());
-    ///   proof_hashes.push(NodeHash::from_str("29590a14c1b09384b94a2c0e94bf821ca75b62eacebc47893397ca88e3bbcbd7").unwrap());
+    /// use bitcoin_hashes::sha256;
+    /// use bitcoin_hashes::Hash;
+    /// use bitcoin_hashes::HashEngine;
+    /// use rustreexo::accumulator::node_hash::NodeHash;
+    /// use rustreexo::accumulator::proof::Proof;
+    /// use rustreexo::accumulator::stump::Stump;
+    /// let s = Stump::new();
+    /// // Creates a tree with those values as leaves
+    /// let test_values: Vec<u8> = vec![0, 1, 2, 3, 4, 5, 6, 7];
+    /// // Targets are the nodes we intend to prove
+    /// let targets = vec![0];
     ///
-    ///   let mut hashes = Vec::new();
-    ///   for i in test_values {
-    ///       let mut engine = sha256::Hash::engine();
-    ///       engine.input(&[i]);
-    ///       hashes.push(sha256::Hash::from_engine(engine).into())
-    ///   }
-    ///   let s = s.modify(&hashes, &vec![], &Proof::default()).unwrap().0;
-    ///   let p = Proof::new(targets, proof_hashes);
-    ///   assert!(s.verify(&p, &[hashes[0]]).expect("This proof is valid"));
-    ///```
+    /// let mut proof_hashes = Vec::new();
+    /// // This tree will look like this
+    /// // 14
+    /// // |-----------------\
+    /// // 12                13
+    /// // |---------\       |--------\
+    /// // 08       09       10       11
+    /// // |----\   |----\   |----\   |----\
+    /// // 00   01  02   03  04   05  06   07
+    /// // For proving 0, we need 01, 09 and 13's hashes. 00, 08, 12 and 14 can be calculated
+    /// proof_hashes.push(
+    ///     NodeHash::from_str("4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a")
+    ///         .unwrap(),
+    /// );
+    /// proof_hashes.push(
+    ///     NodeHash::from_str("9576f4ade6e9bc3a6458b506ce3e4e890df29cb14cb5d3d887672aef55647a2b")
+    ///         .unwrap(),
+    /// );
+    /// proof_hashes.push(
+    ///     NodeHash::from_str("29590a14c1b09384b94a2c0e94bf821ca75b62eacebc47893397ca88e3bbcbd7")
+    ///         .unwrap(),
+    /// );
+    ///
+    /// let mut hashes = Vec::new();
+    /// for i in test_values {
+    ///     let mut engine = sha256::Hash::engine();
+    ///     engine.input(&[i]);
+    ///     hashes.push(sha256::Hash::from_engine(engine).into())
+    /// }
+    /// let s = s.modify(&hashes, &vec![], &Proof::default()).unwrap().0;
+    /// let p = Proof::new(targets, proof_hashes);
+    /// assert!(s.verify(&p, &[hashes[0]]).expect("This proof is valid"));
+    /// ```
     pub fn verify(
         &self,
         del_hashes: &[NodeHash],
@@ -247,13 +278,18 @@ impl Proof {
     /// - hashes (32 bytes)
     /// # Example
     /// ```
-    /// use rustreexo::accumulator::{node_hash::NodeHash, stump::Stump, proof::Proof};
+    /// use rustreexo::accumulator::node_hash::NodeHash;
+    /// use rustreexo::accumulator::proof::Proof;
+    /// use rustreexo::accumulator::stump::Stump;
     ///
     /// let proof = Proof::default();
     /// let mut serialized_proof = vec![];
     /// proof.serialize(&mut serialized_proof).unwrap();
     /// // An empty proof is only 16 bytes of zeros, meaning no targets and no hashes
-    /// assert_eq!(vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], serialized_proof);
+    /// assert_eq!(
+    ///     vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    ///     serialized_proof
+    /// );
     /// ```
     pub fn serialize<W: Write>(&self, mut writer: W) -> std::io::Result<usize> {
         let mut len = 16;
@@ -272,8 +308,11 @@ impl Proof {
     /// Deserializes a proof from a byte array.
     /// # Example
     /// ```
-    /// use rustreexo::accumulator::{node_hash::NodeHash, stump::Stump, proof::Proof};
     /// use std::io::Cursor;
+    ///
+    /// use rustreexo::accumulator::node_hash::NodeHash;
+    /// use rustreexo::accumulator::proof::Proof;
+    /// use rustreexo::accumulator::stump::Stump;
     /// let proof = Cursor::new(vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
     /// let deserialized_proof = Proof::deserialize(proof).unwrap();
     /// // An empty proof is only 16 bytes of zeros, meaning no targets and no hashes
@@ -447,7 +486,7 @@ impl Proof {
             .targets
             .iter()
             .copied()
-            .zip(cached_del_hashes.into_iter())
+            .zip(cached_del_hashes)
             .collect();
 
         // Attach positions to the proof.
@@ -569,7 +608,7 @@ impl Proof {
             .targets
             .iter()
             .cloned()
-            .zip(cached_hashes.into_iter())
+            .zip(cached_hashes)
             .filter(|(pos, _)| !block_targets.contains(pos))
             .collect();
 
@@ -690,9 +729,12 @@ impl Proof {
 mod tests {
     use std::str::FromStr;
 
-    use super::Proof;
-    use crate::accumulator::{node_hash::NodeHash, stump::Stump, util::hash_from_u8};
     use serde::Deserialize;
+
+    use super::Proof;
+    use crate::accumulator::node_hash::NodeHash;
+    use crate::accumulator::stump::Stump;
+    use crate::accumulator::util::hash_from_u8;
     #[derive(Deserialize)]
     struct TestCase {
         numleaves: usize,
@@ -1166,9 +1208,11 @@ mod tests {
 #[cfg(bench)]
 mod bench {
     extern crate test;
-    use crate::accumulator::stump::Stump;
-    use crate::accumulator::{proof::Proof, util::hash_from_u8};
     use test::Bencher;
+
+    use crate::accumulator::proof::Proof;
+    use crate::accumulator::stump::Stump;
+    use crate::accumulator::util::hash_from_u8;
     #[bench]
     fn bench_calculate_hashes(bencher: &mut Bencher) {
         let preimages = 0..255_u8;

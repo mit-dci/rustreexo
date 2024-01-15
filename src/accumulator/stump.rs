@@ -4,35 +4,41 @@
 //!
 //! ## Example
 //! ```
-//!   use rustreexo::accumulator::{node_hash::NodeHash, stump::Stump, proof::Proof};
-//!   use std::str::FromStr;
-//!   // Create a new empty Stump
-//!   let s = Stump::new();
-//!   // The newly create outputs
-//!   let utxos = vec![NodeHash::from_str("b151a956139bb821d4effa34ea95c17560e0135d1e4661fc23cedc3af49dac42").unwrap()];
-//!   // The spent outputs
-//!   let stxos = vec![];
-//!   // Modify the Stump, adding the new outputs and removing the spent ones, notice how
-//!   // it returns a new Stump, instead of modifying the old one. This is due to the fact
-//!   // that modify is a pure function that doesn't modify the old Stump.
-//!   let s = s.modify(&utxos, &stxos, &Proof::default());
-//!   assert!(s.is_ok());
-//!   assert_eq!(s.unwrap().0.roots, utxos);
-//! ```
+//! use std::str::FromStr;
 //!
+//! use rustreexo::accumulator::node_hash::NodeHash;
+//! use rustreexo::accumulator::proof::Proof;
+//! use rustreexo::accumulator::stump::Stump;
+//! // Create a new empty Stump
+//! let s = Stump::new();
+//! // The newly create outputs
+//! let utxos = vec![NodeHash::from_str(
+//!     "b151a956139bb821d4effa34ea95c17560e0135d1e4661fc23cedc3af49dac42",
+//! )
+//! .unwrap()];
+//! // The spent outputs
+//! let stxos = vec![];
+//! // Modify the Stump, adding the new outputs and removing the spent ones, notice how
+//! // it returns a new Stump, instead of modifying the old one. This is due to the fact
+//! // that modify is a pure function that doesn't modify the old Stump.
+//! let s = s.modify(&utxos, &stxos, &Proof::default());
+//! assert!(s.is_ok());
+//! assert_eq!(s.unwrap().0.roots, utxos);
+//! ```
 
-use super::{
-    node_hash::NodeHash,
-    proof::{EnumeratedTargetsAndHashPosition, Proof},
-    util,
-};
-use std::{
-    io::{Read, Write},
-    vec,
-};
+use std::io::Read;
+use std::io::Write;
+use std::vec;
 
 #[cfg(feature = "with-serde")]
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+#[cfg(feature = "with-serde")]
+use serde::Serialize;
+
+use super::node_hash::NodeHash;
+use super::proof::EnumeratedTargetsAndHashPosition;
+use super::proof::Proof;
+use super::util;
 
 #[derive(Debug, Clone, PartialEq, Default)]
 #[cfg_attr(feature = "with-serde", derive(Serialize, Deserialize))]
@@ -57,8 +63,8 @@ impl Stump {
     /// Creates an empty Stump
     ///# Example
     /// ```
-    ///   use rustreexo::accumulator::stump::Stump;
-    ///   let s = Stump::new();
+    /// use rustreexo::accumulator::stump::Stump;
+    /// let s = Stump::new();
     /// ```
     pub fn new() -> Self {
         Stump {
@@ -75,15 +81,21 @@ impl Stump {
     /// empty.
     ///# Example
     /// ```
-    ///   use rustreexo::accumulator::{node_hash::NodeHash, stump::Stump, proof::Proof};
-    ///   use std::str::FromStr;
+    /// use std::str::FromStr;
     ///
-    ///   let s = Stump::new();
-    ///   let utxos = vec![NodeHash::from_str("b151a956139bb821d4effa34ea95c17560e0135d1e4661fc23cedc3af49dac42").unwrap()];
-    ///   let stxos = vec![];
-    ///   let s = s.modify(&utxos, &stxos, &Proof::default());
-    ///   assert!(s.is_ok());
-    ///   assert_eq!(s.unwrap().0.roots, utxos);
+    /// use rustreexo::accumulator::node_hash::NodeHash;
+    /// use rustreexo::accumulator::proof::Proof;
+    /// use rustreexo::accumulator::stump::Stump;
+    ///
+    /// let s = Stump::new();
+    /// let utxos = vec![NodeHash::from_str(
+    ///     "b151a956139bb821d4effa34ea95c17560e0135d1e4661fc23cedc3af49dac42",
+    /// )
+    /// .unwrap()];
+    /// let stxos = vec![];
+    /// let s = s.modify(&utxos, &stxos, &Proof::default());
+    /// assert!(s.is_ok());
+    /// assert_eq!(s.unwrap().0.roots, utxos);
     /// ```
     pub fn modify(
         &self,
@@ -134,7 +146,9 @@ impl Stump {
     /// Serialize the Stump into a byte array
     /// # Example
     /// ```
-    /// use rustreexo::accumulator::{node_hash::NodeHash, stump::Stump, proof::Proof};
+    /// use rustreexo::accumulator::node_hash::NodeHash;
+    /// use rustreexo::accumulator::proof::Proof;
+    /// use rustreexo::accumulator::stump::Stump;
     /// let hashes = [0, 1, 2, 3, 4, 5, 6, 7]
     ///     .iter()
     ///     .map(|&el| NodeHash::from([el; 32]))
@@ -166,12 +180,14 @@ impl Stump {
     /// Deserialize the Stump from a Reader
     /// # Example
     /// ```
-    /// use rustreexo::accumulator::{node_hash::NodeHash, stump::Stump, proof::Proof};
+    /// use rustreexo::accumulator::node_hash::NodeHash;
+    /// use rustreexo::accumulator::proof::Proof;
+    /// use rustreexo::accumulator::stump::Stump;
     /// let buffer = vec![
-    ///         8, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 150, 124, 244, 241, 98, 69, 217, 222,
-    ///         235, 97, 61, 137, 135, 76, 197, 134, 232, 173, 253, 8, 28, 17, 124, 123, 16, 4, 66, 30,
-    ///         63, 113, 246, 74,
-    ///     ];
+    ///     8, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 150, 124, 244, 241, 98, 69, 217, 222, 235,
+    ///     97, 61, 137, 135, 76, 197, 134, 232, 173, 253, 8, 28, 17, 124, 123, 16, 4, 66, 30, 63, 113,
+    ///     246, 74,
+    /// ];
     /// let mut buffer = std::io::Cursor::new(buffer);
     /// let hashes = [0, 1, 2, 3, 4, 5, 6, 7]
     ///     .iter()
@@ -180,10 +196,7 @@ impl Stump {
     /// let (stump, _) = Stump::new()
     ///     .modify(&hashes, &[], &Proof::default())
     ///     .unwrap();
-    /// assert_eq!(
-    ///     stump,
-    ///     Stump::deserialize(buffer).unwrap()
-    /// );
+    /// assert_eq!(stump, Stump::deserialize(buffer).unwrap());
     /// ```
     pub fn deserialize<Source: Read>(data: Source) -> Result<Self, String> {
         let mut data = data;
@@ -203,17 +216,18 @@ impl Stump {
     /// Takes the ownership over `old_state`.
     ///# Example
     /// ```
-    ///   use rustreexo::accumulator::{stump::Stump, proof::Proof};
-    ///   let s_old = Stump::new();
-    ///   let mut s_new = Stump::new();
+    /// use rustreexo::accumulator::proof::Proof;
+    /// use rustreexo::accumulator::stump::Stump;
+    /// let s_old = Stump::new();
+    /// let mut s_new = Stump::new();
     ///
-    ///   let s_old = s_old.modify(&vec![], &vec![], &Proof::default()).unwrap().0;
-    ///   s_new = s_old.clone();
-    ///   s_new = s_new.modify(&vec![], &vec![], &Proof::default()).unwrap().0;
+    /// let s_old = s_old.modify(&vec![], &vec![], &Proof::default()).unwrap().0;
+    /// s_new = s_old.clone();
+    /// s_new = s_new.modify(&vec![], &vec![], &Proof::default()).unwrap().0;
     ///
-    ///   // A reorg happened
-    ///   s_new.undo(s_old);
-    ///```
+    /// // A reorg happened
+    /// s_new.undo(s_old);
+    /// ```
     pub fn undo(&mut self, old_state: Stump) {
         self.leaves = old_state.leaves;
         self.roots = old_state.roots;
@@ -289,10 +303,15 @@ impl Stump {
 
 #[cfg(test)]
 mod test {
-    use super::Stump;
-    use crate::accumulator::{node_hash::NodeHash, proof::Proof, util::hash_from_u8};
+    use std::str::FromStr;
+    use std::vec;
+
     use serde::Deserialize;
-    use std::{str::FromStr, vec};
+
+    use super::Stump;
+    use crate::accumulator::node_hash::NodeHash;
+    use crate::accumulator::proof::Proof;
+    use crate::accumulator::util::hash_from_u8;
 
     #[derive(Debug, Deserialize)]
     struct TestCase {
@@ -408,7 +427,7 @@ mod test {
 
         let positions = vec![0, 1, 2, 3, 4, 5, 6];
 
-        let hashes: Vec<_> = vec![
+        let hashes: Vec<_> = [
             "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
             "4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a",
             "dbc1b4c900ffe48d575b5da5c638040125f65db0fe3e24494b76ea986457d986",
@@ -421,7 +440,7 @@ mod test {
         .map(|hash| NodeHash::from_str(hash).unwrap())
         .collect();
 
-        let positions: Vec<_> = positions.into_iter().zip(hashes.into_iter()).collect();
+        let positions: Vec<_> = positions.into_iter().zip(hashes).collect();
 
         assert_eq!(positions, updated.new_add);
     }
@@ -570,10 +589,14 @@ mod test {
 #[cfg(bench)]
 mod bench {
     extern crate test;
-    use super::Stump;
-    use crate::accumulator::{node_hash::NodeHash, proof::Proof, util::hash_from_u8};
     use std::convert::TryFrom;
+
     use test::Bencher;
+
+    use super::Stump;
+    use crate::accumulator::node_hash::NodeHash;
+    use crate::accumulator::proof::Proof;
+    use crate::accumulator::util::hash_from_u8;
 
     #[bench]
     fn bench_addition(bencher: &mut Bencher) {
