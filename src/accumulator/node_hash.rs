@@ -229,6 +229,46 @@ impl NodeHash {
     pub const fn placeholder() -> Self {
         NodeHash::Placeholder
     }
+
+    /// write to buffer
+    pub(super) fn write<W>(&self, writer: &mut W) -> std::io::Result<()>
+    where
+        W: std::io::Write,
+    {
+        match self {
+            Self::Empty => writer.write_all(&[0]),
+            Self::Placeholder => writer.write_all(&[1]),
+            Self::Some(hash) => {
+                writer.write_all(&[2])?;
+                writer.write_all(hash)
+            }
+        }
+    }
+
+    /// Read from buffer
+    pub(super) fn read<R>(reader: &mut R) -> std::io::Result<Self>
+    where
+        R: std::io::Read,
+    {
+        let mut tag = [0];
+        reader.read_exact(&mut tag)?;
+        match tag {
+            [0] => Ok(Self::Empty),
+            [1] => Ok(Self::Placeholder),
+            [2] => {
+                let mut hash = [0; 32];
+                reader.read_exact(&mut hash)?;
+                Ok(Self::Some(hash))
+            }
+            [_] => {
+                let err = std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "unexpected tag for NodeHash",
+                );
+                Err(err)
+            }
+        }
+    }
 }
 
 #[cfg(test)]
