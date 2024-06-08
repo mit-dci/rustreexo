@@ -18,11 +18,11 @@ pub fn is_root_position(position: u64, num_leaves: u64, forest_rows: u8) -> bool
 // bit is to be removed from 1011 (11 in dec), the returned value is 111 (7 in dec).
 pub fn remove_bit(val: u64, bit: u64) -> u64 {
     let mask = ((2 << bit) - 1) as u64;
-    let upper_mask = std::u64::MAX ^ mask;
+    let upper_mask = u64::MAX ^ mask;
     let upper = val & upper_mask;
 
     let mask = ((1 << bit) - 1) as u64;
-    let lower_mask = !(std::u64::MAX ^ mask);
+    let lower_mask = !(u64::MAX ^ mask);
     let lower = val & lower_mask;
 
     (upper >> 1) | lower

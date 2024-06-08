@@ -77,10 +77,9 @@ impl Node {
                 .replace(NodeHash::parent_hash(&left.data.get(), &right.data.get()));
         }
         if let Some(ref parent) = *self.parent.borrow() {
-            parent.upgrade().and_then(|p| {
+            if let Some(p) = parent.upgrade() {
                 p.recompute_hashes();
-                Some(())
-            });
+            }
         }
     }
     /// Writes one node to the writer, this method will recursively write all children.
@@ -344,17 +343,19 @@ impl Pollard {
         for row in (0..(branch_len)).rev() {
             // Parent is the sibling of the current node as each of the
             // nodes point to their nieces.
-            parent = sibling;
+            parent.clone_from(&sibling);
 
             // Figure out which node we need to follow.
             let niece_pos = ((bits >> row) & 1) as u8;
+
+            #[allow(clippy::assigning_clones)]
             if let Some(node) = n {
                 if is_left_niece(niece_pos as u64) {
                     n = node.right.borrow().clone();
-                    sibling = node.left.borrow().clone();
+                    sibling.clone_from(&*node.left.borrow());
                 } else {
                     n = node.left.borrow().clone();
-                    sibling = node.right.borrow().clone();
+                    sibling.clone_from(&*node.right.borrow());
                 }
             } else {
                 sibling = None;
@@ -410,8 +411,7 @@ impl Pollard {
         while let Some(parent) = node.parent.clone().into_inner() {
             let parent_left = parent
                 .upgrade()
-                .map(|parent| parent.left.clone().into_inner())
-                .flatten()
+                .and_then(|parent| parent.left.clone().into_inner())
                 .unwrap()
                 .clone();
 
