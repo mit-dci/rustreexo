@@ -379,50 +379,76 @@ impl Proof {
 
         // Nodes must be sorted for finding siblings during hashing
         nodes.sort();
-        let mut i = 0;
-        while i < nodes.len() {
-            let (pos1, hash1) = nodes[i];
-            let next_to_prove = util::parent(pos1, total_rows);
+        let mut computed = Vec::with_capacity(nodes.len() * 2);
+        let mut computed_index = 0;
+        let mut provided_index = 0;
+        loop {
+            let Some((next_pos, next_hash)) =
+                Self::get_next(&computed, &nodes, &mut computed_index, &mut provided_index)
+            else {
+                break;
+            };
 
-            // If the current position is a root, we add that to our result and don't go any further
-            if util::is_root_position(pos1, num_leaves, total_rows) {
-                calculated_root_hashes.push(hash1);
-                i += 1;
+            if util::is_root_position(next_pos, num_leaves, total_rows) {
+                calculated_root_hashes.push(next_hash);
                 continue;
             }
 
-            let Some((pos2, hash2)) = nodes.get(i + 1) else {
-                return Err(format!(
-                    "Proof is too short. Expected at least {} elements, got {}",
-                    i + 1,
-                    nodes.len()
-                ));
-            };
+            let sibling = next_pos | 1;
+            let (sibling_pos, sibling_hash) =
+                Self::get_next(&computed, &nodes, &mut computed_index, &mut provided_index)
+                    .ok_or(format!("Missing sibling for {}", next_pos))?;
 
-            if pos1 != util::left_sibling(*pos2) {
-                return Err(format!(
-                    "Invalid proof. Expected left sibling of {} to be {}, got {}",
-                    pos2,
-                    util::left_sibling(*pos2),
-                    pos1
-                ));
+            if sibling_pos != sibling {
+                return Err(format!("Missing sibling for {}", next_pos));
             }
 
-            let parent_hash = match (hash1.is_empty(), hash2.is_empty()) {
+            let parent_hash = match (next_hash.is_empty(), sibling_hash.is_empty()) {
                 (true, true) => NodeHash::empty(),
-                (true, false) => *hash2,
-                (false, true) => hash1,
-                (false, false) => NodeHash::parent_hash(&hash1, hash2),
+                (true, false) => sibling_hash,
+                (false, true) => next_hash,
+                (false, false) => NodeHash::parent_hash(&next_hash, &sibling_hash),
             };
 
-            Self::sorted_push(&mut nodes, (next_to_prove, parent_hash));
-            i += 2;
+            let parent = util::parent(next_pos, total_rows);
+            computed.push((parent, parent_hash));
         }
 
         // we shouldn't return the hashes in the proof
+        nodes.extend(computed);
         nodes.retain(|(pos, _)| !proof_positions.contains(pos));
-
         Ok((nodes, calculated_root_hashes))
+    }
+
+    fn get_next<T: Copy>(
+        computed: &[(u64, T)],
+        provided: &[(u64, T)],
+        computed_pos: &mut usize,
+        provided_pos: &mut usize,
+    ) -> Option<(u64, T)> {
+        let last_computed = computed.get(*computed_pos);
+        let last_provided = provided.get(*provided_pos);
+
+        match (last_computed, last_provided) {
+            (Some((pos1, hashes1)), Some((pos2, hashes2))) => {
+                if pos1 < pos2 {
+                    *computed_pos += 1;
+                    Some((*pos1, *hashes1))
+                } else {
+                    *provided_pos += 1;
+                    Some((*pos2, *hashes2))
+                }
+            }
+            (Some(node), None) => {
+                *computed_pos += 1;
+                Some(*node)
+            }
+            (None, Some(node)) => {
+                *provided_pos += 1;
+                Some(*node)
+            }
+            (None, None) => None,
+        }
     }
     /// Uses the data passed in to update a proof, creating a valid proof for a given
     /// set of targets, after an update. This is useful for caching UTXOs. You grab a proof
@@ -698,12 +724,6 @@ impl Proof {
         }
         new_positions.sort();
         Ok(new_positions)
-    }
-    fn sorted_push(nodes: &mut Vec<(u64, NodeHash)>, to_add: (u64, NodeHash)) {
-        let pos = nodes
-            .binary_search_by(|(pos, _)| pos.cmp(&to_add.0))
-            .unwrap_or_else(|x| x);
-        nodes.insert(pos, to_add);
     }
 }
 
