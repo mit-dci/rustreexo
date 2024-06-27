@@ -885,6 +885,20 @@ mod tests {
             assert_eq!(cached_hashes, expected_cached_hashes);
         }
     }
+
+    #[test]
+    fn test_get_next() {
+        use super::Proof;
+        let computed = vec![(1, NodeHash::empty()), (3, NodeHash::empty())];
+        let provided = vec![(2, NodeHash::empty()), (4, NodeHash::empty())];
+
+        assert_eq!(Proof::get_next(&computed, &provided, 0, 0), Some(true));
+        assert_eq!(Proof::get_next(&computed, &provided, 1, 0), Some(false));
+        assert_eq!(Proof::get_next(&computed, &provided, 1, 1), Some(true));
+        assert_eq!(Proof::get_next(&computed, &provided, 1, 2), Some(true));
+        assert_eq!(Proof::get_next(&computed, &provided, 2, 2), None);
+    }
+
     #[test]
     fn test_calc_next_positions() {
         use super::Proof;
