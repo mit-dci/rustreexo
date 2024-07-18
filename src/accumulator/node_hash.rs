@@ -131,7 +131,7 @@ impl From<&[u8; 32]> for NodeHash {
 }
 #[cfg(test)]
 impl TryFrom<&str> for NodeHash {
-    type Error = hex::Error;
+    type Error = hex::HexToArrayError;
     fn try_from(hash: &str) -> Result<Self, Self::Error> {
         // This implementation is useful for testing, as it allows to create empty hashes
         // from the string of 64 zeros. Without this, it would be impossible to express this
@@ -146,7 +146,7 @@ impl TryFrom<&str> for NodeHash {
 
 #[cfg(not(test))]
 impl TryFrom<&str> for NodeHash {
-    type Error = hex::Error;
+    type Error = hex::HexToArrayError;
     fn try_from(hash: &str) -> Result<Self, Self::Error> {
         let inner = hex::FromHex::from_hex(hash)?;
         Ok(NodeHash::Some(inner))
@@ -169,7 +169,7 @@ impl FromStr for NodeHash {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         NodeHash::try_from(s)
     }
-    type Err = hex::Error;
+    type Err = hex::HexToArrayError;
 }
 impl NodeHash {
     /// Tells whether this hash is empty. We use empty hashes throughout the code to represent
