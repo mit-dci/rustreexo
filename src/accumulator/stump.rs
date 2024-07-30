@@ -36,7 +36,7 @@ use serde::Deserialize;
 use serde::Serialize;
 
 use super::node_hash::NodeHash;
-use super::proof::EnumeratedTargetsAndHashPosition;
+use super::proof::NodesAndRootsOldNew;
 use super::proof::Proof;
 use super::util;
 
@@ -103,31 +103,27 @@ impl Stump {
         del_hashes: &[NodeHash],
         proof: &Proof,
     ) -> Result<(Stump, UpdateData), String> {
-        let mut root_candidates = proof
-            .calculate_hashes(del_hashes, self.leaves)?
-            .1
-            .into_iter()
-            .rev()
-            .peekable();
-
-        let (intermediate, computed_roots) = self.remove(del_hashes, proof)?;
-        let mut computed_roots = computed_roots.into_iter().rev();
-
+        let (intermediate, mut computed_roots) = self.remove(del_hashes, proof)?;
         let mut new_roots = vec![];
 
         for root in self.roots.iter() {
-            if let Some(root_candidate) = root_candidates.peek() {
-                if *root_candidate == *root {
-                    if let Some(new_root) = computed_roots.next() {
-                        new_roots.push(new_root);
-                        root_candidates.next();
-                        continue;
-                    }
+            if let Some(pos) = computed_roots.iter().position(|(old, _new)| old == root) {
+                let (old_root, new_root) = computed_roots.remove(pos);
+                if old_root == *root {
+                    new_roots.push(new_root);
+                    continue;
                 }
             }
 
             new_roots.push(*root);
         }
+
+        // If there are still roots to be added, it means that the proof is invalid
+        // as we should have consumed all the roots.
+        if !computed_roots.is_empty() {
+            return Err("Invalid proof".to_string());
+        }
+
         let (roots, updated, destroyed) = Stump::add(new_roots, utxos, self.leaves);
 
         let new_stump = Stump {
@@ -237,14 +233,21 @@ impl Stump {
         &self,
         del_hashes: &[NodeHash],
         proof: &Proof,
-    ) -> Result<EnumeratedTargetsAndHashPosition, String> {
+    ) -> Result<NodesAndRootsOldNew, String> {
         if del_hashes.is_empty() {
-            return Ok((vec![], self.roots.clone()));
+            return Ok((
+                vec![],
+                self.roots.iter().map(|root| (*root, *root)).collect(),
+            ));
         }
 
-        let del_hashes = vec![NodeHash::empty(); proof.targets()];
-        proof.calculate_hashes(&del_hashes, self.leaves)
+        let del_hashes = del_hashes
+            .iter()
+            .map(|hash| (*hash, NodeHash::empty()))
+            .collect::<Vec<_>>();
+        proof.calculate_hashes_delete(&del_hashes, self.leaves)
     }
+
     /// Adds new leaves into the root
     fn add(
         mut roots: Vec<NodeHash>,
@@ -413,7 +416,9 @@ mod test {
             assert_eq!(updated.prev_num_leaves, data.leaves);
             assert_eq!(updated.to_destroy, data.to_destroy);
             assert_eq!(updated.new_add, new_add);
-            assert_eq!(updated.new_del, new_del);
+            for del in new_del.iter() {
+                assert!(updated.new_del.contains(del));
+            }
         }
     }
     #[test]
@@ -466,10 +471,10 @@ mod test {
 
         let target_hashes = case
             .target_values
-            .clone()
+            .as_ref()
             .unwrap()
             .into_iter()
-            .map(|target| hash_from_u8(target as u8))
+            .map(|target| hash_from_u8(*target as u8))
             .collect::<Vec<_>>();
 
         let proof_hashes = case
@@ -491,7 +496,6 @@ mod test {
             .modify(&leaf_hashes, &[], &Proof::default())
             .expect("This stump is valid");
         let (stump, _) = stump.modify(&[], &target_hashes, &proof).unwrap();
-
         assert_eq!(stump.roots, roots);
     }
 

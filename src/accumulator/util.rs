@@ -275,7 +275,7 @@ pub fn get_proof_positions(targets: &[u64], num_leaves: u64, forest_rows: u8) ->
     for row in 0..=forest_rows {
         let mut row_targets = computed_positions
             .iter()
-            .copied()
+            .cloned()
             .filter(|x| super::util::detect_row(*x, forest_rows) == row)
             .collect::<Vec<_>>()
             .into_iter()
@@ -283,11 +283,9 @@ pub fn get_proof_positions(targets: &[u64], num_leaves: u64, forest_rows: u8) ->
 
         while let Some(node) = row_targets.next() {
             if is_root_position(node, num_leaves, forest_rows) {
-                let idx = computed_positions.iter().position(|x| node == *x).unwrap();
-
-                computed_positions.remove(idx);
                 continue;
             }
+
             if let Some(next) = row_targets.peek() {
                 if !is_sibling(node, *next) {
                     proof_positions.push(node ^ 1);
@@ -299,8 +297,9 @@ pub fn get_proof_positions(targets: &[u64], num_leaves: u64, forest_rows: u8) ->
             }
 
             computed_positions.push(parent(node, forest_rows));
-            computed_positions.sort();
         }
+
+        computed_positions.sort();
     }
 
     proof_positions
