@@ -371,7 +371,7 @@ mod test {
 
     #[test]
     fn test_custom_hash_type() {
-        #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
+        #[derive(Debug, Default, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
         struct CustomHash([u8; 32]);
 
         impl Display for CustomHash {
@@ -581,7 +581,7 @@ mod test {
             .target_values
             .as_ref()
             .unwrap()
-            .into_iter()
+            .iter()
             .map(|target| hash_from_u8(*target as u8))
             .collect::<Vec<_>>();
 

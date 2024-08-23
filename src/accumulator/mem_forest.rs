@@ -4,9 +4,9 @@
 //!
 //! # Example
 //! ```
+//! use rustreexo::accumulator::mem_forest::MemForest;
 //! use rustreexo::accumulator::node_hash::AccumulatorHash;
 //! use rustreexo::accumulator::node_hash::BitcoinNodeHash;
-//! use rustreexo::accumulator::mem_forest::MemForest;
 //!
 //! let values = vec![0, 1, 2, 3, 4, 5, 6, 7];
 //! let hashes: Vec<BitcoinNodeHash> = values
@@ -225,8 +225,8 @@ impl<Hash: AccumulatorHash> MemForest<Hash> {
     /// Creates a new empty [MemForest] with a custom hash function.
     /// # Example
     /// ```
-    /// use rustreexo::accumulator::node_hash::BitcoinNodeHash;
     /// use rustreexo::accumulator::mem_forest::MemForest;
+    /// use rustreexo::accumulator::node_hash::BitcoinNodeHash;
     /// let mut MemForest = MemForest::<BitcoinNodeHash>::new();
     /// ```
     pub fn new_with_hash() -> MemForest<Hash> {
@@ -241,8 +241,8 @@ impl<Hash: AccumulatorHash> MemForest<Hash> {
     /// or to disk.
     /// # Example
     /// ```
-    /// use rustreexo::accumulator::node_hash::BitcoinNodeHash;
     /// use rustreexo::accumulator::mem_forest::MemForest;
+    /// use rustreexo::accumulator::node_hash::BitcoinNodeHash;
     ///
     /// let mut mem_forest = MemForest::<BitcoinNodeHash>::new();
     /// let mut serialized = Vec::new();
@@ -269,8 +269,8 @@ impl<Hash: AccumulatorHash> MemForest<Hash> {
     /// ```
     /// use std::io::Cursor;
     ///
-    /// use rustreexo::accumulator::node_hash::BitcoinNodeHash;
     /// use rustreexo::accumulator::mem_forest::MemForest;
+    /// use rustreexo::accumulator::node_hash::BitcoinNodeHash;
     /// let mut serialized = Cursor::new(vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
     /// let MemForest = MemForest::<BitcoinNodeHash>::deserialize(&mut serialized).unwrap();
     /// assert_eq!(MemForest.leaves, 0);
@@ -304,8 +304,8 @@ impl<Hash: AccumulatorHash> MemForest<Hash> {
     /// and the hashes that we what to prove, but sorted by position in the tree.
     /// # Example
     /// ```
-    /// use rustreexo::accumulator::node_hash::BitcoinNodeHash;
     /// use rustreexo::accumulator::mem_forest::MemForest;
+    /// use rustreexo::accumulator::node_hash::BitcoinNodeHash;
     /// let mut mem_forest = MemForest::<BitcoinNodeHash>::new();
     /// let hashes = vec![0, 1, 2, 3, 4, 5, 6, 7]
     ///     .iter()
@@ -349,8 +349,9 @@ impl<Hash: AccumulatorHash> MemForest<Hash> {
     /// use bitcoin_hashes::sha256::Hash as Data;
     /// use bitcoin_hashes::Hash;
     /// use bitcoin_hashes::HashEngine;
-    /// use rustreexo::accumulator::node_hash::BitcoinNodeHash;
     /// use rustreexo::accumulator::mem_forest::MemForest;
+    /// use rustreexo::accumulator::node_hash::BitcoinNodeHash;
+    /// use rustreexo::accumulator::node_hash::NodeHash;
     /// let values = vec![0, 1, 2, 3, 4, 5, 6, 7];
     /// let hashes = values
     ///     .into_iter()
@@ -690,9 +691,9 @@ mod test {
     use serde::Deserialize;
 
     use super::MemForest;
+    use crate::accumulator::mem_forest::Node;
     use crate::accumulator::node_hash::AccumulatorHash;
     use crate::accumulator::node_hash::BitcoinNodeHash;
-    use crate::accumulator::mem_forest::Node;
     use crate::accumulator::proof::Proof;
 
     fn hash_from_u8(value: u8) -> BitcoinNodeHash {
@@ -1007,9 +1008,10 @@ mod test {
         p.modify(&[], &[hashes[0]]).expect("can remove 0");
         let mut writer = std::io::Cursor::new(Vec::new());
         p.serialize(&mut writer).unwrap();
-        let deserialized =
-            MemForest::<BitcoinNodeHash>::deserialize(&mut std::io::Cursor::new(writer.into_inner()))
-                .unwrap();
+        let deserialized = MemForest::<BitcoinNodeHash>::deserialize(&mut std::io::Cursor::new(
+            writer.into_inner(),
+        ))
+        .unwrap();
         assert_eq!(
             deserialized.get_roots()[0].get_data(),
             p.get_roots()[0].get_data()
@@ -1077,8 +1079,8 @@ mod test {
         assert_eq!(p.leaves, 16);
         let mut serialized = Vec::<u8>::new();
         p.serialize(&mut serialized).expect("serialize should work");
-        let deserialized =
-            MemForest::<BitcoinNodeHash>::deserialize(&*serialized).expect("deserialize should work");
+        let deserialized = MemForest::<BitcoinNodeHash>::deserialize(&*serialized)
+            .expect("deserialize should work");
         assert_eq!(deserialized.get_roots().len(), 1);
         assert!(deserialized.get_roots()[0].get_data().is_empty());
         assert_eq!(deserialized.leaves, 16);

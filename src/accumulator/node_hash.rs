@@ -62,7 +62,7 @@ use serde::Deserialize;
 use serde::Serialize;
 
 pub trait AccumulatorHash:
-    Copy + Clone + Ord + Debug + Display + std::hash::Hash + 'static
+    Copy + Clone + Ord + Debug + Display + std::hash::Hash + Default + 'static
 {
     fn is_empty(&self) -> bool;
     fn empty() -> Self;

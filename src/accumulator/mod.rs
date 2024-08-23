@@ -7,8 +7,9 @@
 //! a lightweight implementation of utreexo that only stores roots. Although the [stump::Stump]
 //! only keeps the accumulator's roots, it still trustlessly update this state, not requiring
 //! a trusted third party to learn about the current state.
-pub mod node_hash;
 pub mod mem_forest;
+pub mod node_hash;
+pub mod pollard;
 pub mod proof;
 pub mod stump;
 pub(super) mod util;

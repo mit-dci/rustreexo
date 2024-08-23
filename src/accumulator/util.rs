@@ -237,7 +237,8 @@ pub fn parent_many(pos: u64, rise: u8, forest_rows: u8) -> Result<u64, String> {
             rise, forest_rows
         ));
     }
-    let mask: u64 = (2_u64 << forest_rows) - 1_u64;
+
+    let mask = (2_u64 << forest_rows) - 1;
     Ok((pos >> rise | (mask << (forest_rows - (rise - 1)) as u64)) & mask)
 }
 
