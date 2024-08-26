@@ -1,549 +1,483 @@
-//! A full Pollard accumulator implementation. This is a simple version of the forest,
-//! that keeps every node in memory. This is may require more memory, but is faster
-//! to update, prove and verify.
-//!
-//! # Example
-//! ```
-//! use rustreexo::accumulator::node_hash::NodeHash;
-//! use rustreexo::accumulator::pollard::Pollard;
-//! let values = vec![0, 1, 2, 3, 4, 5, 6, 7];
-//! let hashes: Vec<NodeHash> = values
-//!     .into_iter()
-//!     .map(|i| NodeHash::from([i; 32]))
-//!     .collect();
-//!
-//! let mut p = Pollard::new();
-//!
-//! p.modify(&hashes, &[]).expect("Pollard should not fail");
-//! assert_eq!(p.get_roots().len(), 1);
-//!
-//! p.modify(&[], &hashes).expect("Still should not fail"); // Remove leaves from the accumulator
-//!
-//! assert_eq!(p.get_roots().len(), 1);
-//! assert_eq!(p.get_roots()[0].get_data(), NodeHash::default());
-//! ```
-
-use core::fmt;
+/// Pollard is an efficient implementation of the accumulator for keeping track of a subset of the
+/// whole tree. Instead of storing a proof for some leaves, it is more efficient to hold them in a
+/// tree structure, and add/remove elements as needed. The main use-case for a Pollard is to keep
+/// track of unconfirmed transactions' proof, in the mempool. As you get new transactions through
+/// the p2p network, you check the proofs and add them to the Pollard. When a block is mined, we
+/// can remove the confirmed transactions from the Pollard, and keep the unconfirmed ones. We can
+/// also serve proofs for specific transactions as requested, allowing efficient transaction relay.
+///
+/// This implementation is close to the one in `MemForest`, but it is specialized in keeping track
+/// of subsets of the whole tree, allowing you to cache and uncache elements as needed. While the
+/// MemForest keeps everything in the accumulator, and may take a lot of memory.
+///
+/// Nodes are kept in memory, and they hold their hashes, a reference to their **aunt** (not
+/// parent!), and their nieces (not children!). We do this to allow for proof generation, while
+/// prunning as much as possible. In a merkle proof, we only need the sibling of the path to the
+/// root, the parent is always computed on the fly as we walk up the tree. Some there's no need to
+/// keep the parent. But we need the aunt (the sibling of the parent) to generate the proof.
+///
+/// Every node is owned by exactly one other node, the ancestor - With the only exception being the
+/// roots, which are owned by the Pollard itself. This almost garantees that we can't have a memory
+/// leak, as deleting one node will delete all of its descendants. The only way to have a memory
+/// leak is if we have a cycle in the tree, which we avoid by only allowing Weak references everywhere,
+/// except for the owner of the node. Things are kept in a [Rc] to allow for multiple references to
+/// the same node, as we may need to operate on it, and also to allow the nieces to have a reference
+/// to their aunt. It could be done with pointers, but it would be more complex and error-prone. The
+/// [Rc]s live inside a [RefCell], to allow for interior mutability, as we may need to change the
+/// values inside a node. Make sure to avoid leaking a reference to the inner [RefCell] to the outside
+/// world, as it may cause race conditions and panics. Every time we use a reference to the inner
+/// [RefCell], we make sure to drop it as soon as possible, and that we are the only ones operating
+/// on it at that time. For this reason, a [Pollard] is not [Sync], and you'll need to use a [Mutex]
+/// or something similar to share it between threads. But it is [Send], as it is safe to send it to
+/// another thread - everything is owned by the Pollard and lives on the heap.
+///
+/// ## Usage
+///
+/// //TODO: Add usage examples
 use std::cell::Cell;
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::fmt::Debug;
 use std::fmt::Display;
-use std::fmt::Formatter;
-use std::io::Read;
-use std::io::Write;
+use std::mem::MaybeUninit;
 use std::rc::Rc;
 use std::rc::Weak;
 
 use super::node_hash::NodeHash;
 use super::proof::Proof;
-use super::util::detect_offset;
+use super::util::detect_row;
+use super::util::detwin;
 use super::util::get_proof_positions;
-use super::util::is_left_niece;
-use super::util::is_root_populated;
-use super::util::left_child;
 use super::util::max_position_at_row;
-use super::util::right_child;
+use super::util::parent;
 use super::util::root_position;
 use super::util::tree_rows;
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum NodeType {
-    Branch,
-    Leaf,
-}
 
-/// A forest node that can either be a leaf or a branch.
 #[derive(Clone)]
-pub struct Node {
-    /// The type of this node.
-    ty: NodeType,
-    /// The hash of the stored in this node.
-    data: Cell<NodeHash>,
-    /// The parent of this node, if any.
-    parent: RefCell<Option<Weak<Node>>>,
-    /// The left and right children of this node, if any.
-    left: RefCell<Option<Rc<Node>>>,
-    /// The left and right children of this node, if any.
-    right: RefCell<Option<Rc<Node>>>,
-}
-impl Node {
-    /// Recomputes the hash of all nodes, up to the root.
-    fn recompute_hashes(&self) {
-        let left = self.left.borrow();
-        let right = self.right.borrow();
-
-        if let (Some(left), Some(right)) = (left.as_deref(), right.as_deref()) {
-            self.data
-                .replace(NodeHash::parent_hash(&left.data.get(), &right.data.get()));
-        }
-        if let Some(ref parent) = *self.parent.borrow() {
-            if let Some(p) = parent.upgrade() {
-                p.recompute_hashes();
-            }
-        }
-    }
-    /// Writes one node to the writer, this method will recursively write all children.
-    /// The primary use of this method is to serialize the accumulator. In this case,
-    /// you should call this method on each root in the forest.
-    pub fn write_one<W: Write>(&self, writer: &mut W) -> std::io::Result<()> {
-        match self.ty {
-            NodeType::Branch => writer.write_all(&0_u64.to_le_bytes())?,
-            NodeType::Leaf => writer.write_all(&1_u64.to_le_bytes())?,
-        }
-        self.data.get().write(writer)?;
-        self.left
-            .borrow()
-            .as_ref()
-            .map(|l| l.write_one(writer))
-            .transpose()?;
-
-        self.right
-            .borrow()
-            .as_ref()
-            .map(|r| r.write_one(writer))
-            .transpose()?;
-        Ok(())
-    }
-    /// Reads one node from the reader, this method will recursively read all children.
-    /// The primary use of this method is to deserialize the accumulator. In this case,
-    /// you should call this method on each root in the forest, assuming you know how
-    /// many roots there are.
-    #[allow(clippy::type_complexity)]
-    pub fn read_one<R: std::io::Read>(
-        reader: &mut R,
-    ) -> std::io::Result<(Rc<Node>, HashMap<NodeHash, Weak<Node>>)> {
-        fn _read_one<R: std::io::Read>(
-            ancestor: Option<Rc<Node>>,
-            reader: &mut R,
-            index: &mut HashMap<NodeHash, Weak<Node>>,
-        ) -> std::io::Result<Rc<Node>> {
-            let mut ty = [0u8; 8];
-            reader.read_exact(&mut ty)?;
-            let data = NodeHash::read(reader)?;
-
-            let ty = match u64::from_le_bytes(ty) {
-                0 => NodeType::Branch,
-                1 => NodeType::Leaf,
-                _ => panic!("Invalid node type"),
-            };
-            if ty == NodeType::Leaf {
-                let leaf = Rc::new(Node {
-                    ty,
-                    data: Cell::new(data),
-                    parent: RefCell::new(ancestor.map(|a| Rc::downgrade(&a))),
-                    left: RefCell::new(None),
-                    right: RefCell::new(None),
-                });
-                index.insert(leaf.data.get(), Rc::downgrade(&leaf));
-                return Ok(leaf);
-            }
-            let node = Rc::new(Node {
-                ty: NodeType::Branch,
-                data: Cell::new(data),
-                parent: RefCell::new(ancestor.map(|a| Rc::downgrade(&a))),
-                left: RefCell::new(None),
-                right: RefCell::new(None),
-            });
-            if !data.is_empty() {
-                let left = _read_one(Some(node.clone()), reader, index)?;
-                let right = _read_one(Some(node.clone()), reader, index)?;
-                node.left.replace(Some(left));
-                node.right.replace(Some(right));
-            }
-            node.left
-                .borrow()
-                .as_ref()
-                .map(|l| l.parent.replace(Some(Rc::downgrade(&node))));
-            node.right
-                .borrow()
-                .as_ref()
-                .map(|r| r.parent.replace(Some(Rc::downgrade(&node))));
-
-            Ok(node)
-        }
-        let mut index = HashMap::new();
-        let root = _read_one(None, reader, &mut index)?;
-        Ok((root, index))
-    }
-    /// Returns the data associated with this node.
-    pub fn get_data(&self) -> NodeHash {
-        self.data.get()
-    }
-}
-
-impl Debug for Node {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{:02x}{:02x}", self.data.get()[0], self.data.get()[1])
-    }
-}
-/// The actual Pollard accumulator, it implements all methods required to update the forest
-/// and to prove/verify membership.
-#[derive(Default, Clone)]
 pub struct Pollard {
-    /// The roots of the forest, all leaves are children of these roots, and therefore
-    /// owned by them.
-    roots: Vec<Rc<Node>>,
-    /// The number of leaves in the forest. Actually, this is the number of leaves we ever
-    /// added to the forest.
+    /// The roots of our [Pollard]. They are the top nodes of the tree, and they are the only nodes
+    /// that are owned by the [Pollard] itself. All other nodes are owned by their ancestors.
+    ///
+    /// The roots are stored in an array, where the index is the row of the tree where the root is
+    /// located. The first root is at index 0, and so on. The roots are stored in the array in the
+    /// stack to make it more efficent to access and move them around. At any given time, a row may
+    /// or may not have a root. If a row doesn't have a root, the value at that index is `None`.
+    pub roots: [Option<Rc<PollardNode>>; 64],
+    /// How many leaves have been added to the tree
+    ///
+    /// We use this value all the time, since everything about the structure of the tree is
+    /// reflected in the number of leaves. This value is how many leaves we ever added, so if we
+    /// add 5 leaves and delete 4, this value will still be 5. Moreover, the position of a leaf is
+    /// the number of leaves when it was added, so we can always find a leaf by it's position.
     pub leaves: u64,
-    /// A map of all nodes in the forest, indexed by their hash, this is used to lookup
-    /// leaves when proving membership.
-    map: HashMap<NodeHash, Weak<Node>>,
 }
-impl Pollard {
-    /// Creates a new empty [Pollard].
-    /// # Example
-    /// ```
-    /// use rustreexo::accumulator::pollard::Pollard;
-    /// let mut pollard = Pollard::new();
-    /// ```
-    pub fn new() -> Pollard {
-        Pollard {
-            map: HashMap::new(),
-            roots: Vec::new(),
-            leaves: 0,
-        }
-    }
-    /// Writes the Pollard to a writer. Used to send the accumulator over the wire
-    /// or to disk.
-    /// # Example
-    /// ```
-    /// use rustreexo::accumulator::pollard::Pollard;
-    ///
-    /// let mut pollard = Pollard::new();
-    /// let mut serialized = Vec::new();
-    /// pollard.serialize(&mut serialized).unwrap();
-    ///
-    /// assert_eq!(
-    ///     serialized,
-    ///     vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-    /// );
-    /// ```
-    pub fn serialize<W: Write>(&self, mut writer: W) -> std::io::Result<()> {
-        writer.write_all(&self.leaves.to_le_bytes())?;
-        writer.write_all(&self.roots.len().to_le_bytes())?;
 
-        for root in &self.roots {
-            root.write_one(&mut writer).unwrap();
-        }
-
-        Ok(())
-    }
-    /// Deserializes a pollard from a reader.
-    /// # Example
-    /// ```
-    /// use std::io::Cursor;
-    ///
-    /// use rustreexo::accumulator::pollard::Pollard;
-    /// let mut serialized = Cursor::new(vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
-    /// let pollard = Pollard::deserialize(&mut serialized).unwrap();
-    /// assert_eq!(pollard.leaves, 0);
-    /// assert_eq!(pollard.get_roots().len(), 0);
-    /// ```
-    pub fn deserialize<R: Read>(mut reader: R) -> std::io::Result<Pollard> {
-        fn read_u64<R: Read>(reader: &mut R) -> std::io::Result<u64> {
-            let mut buf = [0u8; 8];
-            reader.read_exact(&mut buf)?;
-            Ok(u64::from_le_bytes(buf))
-        }
-        let leaves = read_u64(&mut reader)?;
-        let roots_len = read_u64(&mut reader)?;
-        let mut roots = Vec::new();
-        let mut map = HashMap::new();
-        for _ in 0..roots_len {
-            let (root, _map) = Node::read_one(&mut reader)?;
-            map.extend(_map);
-            roots.push(root);
-        }
-        Ok(Pollard { roots, leaves, map })
-    }
-    /// Returns the hash of a given position in the tree.
-    fn get_hash(&self, pos: u64) -> Result<NodeHash, String> {
-        let (node, _, _) = self.grab_node(pos)?;
-        Ok(node.data.get())
-    }
-    /// Proves that a given set of hashes is in the accumulator. It returns a proof
-    /// and the hashes that we what to prove, but sorted by position in the tree.
-    /// # Example
-    /// ```
-    /// use rustreexo::accumulator::node_hash::NodeHash;
-    /// use rustreexo::accumulator::pollard::Pollard;
-    /// let mut pollard = Pollard::new();
-    /// let hashes = vec![0, 1, 2, 3, 4, 5, 6, 7]
-    ///     .iter()
-    ///     .map(|n| NodeHash::from([*n; 32]))
-    ///     .collect::<Vec<_>>();
-    /// pollard.modify(&hashes, &[]).unwrap();
-    /// // We want to prove that the first two hashes are in the accumulator.
-    /// let proof = pollard.prove(&[hashes[1], hashes[0]]).unwrap();
-    /// //TODO: Verify the proof
-    /// ```
-    pub fn prove(&self, targets: &[NodeHash]) -> Result<Proof, String> {
-        let mut positions = Vec::new();
-        for target in targets {
-            let node = self.map.get(target).ok_or("Could not find node")?;
-            let position = self.get_pos(node);
-            positions.push(position);
-        }
-        let needed = get_proof_positions(&positions, self.leaves, tree_rows(self.leaves));
-        let proof = needed
+impl PartialEq for Pollard {
+    fn eq(&self, other: &Self) -> bool {
+        self.roots
             .iter()
-            .map(|pos| self.get_hash(*pos).unwrap())
-            .collect::<Vec<_>>();
-        Ok(Proof::new(positions, proof))
-    }
-    /// Returns a reference to the roots in this Pollard.
-    pub fn get_roots(&self) -> &[Rc<Node>] {
-        &self.roots
-    }
-    /// Modify is the main API to a [Pollard]. Because order matters, you can only `modify`
-    /// a [Pollard], and internally it'll add and delete, in the correct order.
-    ///
-    /// This method accepts two vectors as parameter, a vec of [Hash] and a vec of [u64]. The
-    /// first one is a vec of leaf hashes for the newly created UTXOs. The second one is the position
-    /// for the UTXOs being spent in this block as inputs.
-    ///
-    /// # Example
-    /// ```
-    /// use bitcoin_hashes::sha256::Hash as Data;
-    /// use bitcoin_hashes::Hash;
-    /// use bitcoin_hashes::HashEngine;
-    /// use rustreexo::accumulator::node_hash::NodeHash;
-    /// use rustreexo::accumulator::pollard::Pollard;
-    /// let values = vec![0, 1, 2, 3, 4, 5, 6, 7];
-    /// let hashes = values
-    ///     .into_iter()
-    ///     .map(|val| {
-    ///         let mut engine = Data::engine();
-    ///         engine.input(&[val]);
-    ///         NodeHash::from(Data::from_engine(engine).as_byte_array())
-    ///     })
-    ///     .collect::<Vec<_>>();
-    /// // Add 8 leaves to the pollard
-    /// let mut p = Pollard::new();
-    /// p.modify(&hashes, &[]).expect("Pollard should not fail");
-    ///
-    /// assert_eq!(
-    ///     p.get_roots()[0].get_data().to_string(),
-    ///     String::from("b151a956139bb821d4effa34ea95c17560e0135d1e4661fc23cedc3af49dac42")
-    /// );
-    /// ```
-    pub fn modify(&mut self, add: &[NodeHash], del: &[NodeHash]) -> Result<(), String> {
-        self.del(del)?;
-        self.add(add);
-        Ok(())
-    }
-    #[allow(clippy::type_complexity)]
-    pub fn grab_node(&self, pos: u64) -> Result<(Rc<Node>, Rc<Node>, Rc<Node>), String> {
-        let (tree, branch_len, bits) = detect_offset(pos, self.leaves);
-        let mut n = Some(self.roots[tree as usize].clone());
-        let mut sibling = Some(self.roots[tree as usize].clone());
-        let mut parent = sibling.clone();
-
-        for row in (0..(branch_len)).rev() {
-            // Parent is the sibling of the current node as each of the
-            // nodes point to their nieces.
-            parent.clone_from(&sibling);
-
-            // Figure out which node we need to follow.
-            let niece_pos = ((bits >> row) & 1) as u8;
-
-            #[allow(clippy::assigning_clones)]
-            if let Some(node) = n {
-                if is_left_niece(niece_pos as u64) {
-                    n = node.right.borrow().clone();
-                    sibling.clone_from(&*node.left.borrow());
-                } else {
-                    n = node.left.borrow().clone();
-                    sibling.clone_from(&*node.right.borrow());
-                }
-            } else {
-                sibling = None;
-            }
-        }
-        if let (Some(node), Some(sibling), Some(parent)) = (n, sibling, parent) {
-            return Ok((node, sibling, parent));
-        }
-        Err(format!("node {} not found", pos))
-    }
-    fn del(&mut self, targets: &[NodeHash]) -> Result<(), String> {
-        let mut pos = targets
-            .iter()
-            .flat_map(|target| self.map.get(target))
-            .flat_map(|target| target.upgrade())
-            .map(|target| {
-                (
-                    self.get_pos(self.map.get(&target.data.get()).unwrap()),
-                    target.data.get(),
-                )
+            .zip(other.roots.iter())
+            .all(|(a, b)| match (a, b) {
+                (Some(a), Some(b)) => a.hash() == b.hash(),
+                (None, None) => true,
+                _ => false,
             })
-            .collect::<Vec<_>>();
-
-        pos.sort();
-        let (_, targets): (Vec<u64>, Vec<NodeHash>) = pos.into_iter().unzip();
-        for target in targets {
-            match self.map.remove(&target) {
-                Some(target) => {
-                    self.del_single(&target.upgrade().unwrap());
-                }
-                None => {
-                    return Err(format!("node {} not in the forest", target));
-                }
-            }
-        }
-        Ok(())
     }
-    pub fn verify(&self, proof: &Proof, del_hashes: &[NodeHash]) -> Result<bool, String> {
-        let roots = self
-            .roots
-            .iter()
-            .map(|root| root.get_data())
-            .collect::<Vec<_>>();
-        proof.verify(del_hashes, &roots, self.leaves)
-    }
-    fn get_pos(&self, node: &Weak<Node>) -> u64 {
-        // This indicates whether the node is a left or right child at each level
-        // When we go down the tree, we can use the indicator to know which
-        // child to take.
-        let mut left_child_indicator = 0_u64;
-        let mut rows_to_top = 0;
-        let mut node = node.upgrade().unwrap();
-        while let Some(parent) = node.parent.clone().into_inner() {
-            let parent_left = parent
-                .upgrade()
-                .and_then(|parent| parent.left.clone().into_inner())
-                .unwrap()
-                .clone();
+}
 
-            // If the current node is a left child, we left-shift the indicator
-            // and leave the LSB as 0
-            if parent_left.get_data() == node.get_data() {
-                left_child_indicator <<= 1;
-            } else {
-                // If the current node is a right child, we left-shift the indicator
-                // and set the LSB to 1
-                left_child_indicator <<= 1;
-                left_child_indicator |= 1;
-            }
-            rows_to_top += 1;
-            node = parent.upgrade().unwrap();
-        }
-        let mut root_idx = self.roots.len() - 1;
-        let forest_rows = tree_rows(self.leaves);
-        let mut root_row = 0;
-        // Find the root of the tree that the node belongs to
-        for row in 0..forest_rows {
-            if is_root_populated(row, self.leaves) {
-                let root = &self.roots[root_idx];
-                if root.get_data() == node.get_data() {
-                    root_row = row;
-                    break;
-                }
-                root_idx -= 1;
-            }
-        }
-        let mut pos = root_position(self.leaves, root_row, forest_rows);
-        for _ in 0..rows_to_top {
-            // If LSB is 0, go left, otherwise go right
-            match left_child_indicator & 1 {
-                0 => {
-                    pos = left_child(pos, forest_rows);
-                }
-                1 => {
-                    pos = right_child(pos, forest_rows);
-                }
-                _ => unreachable!(),
-            }
-            left_child_indicator >>= 1;
-        }
-        pos
-    }
-    fn del_single(&mut self, node: &Node) -> Option<()> {
-        let parent = node.parent.borrow();
-        // Deleting a root
-        let parent = match *parent {
-            Some(ref node) => node.upgrade()?,
-            None => {
-                let pos = self.roots.iter().position(|x| x.data == node.data).unwrap();
-                self.roots[pos] = Rc::new(Node {
-                    ty: NodeType::Branch,
-                    parent: RefCell::new(None),
-                    data: Cell::new(NodeHash::default()),
-                    left: RefCell::new(None),
-                    right: RefCell::new(None),
-                });
-                return None;
-            }
-        };
+impl Eq for Pollard {}
 
-        let me = parent.left.borrow();
-        // Can unwrap because we know the sibling exists
-        let sibling = if me.as_deref()?.data == node.data {
-            parent.right.borrow().clone()
+impl Debug for Pollard {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.string())
+    }
+}
+
+impl Display for Pollard {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.string())
+    }
+}
+
+impl Default for Pollard {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[derive(Default, Clone)]
+/// A node in the Pollard tree
+pub struct PollardNode {
+    /// Whether we should remember this node or not
+    ///
+    /// If this is set, we keep this node in memory, as well as all of its ancestors needed to
+    /// generate a proof for it. If this is not set, we can delete this node and all of its
+    /// descendants, as we don't need them anymore. For internal nodes, remember is based on
+    /// whether any of the nieces have remember set. For leaves, the user sets this value.
+    remember: bool,
+    /// The hash of this node
+    ///
+    /// This is the hash used in the merkle proof. For leaves, this is the hash of the value
+    /// committed to. For internal nodes, this is the hash of the concatenation of the hashes of
+    /// the children. This value is stored in a [Cell] to allow for interior mutability, as we may
+    /// need to change it if some descendant is deleted.
+    hash: Cell<NodeHash>,
+    /// This node's aunt
+    ///
+    /// The aunt is the sibling of the parent. This is the only node that is not owned by this
+    /// node, as it is owned by some ancestor. This is a [Weak] reference to avoid cycles in the tree.
+    /// If a node is a root, this value is `None`, as it doesn't have an aunt. If this node's
+    /// parent is a root, then it actually points to its parent, as the parent is a root, and
+    /// there's no aunt.
+    aunt: RefCell<Option<Weak<PollardNode>>>,
+    /// This node's left niece
+    ///
+    /// The left niece is the left child of this node's sibling. We use an actual [Rc] here, to
+    /// make this node own the niece. This is the only place where an [Rc] can be stored past some
+    /// function's scope, as it may create cycles in the tree. This is a [RefCell] because we may
+    /// need to either prune the nieces, or swap them if this node is a root. If this node is a
+    /// leaf, this value is `None`, as it doesn't have any descendants.
+    left_niece: RefCell<Option<Rc<PollardNode>>>,
+    /// This node's right niece
+    ///
+    /// The right niece is the right child of this node's sibling. We use an actual [Rc] here, to
+    /// make this node own the niece. This is the only place where an [Rc] can be stored past some
+    /// function's scope, as it may create cycles in the tree. This is a [RefCell] because we may
+    /// need to either prune the nieces, or swap them if this node is a root. If this node is a
+    /// leaf, this value is `None`, as it doesn't have any descendants.
+    right_niece: RefCell<Option<Rc<PollardNode>>>,
+}
+
+impl Debug for PollardNode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.hash().to_string())
+    }
+}
+
+impl PartialEq for PollardNode {
+    fn eq(&self, other: &Self) -> bool {
+        self.hash() == other.hash()
+    }
+}
+
+impl Eq for PollardNode {}
+
+impl PollardNode {
+    /// Creates a new PollardNode with the given hash and remember value
+    pub fn new(hash: NodeHash, remember: bool) -> Rc<PollardNode> {
+        Rc::new(PollardNode {
+            remember,
+            hash: Cell::new(hash),
+            aunt: RefCell::new(None),
+            left_niece: RefCell::new(None),
+            right_niece: RefCell::new(None),
+        })
+    }
+
+    /// Returns the hash of this node
+    pub fn hash(&self) -> NodeHash {
+        self.hash.get()
+    }
+
+    /// Returns this node's sibling
+    ///
+    /// This function should return an [Rc] containing the sibling of this node. If this node is a
+    /// root, it should return `None`, as roots don't have siblings.
+    pub fn sibling(&self) -> Option<Rc<PollardNode>> {
+        let aunt = self.aunt()?;
+        if aunt.left_niece()?.hash() == self.hash() {
+            aunt.right_niece()
         } else {
-            parent.left.borrow().clone()
-        };
-        if let Some(ref sibling) = sibling {
-            let grandparent = parent.parent.borrow().clone();
-            sibling.parent.replace(grandparent.clone());
+            aunt.left_niece()
+        }
+    }
 
-            if let Some(ref grandparent) = grandparent.and_then(|g| g.upgrade()) {
-                if grandparent.left.borrow().clone().as_ref().unwrap().data == parent.data {
-                    grandparent.left.replace(Some(sibling.clone()));
-                } else {
-                    grandparent.right.replace(Some(sibling.clone()));
-                }
-                sibling.recompute_hashes();
-            } else {
-                let pos = self
-                    .roots
-                    .iter()
-                    .position(|x| x.data == parent.data)
-                    .unwrap();
-                self.roots[pos] = sibling.clone();
-            }
-        };
+    /// Returns this node's aunt
+    ///
+    /// This function should return an [Rc] containing the aunt of this node. If this node is a
+    /// root, it should return `None`, as roots don't have aunts.
+    pub fn aunt(&self) -> Option<Rc<PollardNode>> {
+        self.aunt.borrow().as_ref()?.upgrade()
+    }
+
+    /// Returns this node's grandparent
+    ///
+    /// This function should return an [Rc] containing the grandparent of this node (i.e. the
+    /// parent of this node's parent). If this node is a root, it should return `None`, as roots
+    /// don't have grandparents.
+    pub fn grandparent(&self) -> Option<Rc<PollardNode>> {
+        self.aunt()?.aunt()
+    }
+
+    /// Recomputes the hashes of this node and all of its ancestors
+    ///
+    /// This function will walk up the tree and recompute the hashes for each node. We may need
+    /// this if we delete a node, and we need to update the hashes of the ancestors.
+    fn recompute_hashes(&self) -> Option<()> {
+        let left = self.left_niece();
+        let right = self.right_niece();
+        let new_hash = NodeHash::parent_hash(&left?.hash(), &right?.hash());
+        self.hash.set(new_hash);
+
+        if let Some(aunt) = self.aunt() {
+            aunt.recompute_hashes()?;
+        }
 
         Some(())
     }
-    fn add_single(&mut self, value: NodeHash) {
-        let mut node: Rc<Node> = Rc::new(Node {
-            ty: NodeType::Leaf,
-            parent: RefCell::new(None),
-            data: Cell::new(value),
-            left: RefCell::new(None),
-            right: RefCell::new(None),
-        });
-        self.map.insert(value, Rc::downgrade(&node));
-        let mut leaves = self.leaves;
-        while leaves & 1 != 0 {
-            let root = self.roots.pop().unwrap();
-            if root.get_data() == NodeHash::empty() {
-                leaves >>= 1;
-                continue;
-            }
-            let new_node = Rc::new(Node {
-                ty: NodeType::Branch,
-                parent: RefCell::new(None),
-                data: Cell::new(NodeHash::parent_hash(&root.data.get(), &node.data.get())),
-                left: RefCell::new(Some(root.clone())),
-                right: RefCell::new(Some(node.clone())),
-            });
-            root.parent.replace(Some(Rc::downgrade(&new_node)));
-            node.parent.replace(Some(Rc::downgrade(&new_node)));
 
-            node = new_node;
-            leaves >>= 1;
-        }
-        self.roots.push(node);
-        self.leaves += 1;
+    /// Migrates this node up the tree
+    ///
+    /// The deletion algorithm for utreexo works like this: let's say we have the following tree:
+    ///
+    /// ```!
+    /// 06                                                 
+    /// |---------\             
+    /// 04        05                   
+    /// |-----\   |-----\
+    /// 00    01  02   03      
+    /// ```
+    ///
+    /// to delete `03`, we simply move `02` up to `09`'s position, so now we have:
+    /// ```!
+    /// 06
+    /// |---------\
+    /// 04        02
+    /// |-----\   |-----\
+    /// 00    01    --    --
+    /// ```
+    ///
+    /// This function does exactly that. It moves this node up the tree, and updates the hashes
+    /// of the ancestors to reflect the new subtree (in the example above, the hash of `06` would
+    /// be updated to the hash of 04 and 02).
+    pub fn migrate_up(&self) -> Option<()> {
+        let aunt = self.aunt().unwrap();
+        let grandparent = aunt.aunt()?;
+        let sibling = self.sibling().unwrap();
+        let _self = if aunt.left_niece()?.hash() == self.hash() {
+            aunt.left_niece()
+        } else {
+            aunt.right_niece()
+        };
+
+        let (left_niece, right_niece) = if grandparent.left_niece()?.hash() == aunt.hash() {
+            (_self.clone(), grandparent.right_niece())
+        } else {
+            (grandparent.left_niece(), _self.clone())
+        };
+
+        grandparent.set_niece(left_niece, right_niece);
+
+        self.set_niece(Some(aunt), Some(sibling));
+        _self?.recompute_hashes()?;
+        Some(())
     }
-    fn add(&mut self, values: &[NodeHash]) {
-        for value in values {
-            self.add_single(*value);
+
+    /// Sets the nieces of this nodes to the provided values
+    pub fn set_niece(&self, left: Option<Rc<PollardNode>>, right: Option<Rc<PollardNode>>) {
+        *self.left_niece.borrow_mut() = left;
+        *self.right_niece.borrow_mut() = right;
+    }
+
+    /// Sets the aunt of this node to the provided value
+    pub fn set_aunt(&self, aunt: Weak<PollardNode>) {
+        *self.aunt.borrow_mut() = Some(aunt);
+    }
+
+    /// Swaps the nieces of this node with the nieces of the provided node
+    ///
+    /// We use this function during addition (or undoing an addition) because roots points to their
+    /// children, but when we add another node on top of that root, it now should point to the new
+    /// node's children. This function swaps the nieces of this node with the nieces of the provided
+    /// node.
+    pub fn swap_nieces(&self, other: &PollardNode) {
+        std::mem::swap(
+            &mut *self.left_niece.borrow_mut(),
+            &mut *other.left_niece.borrow_mut(),
+        );
+        std::mem::swap(
+            &mut *self.right_niece.borrow_mut(),
+            &mut *other.right_niece.borrow_mut(),
+        );
+    }
+
+    /// Returns the left niece of this node
+    ///
+    /// If this node is a leaf, this function should return `None`, as leaves don't have nieces.
+    pub fn left_niece(&self) -> Option<Rc<PollardNode>> {
+        self.left_niece.borrow().clone()
+    }
+
+    /// Returns the right niece of this node
+    ///
+    /// If this node is a leaf, this function should return `None`, as leaves don't have nieces.
+    pub fn right_niece(&self) -> Option<Rc<PollardNode>> {
+        self.right_niece.borrow().clone()
+    }
+}
+
+#[derive(Clone, Copy)]
+/// A new node to be added to the [Pollard]
+///
+/// This node contains the data that should be added to the accumulator. It contains the hash of
+/// the node, and whether we should remember this node or not. If remember is set, we keep this
+/// node in our forest and we can generate proofs for it. If remember is not set, we can delete
+/// this node and all of its descendants, as we don't need them anymore.
+pub struct PollardAddition {
+    /// The hash of the node to be added
+    pub hash: NodeHash,
+    /// Whether we should remember this node or not
+    pub remember: bool,
+}
+
+/// Data required to undo a modification to the accumulator.
+///
+/// If a block gets reorged, we need to undo the changes made to the accumulator we did for it.
+/// This struct holds all the data needed to undo the changes made to the [Pollard] for a given
+/// block, and the user should keep this data around until it is convinced that the block is
+/// not going to be reorged out (or forever, if you want to keep the undo data around).
+pub struct UndoData {
+    /// Data needed to undo an addition to the [Pollard]. See [UndoDataAddition] for more info.
+    add: UndoDataAddition,
+}
+
+/// This is returner every time we add new nodes to the [Pollard], and contains every information
+/// needed to undo the addition. This is useful in case of reorgs, where we need to undo the
+/// changes made in the last few blocks.
+struct UndoDataAddition {
+    /// How many leaves we've added to the [Pollard]
+    num_adds: u64,
+    /// The positions of empty roots we've destroyed while adding the leaves
+    roots_destroyed: Vec<u8>,
+}
+
+// public methods
+
+impl Pollard {
+    /// Proves the inclusion of the nodes at the given positions
+    ///
+    /// This function takes a list of positions and returns a list of proofs for each position.
+    pub fn prove(&self, positions: &[u64]) -> Result<Vec<Vec<NodeHash>>, &'static str> {
+        // FIXME: return a Proof
+        detwin(positions.to_vec(), tree_rows(self.leaves))
+            .iter()
+            .map(|pos| self.prove_single(*pos))
+            .collect()
+    }
+
+    /// Undoes the changes made to the [Pollard] for the given [UndoData]
+    pub fn undo(&mut self, undo_data: UndoData) {
+        for _ in 0..undo_data.add.num_adds {
+            self.undo_single_add();
+        }
+
+        for i in undo_data.add.roots_destroyed {
+            let leaves = self.leaves - undo_data.add.num_adds;
+            let pos = root_position(leaves, i, tree_rows(leaves));
+            self.roots[i as usize] = Some(PollardNode::new(NodeHash::empty(), false));
+        }
+
+        self.leaves -= undo_data.add.num_adds;
+    }
+
+    /// Applies the changes to the [Pollard] for a new block
+    pub fn modify(&mut self, adds: &[PollardAddition], del_positions: &[u64]) {
+        detwin(del_positions.to_vec(), tree_rows(self.leaves))
+            .into_iter()
+            .map(|pos| self.grab_position(pos))
+            .collect::<Vec<_>>()
+            .iter()
+            .for_each(|del| {
+                if let Some(node) = del {
+                    self.delete_single(node.clone().0).unwrap();
+                }
+            });
+
+        for node in adds {
+            self.add_single(*node);
         }
     }
-    /// to_string returns the full pollard in a string for all forests less than 6 rows.
+
+    /// Creates a new empty [Pollard]
+    pub fn new() -> Self {
+        const EMPTY_ROOT: Option<Rc<PollardNode>> = None;
+        let roots: [Option<Rc<PollardNode>>; 64] = [EMPTY_ROOT; 64];
+        Self { roots, leaves: 0 }
+    }
+}
+
+// private methods
+
+impl Pollard {
+    fn grab_position(&self, pos: u64) -> Option<(Rc<PollardNode>, Rc<PollardNode>)> {
+        let (root, depth, bits) = Self::detect_offset(pos, self.leaves);
+        let mut node = self.roots[root as usize].as_ref().unwrap().clone();
+
+        if depth == 0 {
+            return Some((node.clone(), node));
+        }
+
+        for row in 0..(depth - 1) {
+            let next = if pos >> (depth - row - 1) & 1 == 1 {
+                node.left_niece()?
+            } else {
+                node.right_niece()?
+            };
+            node = next;
+        }
+
+        Some(if bits & 1 == 0 {
+            (node.left_niece()?, node.right_niece()?)
+        } else {
+            (node.right_niece()?, node.left_niece()?)
+        })
+    }
+
+    fn ingest_proof(&self, proof: Proof, del_hashes: &[NodeHash]) -> Result<(), String> {
+        let (mut nodes, _) = proof.calculate_hashes(del_hashes, self.leaves)?;
+        let proof_positions =
+            get_proof_positions(&proof.targets, self.leaves, tree_rows(self.leaves));
+        nodes.extend(proof_positions.into_iter().zip(proof.hashes));
+        let forest_rows = tree_rows(self.leaves);
+        for nodes in nodes.chunks(2).rev() {
+            let (pos1, hash1) = nodes[0];
+            let (pos2, hash2) = nodes[1];
+
+            let parent = parent(pos1, forest_rows);
+            let parent = self.grab_position(parent).ok_or("Parent not found")?.0;
+            let new_node = PollardNode::new(hash1, true);
+            let new_sibling = PollardNode::new(hash2, true);
+
+            parent.set_niece(Some(new_sibling), Some(new_node));
+        }
+
+        Ok(())
+    }
+
+    fn detect_offset(pos: u64, num_leaves: u64) -> (u8, u8, u64) {
+        let mut tr = tree_rows(num_leaves);
+        let nr = detect_row(pos, tr);
+
+        let mut bigger_trees = tr;
+        let mut marker = pos;
+
+        while ((marker << nr) & ((2 << tr) - 1)) >= ((1 << tr) & num_leaves) {
+            let tree_size = (1 << tr) & num_leaves;
+            marker -= tree_size;
+            bigger_trees -= 1;
+
+            tr -= 1;
+        }
+        (bigger_trees, (tr - nr), marker)
+    }
+
+    fn get_hash(&self, pos: u64) -> Result<NodeHash, &'static str> {
+        match self.grab_position(pos) {
+            Some(node) => Ok(node.0.hash()),
+            None => Err("Position not found"),
+        }
+    }
+
+    /// to_string returns the full mem_forest in a string for all forests less than 6 rows.
     fn string(&self) -> String {
         if self.leaves == 0 {
             return "empty".to_owned();
@@ -552,11 +486,18 @@ impl Pollard {
         // The accumulator should be less than 6 rows.
         if fh > 6 {
             let s = format!("Can't print {} leaves. roots: \n", self.leaves);
-            return self.get_roots().iter().fold(s, |mut a, b| {
-                a.extend(format!("{}\n", b.get_data()).chars());
+            return self.roots.iter().fold(s, |mut a, b| {
+                a.extend(
+                    b.as_ref()
+                        .map(|b| b.hash())
+                        .unwrap_or(NodeHash::empty())
+                        .to_string()
+                        .chars(),
+                );
                 a
             });
         }
+
         let mut output = vec!["".to_string(); (fh as usize * 2) + 1];
         let mut pos: u8 = 0;
         for h in 0..=fh {
@@ -608,111 +549,266 @@ impl Pollard {
             a
         })
     }
-}
 
-impl Debug for Pollard {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
-        write!(f, "{}", self.string())
-    }
-}
-impl Display for Pollard {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
-        write!(f, "{}", self.string())
-    }
-}
-#[cfg(test)]
-mod test {
-    use std::convert::TryFrom;
-    use std::rc::Rc;
-    use std::str::FromStr;
-    use std::vec;
+    fn prove_single(&self, pos: u64) -> Result<Vec<NodeHash>, &'static str> {
+        let (node, sibling) = self.grab_position(pos).ok_or("Position not found")?;
+        let mut proof = vec![sibling.hash()];
+        let mut current = node;
 
-    use bitcoin_hashes::sha256::Hash as Data;
-    use bitcoin_hashes::Hash;
-    use bitcoin_hashes::HashEngine;
-    use serde::Deserialize;
+        while let Some(aunt) = current.aunt() {
+            // don't push roots
+            if aunt.aunt().is_some() {
+                proof.push(aunt.hash());
+            }
+            current = aunt;
+        }
 
-    use super::Pollard;
-    use crate::accumulator::node_hash::NodeHash;
-    use crate::accumulator::pollard::Node;
-    use crate::accumulator::proof::Proof;
-
-    fn hash_from_u8(value: u8) -> NodeHash {
-        let mut engine = Data::engine();
-
-        engine.input(&[value]);
-
-        NodeHash::from(Data::from_engine(engine).as_byte_array())
-    }
-    #[test]
-    fn test_grab_node() {
-        let values = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14];
-        let hashes = values.into_iter().map(hash_from_u8).collect::<Vec<_>>();
-
-        let mut p = Pollard::new();
-        p.modify(&hashes, &[]).expect("Pollard should not fail");
-        let (found_target, found_sibling, _) = p.grab_node(4).unwrap();
-        let target =
-            NodeHash::try_from("e52d9c508c502347344d8c07ad91cbd6068afc75ff6292f062a09ca381c89e71")
-                .unwrap();
-        let sibling =
-            NodeHash::try_from("e77b9a9ae9e30b0dbdb6f510a264ef9de781501d7b6b92ae89eb059c5ab743db")
-                .unwrap();
-
-        assert_eq!(target, found_target.data.get());
-        assert_eq!(sibling, found_sibling.data.get());
+        Ok(proof)
     }
 
-    #[test]
-    fn test_delete() {
-        let values = vec![0, 1, 2, 3, 4, 5, 6, 7];
-        let hashes = values.into_iter().map(hash_from_u8).collect::<Vec<_>>();
+    fn undo_single_add(&mut self) {
+        let first_row = self.roots.iter().position(|x| x.is_some()).unwrap();
 
-        let mut p = Pollard::new();
-        p.modify(&hashes, &[]).expect("Pollard should not fail");
-        p.modify(&[], &[hashes[0]]).expect("msg");
+        if first_row == 0 {
+            self.roots[0] = None;
+            return;
+        }
 
-        let (node, _, _) = p.grab_node(8).unwrap();
-        assert_eq!(
-            String::from("4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a"),
-            node.data.get().to_string()
+        let node = self.roots[first_row].as_ref().unwrap().clone();
+        let old_root = node.left_niece.borrow().as_ref().unwrap().clone();
+        let undo_node = node.right_niece.borrow().as_ref().unwrap().clone();
+
+        // unswap nieces
+        std::mem::swap(
+            &mut undo_node.left_niece.borrow_mut(),
+            &mut old_root.left_niece.borrow_mut(),
         );
-    }
-    #[test]
-    fn test_proof_verify() {
-        let values = vec![0, 1, 2, 3, 4, 5, 6, 7];
-        let hashes = values.into_iter().map(hash_from_u8).collect::<Vec<_>>();
-        let mut p = Pollard::new();
-        p.modify(&hashes, &[]).unwrap();
 
-        let proof = p.prove(&[hashes[0], hashes[1]]).unwrap();
-        assert!(p.verify(&proof, &[hashes[0], hashes[1]]).unwrap());
+        std::mem::swap(
+            &mut undo_node.right_niece.borrow_mut(),
+            &mut old_root.right_niece.borrow_mut(),
+        );
+
+        // update aunts for the old root
+        *old_root.aunt.borrow_mut() = None;
+        self.roots[first_row - 1] = Some(old_root);
+        self.roots[first_row] = None;
+        self.leaves -= 1;
+        drop(node);
     }
+
+    fn add_single(&mut self, node: PollardAddition) {
+        let mut row = 0;
+        let mut new_node = PollardNode::new(node.hash, node.remember);
+        while self.leaves >> row & 1 == 1 {
+            let old_root =
+                std::mem::replace(&mut self.roots[row as usize], None).expect("Root not found");
+
+            if old_root.hash().is_empty() {
+                self.roots[row as usize] = None;
+                row += 1;
+                continue;
+            }
+
+            let new_root_hash = NodeHash::parent_hash(&old_root.hash.get(), &new_node.hash.get());
+            let remember = old_root.remember || new_node.remember;
+            let new_root_rc = Rc::new(PollardNode {
+                remember,
+                hash: Cell::new(new_root_hash),
+                aunt: RefCell::new(None),
+                left_niece: RefCell::new(None),
+                right_niece: RefCell::new(None),
+            });
+
+            // swap nieces
+            new_node.swap_nieces(&old_root);
+
+            //FIXME: This should be a method in PollardNode
+            new_node
+                .left_niece()
+                .map(|x| x.set_aunt(Rc::downgrade(&new_node)));
+            new_node
+                .right_niece()
+                .map(|x| x.set_aunt(Rc::downgrade(&new_node)));
+
+            old_root
+                .left_niece()
+                .map(|x| x.set_aunt(Rc::downgrade(&old_root)));
+            old_root
+                .right_niece()
+                .map(|x| x.set_aunt(Rc::downgrade(&old_root)));
+
+            if remember {
+                // update aunts for the old nodes
+                let new_root_weak = Rc::downgrade(&new_root_rc);
+                old_root.set_aunt(new_root_weak.clone());
+                new_node.set_aunt(new_root_weak);
+
+                // update nieces for the new root
+                new_root_rc.set_niece(Some(old_root), Some(new_node));
+            }
+
+            // keep doing this until we find a row with an empty spot
+            new_node = new_root_rc;
+            row += 1;
+        }
+
+        self.roots[row as usize] = Some(new_node);
+        self.leaves += 1;
+    }
+
+    fn delete_single(&mut self, node: Rc<PollardNode>) -> Result<(), &'static str> {
+        // we are deleting a root, just write an empty hash where it was
+        if node.aunt.borrow().is_none() {
+            for i in 0..64 {
+                if self.roots[i].as_ref().unwrap().hash() == node.hash() {
+                    self.roots[i] = Some(Rc::new(PollardNode::default()));
+                    return Ok(());
+                }
+            }
+
+            return Err("Root not found");
+        }
+
+        let sibling = node.sibling().ok_or("Sibling not found")?;
+        if node.grandparent().is_none() {
+            // my parent is a root, I'm a root now
+            for i in 0..64 {
+                let aunt = node.aunt().unwrap();
+                let Some(root) = self.roots[i].as_ref() else {
+                    continue;
+                };
+                if root.hash() == aunt.hash() {
+                    self.roots[i] = Some(sibling);
+                    return Ok(());
+                }
+            }
+
+            return Err("Root not found");
+        };
+
+        sibling.migrate_up();
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr;
+
+    use super::*;
+    use crate::accumulator::util::hash_from_u8;
+
     #[test]
     fn test_add() {
         let values = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14];
-        let hashes = values.into_iter().map(hash_from_u8).collect::<Vec<_>>();
+        let hashes = values
+            .into_iter()
+            .map(|preimage| {
+                let hash = hash_from_u8(preimage);
+                PollardAddition {
+                    hash,
+                    remember: true,
+                }
+            })
+            .collect::<Vec<_>>();
 
         let mut acc = Pollard::new();
-        acc.add(&hashes);
+        acc.modify(&hashes, &[]);
 
         assert_eq!(
             "b151a956139bb821d4effa34ea95c17560e0135d1e4661fc23cedc3af49dac42",
-            acc.roots[0].data.get().to_string().as_str(),
+            acc.roots[3].as_ref().unwrap().hash().to_string(),
         );
         assert_eq!(
             "9c053db406c1a077112189469a3aca0573d3481bef09fa3d2eda3304d7d44be8",
-            acc.roots[1].data.get().to_string().as_str(),
+            acc.roots[2].as_ref().unwrap().hash().to_string(),
         );
         assert_eq!(
             "55d0a0ef8f5c25a9da266b36c0c5f4b31008ece82df2512c8966bddcc27a66a0",
-            acc.roots[2].data.get().to_string().as_str(),
+            acc.roots[1].as_ref().unwrap().hash().to_string()
         );
         assert_eq!(
             "4d7b3ef7300acf70c892d8327db8272f54434adbc61a4e130a563cb59a0d0f47",
-            acc.roots[3].data.get().to_string().as_str(),
+            acc.roots[0].as_ref().unwrap().hash().to_string()
         );
     }
+
+    #[test]
+    fn test_migrate_up() {
+        // This tests our code using for deletion. We manually create something like:
+        //
+        //         grandparent
+        //       /             \
+        //    aunt         parent
+        //  /      \      /      \
+        // sibling  self
+        //
+        // and then we delete self, which should migrate up the sibling to the aunt's position
+        // creating:
+        //
+        //          grandparent
+        //        /            \
+        //      sibling        parent
+        //      /   \          /   \
+        let grandparent = PollardNode::new(hash_from_u8(0),true);
+        let aunt = PollardNode::new(hash_from_u8(1), true);
+        let parent = PollardNode::new(hash_from_u8(2), true);
+
+        grandparent.set_niece(Some(aunt.clone()), Some(parent.clone()));
+
+        parent.set_aunt(Rc::downgrade(&aunt));
+        aunt.set_aunt(Rc::downgrade(&grandparent));
+
+        let sibling = PollardNode::new(hash_from_u8(3), true);
+        let _self = PollardNode::new(hash_from_u8(4), true);
+
+        aunt.set_niece(Some(sibling.clone()), Some(_self.clone()));
+        sibling.set_aunt(Rc::downgrade(&aunt));
+        _self.set_aunt(Rc::downgrade(&aunt));
+
+        _self.migrate_up();
+
+        assert_eq!(grandparent.left_niece(), Some(_self));
+        assert_eq!(grandparent.right_niece(), Some(parent));
+    }
+
+    #[test]
+    fn test_undo_single_add() {
+        let values1 = vec![0, 1, 2, 3, 4, 5];
+        let hashes1 = values1
+            .into_iter()
+            .map(|preimage| {
+                let hash = hash_from_u8(preimage);
+                PollardAddition {
+                    hash,
+                    remember: true,
+                }
+            })
+            .collect::<Vec<_>>();
+
+        let mut acc1 = Pollard::new();
+        acc1.modify(&hashes1, &[]);
+        acc1.undo_single_add();
+
+        let values2 = vec![0, 1, 2, 3, 4];
+        let hashes2 = values2
+            .into_iter()
+            .map(|preimage| {
+                let hash = hash_from_u8(preimage);
+                PollardAddition {
+                    hash,
+                    remember: true,
+                }
+            })
+            .collect::<Vec<_>>();
+
+        let mut acc2 = Pollard::new();
+        acc2.modify(&hashes2, &[]);
+
+        assert_eq!(acc1, acc2);
+    }
+
     #[test]
     fn test_delete_roots_child() {
         // Assuming the following tree:
@@ -722,287 +818,74 @@ mod test {
         // 00  01
         // If I delete `01`, then `00` will become a root, moving it's hash to `02`
         let values = vec![0, 1];
-        let hashes: Vec<NodeHash> = values.into_iter().map(hash_from_u8).collect();
-
-        let mut p = Pollard::new();
-        p.modify(&hashes, &[]).expect("Pollard should not fail");
-        p.del_single(&p.grab_node(1).unwrap().0);
-        assert_eq!(p.get_roots().len(), 1);
-
-        let root = p.get_roots()[0].clone();
-        assert_eq!(root.data.get(), hashes[0]);
-    }
-
-    #[test]
-    fn test_delete_root() {
-        // Assuming the following tree:
-        //
-        // 02
-        // |---\
-        // 00  01
-        // If I delete `02`, then `02` will become an empty root, it'll point to nothing
-        // and its data will be Data::default()
-        let values = vec![0, 1];
-        let hashes: Vec<NodeHash> = values.into_iter().map(hash_from_u8).collect();
-
-        let mut p = Pollard::new();
-        p.modify(&hashes, &[]).expect("Pollard should not fail");
-        p.del_single(&p.grab_node(2).unwrap().0);
-        assert_eq!(p.get_roots().len(), 1);
-        let root = p.get_roots()[0].clone();
-        assert_eq!(root.data.get(), NodeHash::default());
-    }
-    #[test]
-    fn test_delete_non_root() {
-        // Assuming this tree, if we delete `01`, 00 will move up to 08's position
-        // 14
-        // |-----------------\
-        // 12                13
-        // |-------\         |--------\
-        // 08       09       10       11
-        // |----\   |----\   |----\   |----\
-        // 00   01  02   03  04   05  06   07
-
-        // 14
-        // |-----------------\
-        // 12                13
-        // |-------\         |--------\
-        // 08       09       10       11
-        // |----\   |----\   |----\   |----\
-        // 00   01  02   03  04   05  06   07
-
-        // Where 08's data is just 00's
-
-        let values = vec![0, 1, 2, 3, 4, 5, 6, 7];
-        let hashes: Vec<NodeHash> = values.into_iter().map(hash_from_u8).collect();
-
-        let mut p = Pollard::new();
-        p.modify(&hashes, &[]).expect("Pollard should not fail");
-        p.modify(&[], &[hashes[1]]).expect("Still should not fail");
-
-        assert_eq!(p.roots.len(), 1);
-        let (node, _, _) = p.grab_node(8).expect("This tree should have pos 8");
-        assert_eq!(node.data.get(), hashes[0]);
-    }
-    #[derive(Debug, Deserialize)]
-    struct TestCase {
-        leaf_preimages: Vec<u8>,
-        target_values: Option<Vec<u64>>,
-        expected_roots: Vec<String>,
-    }
-    fn run_single_addition_case(case: TestCase) {
-        let hashes = case
-            .leaf_preimages
-            .iter()
-            .map(|preimage| hash_from_u8(*preimage))
-            .collect::<Vec<_>>();
-        let mut p = Pollard::new();
-        p.modify(&hashes, &[]).expect("Test pollards are valid");
-        assert_eq!(p.get_roots().len(), case.expected_roots.len());
-        let expected_roots = case
-            .expected_roots
-            .iter()
-            .map(|root| NodeHash::from_str(root).unwrap())
-            .collect::<Vec<_>>();
-        let roots = p
-            .get_roots()
-            .iter()
-            .map(|root| root.data.get())
-            .collect::<Vec<_>>();
-        assert_eq!(expected_roots, roots, "Test case failed {:?}", case);
-    }
-    fn run_case_with_deletion(case: TestCase) {
-        let hashes = case
-            .leaf_preimages
-            .iter()
-            .map(|preimage| hash_from_u8(*preimage))
-            .collect::<Vec<_>>();
-        let dels = case
-            .target_values
-            .clone()
-            .unwrap()
-            .iter()
-            .map(|pos| hashes[*pos as usize])
-            .collect::<Vec<_>>();
-        let mut p = Pollard::new();
-        p.modify(&hashes, &[]).expect("Test pollards are valid");
-        p.modify(&[], &dels).expect("still should be valid");
-
-        assert_eq!(p.get_roots().len(), case.expected_roots.len());
-        let expected_roots = case
-            .expected_roots
-            .iter()
-            .map(|root| NodeHash::from_str(root).unwrap())
-            .collect::<Vec<_>>();
-        let roots = p
-            .get_roots()
-            .iter()
-            .map(|root| root.data.get())
-            .collect::<Vec<_>>();
-        assert_eq!(expected_roots, roots, "Test case failed {:?}", case);
-    }
-    #[test]
-    fn run_tests_from_cases() {
-        #[derive(Deserialize)]
-        struct TestsJSON {
-            insertion_tests: Vec<TestCase>,
-            deletion_tests: Vec<TestCase>,
-        }
-
-        let contents = std::fs::read_to_string("test_values/test_cases.json")
-            .expect("Something went wrong reading the file");
-
-        let tests = serde_json::from_str::<TestsJSON>(contents.as_str())
-            .expect("JSON deserialization error");
-
-        for i in tests.insertion_tests {
-            run_single_addition_case(i);
-        }
-        for i in tests.deletion_tests {
-            run_case_with_deletion(i);
-        }
-    }
-    #[test]
-    fn test_to_string() {
-        let hashes = get_hash_vec_of(&(0..255).collect::<Vec<_>>());
-        let mut p = Pollard::new();
-        p.modify(&hashes, &[]).expect("Test pollards are valid");
-        assert_eq!(
-            Some("Can't print 255 leaves. roots:"),
-            p.to_string().get(0..30)
-        );
-    }
-    #[test]
-    fn test_get_pos() {
-        macro_rules! test_get_pos {
-            ($p:ident, $pos:literal) => {
-                assert_eq!(
-                    $p.get_pos(&Rc::downgrade(&$p.grab_node($pos).unwrap().0)),
-                    $pos
-                );
-            };
-        }
-        let hashes = get_hash_vec_of(&[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
-        let mut p = Pollard::new();
-        p.modify(&hashes, &[]).expect("Test pollards are valid");
-        test_get_pos!(p, 0);
-        test_get_pos!(p, 1);
-        test_get_pos!(p, 2);
-        test_get_pos!(p, 3);
-        test_get_pos!(p, 4);
-        test_get_pos!(p, 5);
-        test_get_pos!(p, 6);
-        test_get_pos!(p, 7);
-        test_get_pos!(p, 8);
-        test_get_pos!(p, 9);
-        test_get_pos!(p, 10);
-        test_get_pos!(p, 11);
-        test_get_pos!(p, 12);
-
-        assert_eq!(p.get_pos(&Rc::downgrade(&p.get_roots()[0])), 28);
-        assert_eq!(
-            p.get_pos(&Rc::downgrade(
-                p.get_roots()[0].left.borrow().as_ref().unwrap()
-            )),
-            24
-        );
-        assert_eq!(
-            p.get_pos(&Rc::downgrade(
-                p.get_roots()[0].right.borrow().as_ref().unwrap()
-            )),
-            25
-        );
-    }
-    #[test]
-    fn test_serialize_one() {
-        let hashes = get_hash_vec_of(&[0, 1, 2, 3, 4, 5, 6, 7]);
-        let mut p = Pollard::new();
-        p.modify(&hashes, &[]).expect("Test pollards are valid");
-        p.modify(&[], &[hashes[0]]).expect("can remove 0");
-        let mut writer = std::io::Cursor::new(Vec::new());
-        p.get_roots()[0].write_one(&mut writer).unwrap();
-        let (deserialized, _) =
-            Node::read_one(&mut std::io::Cursor::new(writer.into_inner())).unwrap();
-        assert_eq!(deserialized.get_data(), p.get_roots()[0].get_data());
-    }
-    #[test]
-    fn test_serialization() {
-        let hashes = get_hash_vec_of(&[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
-        let mut p = Pollard::new();
-        p.modify(&hashes, &[]).expect("Test pollards are valid");
-        p.modify(&[], &[hashes[0]]).expect("can remove 0");
-        let mut writer = std::io::Cursor::new(Vec::new());
-        p.serialize(&mut writer).unwrap();
-        let deserialized =
-            Pollard::deserialize(&mut std::io::Cursor::new(writer.into_inner())).unwrap();
-        assert_eq!(
-            deserialized.get_roots()[0].get_data(),
-            p.get_roots()[0].get_data()
-        );
-        assert_eq!(deserialized.leaves, p.leaves);
-        assert_eq!(deserialized.map.len(), p.map.len());
-    }
-    #[test]
-    fn test_proof() {
-        let hashes = get_hash_vec_of(&[0, 1, 2, 3, 4, 5, 6, 7]);
-        let del_hashes = [hashes[2], hashes[1], hashes[4], hashes[6]];
-
-        let mut p = Pollard::new();
-        p.modify(&hashes, &[]).expect("Test pollards are valid");
-
-        let proof = p.prove(&del_hashes).expect("Should be able to prove");
-
-        let expected_proof = Proof::new(
-            [2, 1, 4, 6].to_vec(),
-            vec![
-                "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d"
-                    .parse()
-                    .unwrap(),
-                "084fed08b978af4d7d196a7446a86b58009e636b611db16211b65a9aadff29c5"
-                    .parse()
-                    .unwrap(),
-                "e77b9a9ae9e30b0dbdb6f510a264ef9de781501d7b6b92ae89eb059c5ab743db"
-                    .parse()
-                    .unwrap(),
-                "ca358758f6d27e6cf45272937977a748fd88391db679ceda7dc7bf1f005ee879"
-                    .parse()
-                    .unwrap(),
-            ],
-        );
-        assert_eq!(proof, expected_proof);
-        assert!(p.verify(&proof, &del_hashes).unwrap());
-    }
-    fn get_hash_vec_of(elements: &[u8]) -> Vec<NodeHash> {
-        elements.iter().map(|el| hash_from_u8(*el)).collect()
-    }
-
-    #[test]
-    fn test_display_empty() {
-        let p = Pollard::new();
-        let _ = p.to_string();
-    }
-
-    #[test]
-    fn test_serialization_roundtrip() {
-        let mut p = Pollard::new();
-        let values = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
-        let hashes: Vec<NodeHash> = values
+        let hashes: Vec<_> = values
             .into_iter()
-            .map(|i| NodeHash::from([i; 32]))
+            .map(|preimage| {
+                let hash = hash_from_u8(preimage);
+                PollardAddition {
+                    hash,
+                    remember: true,
+                }
+            })
             .collect();
-        p.modify(&hashes, &[]).expect("modify should work");
-        assert_eq!(p.get_roots().len(), 1);
-        assert!(!p.get_roots()[0].get_data().is_empty());
-        assert_eq!(p.leaves, 16);
-        p.modify(&[], &hashes).expect("modify should work");
-        assert_eq!(p.get_roots().len(), 1);
-        assert!(p.get_roots()[0].get_data().is_empty());
-        assert_eq!(p.leaves, 16);
-        let mut serialized = Vec::<u8>::new();
-        p.serialize(&mut serialized).expect("serialize should work");
-        let deserialized = Pollard::deserialize(&*serialized).expect("deserialize should work");
-        assert_eq!(deserialized.get_roots().len(), 1);
-        assert!(deserialized.get_roots()[0].get_data().is_empty());
-        assert_eq!(deserialized.leaves, 16);
+
+        let mut p = Pollard::new();
+        p.modify(&hashes, &[]);
+        p.delete_single(p.grab_position(1).unwrap().0)
+            .expect("Failed to delete");
+
+        let root = p.roots[1].clone();
+        assert_eq!(root.unwrap().hash(), hashes[0].hash);
+    }
+
+    #[test]
+    fn test_prove_single() {
+        let values = vec![0, 1, 2, 3, 4, 5];
+        let hashes: Vec<_> = values
+            .into_iter()
+            .map(|preimage| {
+                let hash = hash_from_u8(preimage);
+                let remember = true;
+                PollardAddition { hash, remember }
+            })
+            .collect();
+
+        let mut acc = Pollard::new();
+        acc.modify(&hashes, &[]);
+
+        let proof = acc.prove_single(3).unwrap();
+        let expected = [
+            "dbc1b4c900ffe48d575b5da5c638040125f65db0fe3e24494b76ea986457d986",
+            "02242b37d8e851f1e86f46790298c7097df06893d6226b7c1453c213e91717de",
+        ]
+        .iter()
+        .map(|x| NodeHash::from_str(x).unwrap())
+        .collect::<Vec<_>>();
+
+        assert_eq!(proof, expected);
+    }
+
+    #[test]
+    fn test() {
+        let values = vec![0, 1, 2, 3, 4, 5];
+        let hashes: Vec<_> = values
+            .into_iter()
+            .map(|preimage| {
+                let hash = hash_from_u8(preimage);
+                PollardAddition {
+                    hash,
+                    remember: true,
+                }
+            })
+            .collect();
+
+        let mut acc = Pollard::new();
+        acc.modify(&hashes, &[]);
+        println!("{}", acc);
+
+        let node = acc.grab_position(8).unwrap();
+        println!("{:?}", node.0.hash());
+        println!("{:?}", node.0.left_niece());
+        println!("{:?}", node.0.right_niece());
     }
 }
