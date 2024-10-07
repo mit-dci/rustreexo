@@ -1,7 +1,7 @@
 use std::io::Read;
 
 // Rustreexo
-use super::node_hash::NodeHash;
+use super::node_hash::AccumulatorHash;
 
 // isRootPosition checks if the current position is a root given the number of
 // leaves and the entire rows of the forest.
@@ -89,7 +89,11 @@ pub fn left_sibling(position: u64) -> u64 {
 }
 // roots_to_destroy returns the empty roots that get written over after num_adds
 // amount of leaves have been added.
-pub fn roots_to_destroy(num_adds: u64, mut num_leaves: u64, orig_roots: &[NodeHash]) -> Vec<u64> {
+pub fn roots_to_destroy<Hash: AccumulatorHash>(
+    num_adds: u64,
+    mut num_leaves: u64,
+    orig_roots: &[Hash],
+) -> Vec<u64> {
     let mut roots = orig_roots.to_vec();
     let mut deleted = vec![];
     let mut h = 0;
@@ -106,7 +110,7 @@ pub fn roots_to_destroy(num_adds: u64, mut num_leaves: u64, orig_roots: &[NodeHa
             h += 1;
         }
         // Just adding a non-zero value to the slice.
-        roots.push(NodeHash::placeholder());
+        roots.push(AccumulatorHash::placeholder());
         num_leaves += 1;
     }
 
@@ -233,7 +237,7 @@ pub fn parent_many(pos: u64, rise: u8, forest_rows: u8) -> Result<u64, String> {
             rise, forest_rows
         ));
     }
-    let mask = ((2_u64 << forest_rows) - 1) as u64;
+    let mask: u64 = (2_u64 << forest_rows) - 1_u64;
     Ok((pos >> rise | (mask << (forest_rows - (rise - 1)) as u64)) & mask)
 }
 
@@ -304,24 +308,27 @@ pub fn get_proof_positions(targets: &[u64], num_leaves: u64, forest_rows: u8) ->
 
     proof_positions
 }
+
 #[cfg(any(test, bench))]
-pub fn hash_from_u8(value: u8) -> NodeHash {
+pub fn hash_from_u8(value: u8) -> super::node_hash::BitcoinNodeHash {
     use bitcoin_hashes::sha256;
     use bitcoin_hashes::Hash;
     use bitcoin_hashes::HashEngine;
+
     let mut engine = bitcoin_hashes::sha256::Hash::engine();
 
     engine.input(&[value]);
 
     sha256::Hash::from_engine(engine).into()
 }
+
 #[cfg(test)]
 mod tests {
     use std::str::FromStr;
     use std::vec;
 
     use super::roots_to_destroy;
-    use crate::accumulator::node_hash::NodeHash;
+    use crate::accumulator::node_hash::BitcoinNodeHash;
     use crate::accumulator::util::children;
     use crate::accumulator::util::tree_rows;
 
@@ -338,6 +345,7 @@ mod tests {
             super::get_proof_positions(&sorted, num_leaves, num_rows)
         );
     }
+
     #[test]
     fn test_is_sibling() {
         assert!(super::is_sibling(0, 1));
@@ -345,6 +353,7 @@ mod tests {
         assert!(!super::is_sibling(1, 2));
         assert!(!super::is_sibling(2, 1));
     }
+
     #[test]
     fn test_root_position() {
         let pos = super::root_position(5, 2, 3);
@@ -353,10 +362,12 @@ mod tests {
         let pos = super::root_position(5, 0, 3);
         assert_eq!(pos, 4);
     }
+
     #[test]
     fn test_is_right_sibling() {
         assert!(super::is_right_sibling(0, 1));
     }
+
     #[test]
     fn test_roots_to_destroy() {
         let roots = [
@@ -367,13 +378,14 @@ mod tests {
         ];
         let roots = roots
             .iter()
-            .map(|hash| NodeHash::from_str(hash).unwrap())
+            .map(|hash| BitcoinNodeHash::from_str(hash).unwrap())
             .collect::<Vec<_>>();
 
         let deleted = roots_to_destroy(1, 15, &roots);
 
         assert_eq!(deleted, vec![22, 28])
     }
+
     #[test]
     fn test_remove_bit() {
         // This should remove just one bit from the final number
@@ -388,6 +400,7 @@ mod tests {
         let res = super::remove_bit(14, 1);
         assert_eq!(res, 6);
     }
+
     #[test]
     fn test_detwin() {
         // 14
@@ -413,12 +426,14 @@ mod tests {
         assert_eq!(super::tree_rows(12), 4);
         assert_eq!(super::tree_rows(255), 8);
     }
+
     fn row_offset(row: u8, forest_rows: u8) -> u64 {
         // 2 << forestRows is 2 more than the max position
         // to get the correct offset for a given row,
         // subtract (2 << `row complement of forestRows`) from (2 << forestRows)
         (2 << forest_rows) - (2 << (forest_rows - row))
     }
+
     #[test]
     fn test_detect_row() {
         for forest_rows in 1..63 {
@@ -437,8 +452,8 @@ mod tests {
             }
         }
     }
-    #[test]
 
+    #[test]
     fn test_get_proof_positions() {
         let targets: Vec<u64> = vec![4, 5, 7, 8];
         let num_leaves = 8;
@@ -447,11 +462,13 @@ mod tests {
 
         assert_eq!(vec![6, 9], targets);
     }
+
     #[test]
     fn test_is_root_position() {
         let h = super::is_root_position(14, 8, 3);
         assert!(h);
     }
+
     #[test]
     fn test_children_pos() {
         assert_eq!(children(4, 2), 0);
@@ -459,6 +476,7 @@ mod tests {
         assert_eq!(children(50, 5), 36);
         assert_eq!(children(44, 5), 24);
     }
+
     #[test]
     fn test_calc_next_pos() {
         let res = super::calc_next_pos(0, 1, 3);

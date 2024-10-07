@@ -9,7 +9,7 @@
 //! use bitcoin_hashes::sha256;
 //! use bitcoin_hashes::Hash;
 //! use bitcoin_hashes::HashEngine;
-//! use rustreexo::accumulator::node_hash::NodeHash;
+//! use rustreexo::accumulator::node_hash::BitcoinNodeHash;
 //! use rustreexo::accumulator::proof::Proof;
 //! use rustreexo::accumulator::stump::Stump;
 //! let s = Stump::new();
@@ -22,16 +22,22 @@
 //! let mut proof_hashes = Vec::new();
 //!
 //! proof_hashes.push(
-//!     NodeHash::from_str("4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a")
-//!         .unwrap(),
+//!     BitcoinNodeHash::from_str(
+//!         "4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a",
+//!     )
+//!     .unwrap(),
 //! );
 //! proof_hashes.push(
-//!     NodeHash::from_str("9576f4ade6e9bc3a6458b506ce3e4e890df29cb14cb5d3d887672aef55647a2b")
-//!         .unwrap(),
+//!     BitcoinNodeHash::from_str(
+//!         "9576f4ade6e9bc3a6458b506ce3e4e890df29cb14cb5d3d887672aef55647a2b",
+//!     )
+//!     .unwrap(),
 //! );
 //! proof_hashes.push(
-//!     NodeHash::from_str("29590a14c1b09384b94a2c0e94bf821ca75b62eacebc47893397ca88e3bbcbd7")
-//!         .unwrap(),
+//!     BitcoinNodeHash::from_str(
+//!         "29590a14c1b09384b94a2c0e94bf821ca75b62eacebc47893397ca88e3bbcbd7",
+//!     )
+//!     .unwrap(),
 //! );
 //!
 //! // Hashes of the leaves UTXOs we'll add to the accumulator
@@ -57,19 +63,21 @@ use serde::Deserialize;
 #[cfg(feature = "with-serde")]
 use serde::Serialize;
 
-use super::node_hash::NodeHash;
+use super::node_hash::AccumulatorHash;
+use super::node_hash::BitcoinNodeHash;
 use super::stump::UpdateData;
+use super::util;
 use super::util::get_proof_positions;
 use super::util::read_u64;
 use super::util::tree_rows;
-use super::util::{self};
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(feature = "with-serde", derive(Serialize, Deserialize))]
 /// A proof is a collection of hashes and positions. Each target position
 /// points to a leaf to be proven. Hashes are all
 /// hashes that can't be calculated from the data itself.
 /// Proofs are generated elsewhere.
-pub struct Proof {
+pub struct Proof<Hash: AccumulatorHash = BitcoinNodeHash> {
     /// Targets are the i'th of leaf locations to delete and they are the bottommost leaves.
     /// With the tree below, the Targets can only consist of one of these: 02, 03, 04.
     ///```!
@@ -92,7 +100,17 @@ pub struct Proof {
     /// // |---\   |---\
     /// // 00  01  02  03
     /// ```
-    pub hashes: Vec<NodeHash>,
+    pub hashes: Vec<Hash>,
+}
+
+// the default hash type for a proof is BitcoinNodeHash
+impl Default for Proof<BitcoinNodeHash> {
+    fn default() -> Self {
+        Proof {
+            targets: Vec::new(),
+            hashes: Vec::new(),
+        }
+    }
 }
 
 // We often need to return the targets paired with hashes, and the proof position.
@@ -101,17 +119,17 @@ pub struct Proof {
 
 /// This alias is used when we need to return the nodes and roots for a proof
 /// if we are not concerned with deleting those elements.
-pub(crate) type NodesAndRootsCurrent = (Vec<(u64, NodeHash)>, Vec<NodeHash>);
+pub(crate) type NodesAndRootsCurrent<Hash> = (Vec<(u64, Hash)>, Vec<Hash>);
 /// This is used when we need to return the nodes and roots for a proof
 /// if we are concerned with deleting those elements. The difference is that
 /// we need to retun the old and updatated roots in the accumulator.
-pub(crate) type NodesAndRootsOldNew = (Vec<(u64, NodeHash)>, Vec<(NodeHash, NodeHash)>);
+pub(crate) type NodesAndRootsOldNew<Hash> = (Vec<(u64, Hash)>, Vec<(Hash, Hash)>);
 
 impl Proof {
     /// Creates a proof from a vector of target and hashes.
     /// `targets` are u64s and indicates the position of the leaves we are
     /// trying to prove.
-    /// `hashes` are of type `NodeHash` and are all hashes we need for computing the roots.
+    /// `hashes` are of type `AccumulatorHash` and are all hashes we need for computing the roots.
     ///
     /// Assuming a tree with leaf values [0, 1, 2, 3, 4, 5, 6, 7], we should see something like this:
     ///```!
@@ -132,7 +150,6 @@ impl Proof {
     /// ```
     /// use bitcoin_hashes::Hash;
     /// use bitcoin_hashes::HashEngine;
-    /// use rustreexo::accumulator::node_hash::NodeHash;
     /// use rustreexo::accumulator::proof::Proof;
     /// let targets = vec![0];
     ///
@@ -142,9 +159,53 @@ impl Proof {
     /// // Fill `proof_hashes` up with all hashes
     /// Proof::new(targets, proof_hashes);
     /// ```
-    pub fn new(targets: Vec<u64>, hashes: Vec<NodeHash>) -> Self {
+    pub fn new(targets: Vec<u64>, hashes: Vec<BitcoinNodeHash>) -> Proof<BitcoinNodeHash> {
         Proof { targets, hashes }
     }
+}
+
+impl<Hash: AccumulatorHash> Proof<Hash> {
+    /// Creates a proof from a vector of target and hashes, using a different hash type.
+    /// `targets` are u64s and indicates the position of the leaves we are
+    /// trying to prove.
+    /// `hashes` are of type `AccumulatorHash` and are all hashes we need for computing the roots.
+    ///
+    /// Different from `new`, this function allows for the proof to be created with a different
+    /// hash type, as long as it implements `AccumulatorHash`.
+    ///
+    /// Assuming a tree with leaf values [0, 1, 2, 3, 4, 5, 6, 7], we should see something like this:
+    ///```!
+    /// // 14
+    /// // |-----------------\
+    /// // 12                13
+    /// // |---------\       |--------\
+    /// // 08       09       10       11
+    /// // |----\   |----\   |----\   |----\
+    /// // 00   01  02   03  04   05  06   07
+    /// ```
+    /// If we are proving `00` (i.e. 00 is our target), then we need 01,
+    /// 09 and 13's hashes, so we can compute 14 by hashing both siblings
+    /// in each level (00 and 01, 08 and 09 and 12 and 13). Note that
+    /// some hashes we can compute by ourselves, and are not present in the
+    /// proof, in this case 00, 08, 12 and 14.
+    /// # Example
+    /// ```
+    /// use bitcoin_hashes::Hash;
+    /// use bitcoin_hashes::HashEngine;
+    /// use rustreexo::accumulator::node_hash::BitcoinNodeHash;
+    /// use rustreexo::accumulator::proof::Proof;
+    /// let targets = vec![0];
+    ///
+    /// let mut proof_hashes = Vec::new();
+    /// let targets = vec![0];
+    /// // For proving 0, we need 01, 09 and 13's hashes. 00, 08, 12 and 14 can be calculated
+    /// // Fill `proof_hashes` up with all hashes
+    /// Proof::<BitcoinNodeHash>::new_with_hash(targets, proof_hashes);
+    /// ```
+    pub fn new_with_hash(targets: Vec<u64>, hashes: Vec<Hash>) -> Self {
+        Proof { targets, hashes }
+    }
+
     /// Public interface for verifying proofs. Returns a result with a bool or an Error
     /// True means the proof is true given the current stump, false means the proof is
     /// not valid given the current stump.
@@ -155,7 +216,7 @@ impl Proof {
     /// use bitcoin_hashes::sha256;
     /// use bitcoin_hashes::Hash;
     /// use bitcoin_hashes::HashEngine;
-    /// use rustreexo::accumulator::node_hash::NodeHash;
+    /// use rustreexo::accumulator::node_hash::BitcoinNodeHash;
     /// use rustreexo::accumulator::proof::Proof;
     /// use rustreexo::accumulator::stump::Stump;
     /// let s = Stump::new();
@@ -175,16 +236,22 @@ impl Proof {
     /// // 00   01  02   03  04   05  06   07
     /// // For proving 0, we need 01, 09 and 13's hashes. 00, 08, 12 and 14 can be calculated
     /// proof_hashes.push(
-    ///     NodeHash::from_str("4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a")
-    ///         .unwrap(),
+    ///     BitcoinNodeHash::from_str(
+    ///         "4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a",
+    ///     )
+    ///     .unwrap(),
     /// );
     /// proof_hashes.push(
-    ///     NodeHash::from_str("9576f4ade6e9bc3a6458b506ce3e4e890df29cb14cb5d3d887672aef55647a2b")
-    ///         .unwrap(),
+    ///     BitcoinNodeHash::from_str(
+    ///         "9576f4ade6e9bc3a6458b506ce3e4e890df29cb14cb5d3d887672aef55647a2b",
+    ///     )
+    ///     .unwrap(),
     /// );
     /// proof_hashes.push(
-    ///     NodeHash::from_str("29590a14c1b09384b94a2c0e94bf821ca75b62eacebc47893397ca88e3bbcbd7")
-    ///         .unwrap(),
+    ///     BitcoinNodeHash::from_str(
+    ///         "29590a14c1b09384b94a2c0e94bf821ca75b62eacebc47893397ca88e3bbcbd7",
+    ///     )
+    ///     .unwrap(),
     /// );
     ///
     /// let mut hashes = Vec::new();
@@ -199,15 +266,15 @@ impl Proof {
     /// ```
     pub fn verify(
         &self,
-        del_hashes: &[NodeHash],
-        roots: &[NodeHash],
+        del_hashes: &[Hash],
+        roots: &[Hash],
         num_leaves: u64,
     ) -> Result<bool, String> {
         if self.targets.is_empty() {
             return Ok(true);
         }
 
-        let mut calculated_roots: std::iter::Peekable<std::vec::IntoIter<NodeHash>> = self
+        let mut calculated_roots: std::iter::Peekable<std::vec::IntoIter<Hash>> = self
             .calculate_hashes(del_hashes, num_leaves)?
             .1
             .into_iter()
@@ -227,8 +294,10 @@ impl Proof {
         if calculated_roots.len() != number_matched_roots && calculated_roots.len() != 0 {
             return Ok(false);
         }
+
         Ok(true)
     }
+
     /// Returns the elements needed to prove a subset of targets. For example, a tree with
     /// 8 leaves, if we cache `[0, 2, 6, 7]`, and we need to prove `[2, 7]` only, we have to remove
     /// elements for 0 and 7. The original proof is `[1, 3, 10]`, and we can compute `[8, 9, 11, 12, 13, 14]`.
@@ -244,10 +313,10 @@ impl Proof {
     /// ```
     pub fn get_proof_subset(
         &self,
-        del_hashes: &[NodeHash],
+        del_hashes: &[Hash],
         new_targets: &[u64],
         num_leaves: u64,
-    ) -> Result<Proof, String> {
+    ) -> Result<Proof<Hash>, String> {
         let forest_rows = tree_rows(num_leaves);
         let old_proof_positions = get_proof_positions(&self.targets, num_leaves, forest_rows);
         let needed_positions = get_proof_positions(new_targets, num_leaves, forest_rows);
@@ -257,7 +326,7 @@ impl Proof {
             .iter()
             .copied()
             .zip(self.hashes.iter().copied())
-            .collect::<HashMap<u64, NodeHash>>();
+            .collect::<HashMap<u64, Hash>>();
 
         old_proof.extend(intermediate_positions);
 
@@ -271,7 +340,7 @@ impl Proof {
             }
         }
         new_proof.sort();
-        let (_, new_proof): (Vec<u64>, Vec<NodeHash>) = new_proof.into_iter().unzip();
+        let (_, new_proof): (Vec<u64>, Vec<Hash>) = new_proof.into_iter().unzip();
         Ok(Proof {
             targets: new_targets.to_vec(),
             hashes: new_proof,
@@ -286,7 +355,7 @@ impl Proof {
     /// - hashes (32 bytes)
     /// # Example
     /// ```
-    /// use rustreexo::accumulator::node_hash::NodeHash;
+    /// use rustreexo::accumulator::node_hash::BitcoinNodeHash;
     /// use rustreexo::accumulator::proof::Proof;
     /// use rustreexo::accumulator::stump::Stump;
     ///
@@ -309,20 +378,21 @@ impl Proof {
         writer.write_all(&self.hashes.len().to_le_bytes())?;
         for hash in &self.hashes {
             len += 32;
-            writer.write_all(&**hash)?;
+            hash.write(&mut writer)?;
         }
         Ok(len)
     }
+
     /// Deserializes a proof from a byte array.
     /// # Example
     /// ```
     /// use std::io::Cursor;
     ///
-    /// use rustreexo::accumulator::node_hash::NodeHash;
+    /// use rustreexo::accumulator::node_hash::BitcoinNodeHash;
     /// use rustreexo::accumulator::proof::Proof;
     /// use rustreexo::accumulator::stump::Stump;
     /// let proof = Cursor::new(vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
-    /// let deserialized_proof = Proof::deserialize(proof).unwrap();
+    /// let deserialized_proof = Proof::<BitcoinNodeHash>::deserialize(proof).unwrap();
     /// // An empty proof is only 16 bytes of zeros, meaning no targets and no hashes
     /// assert_eq!(Proof::default(), deserialized_proof);
     /// ```
@@ -336,15 +406,14 @@ impl Proof {
         let hashes_len = read_u64(&mut buf)? as usize;
         let mut hashes = Vec::with_capacity(hashes_len);
         for _ in 0..hashes_len {
-            let mut hash = [0u8; 32];
-            buf.read_exact(&mut hash)
-                .map_err(|_| "Failed to read hash")?;
-            hashes.push(hash.into());
+            let hash = Hash::read(&mut buf).map_err(|_| "Failed to parse hash")?;
+            hashes.push(hash);
         }
         Ok(Proof { targets, hashes })
     }
+
     /// Returns how many targets this proof has
-    pub fn targets(&self) -> usize {
+    pub fn n_targets(&self) -> usize {
         self.targets.len()
     }
 
@@ -359,15 +428,15 @@ impl Proof {
     /// If at least one returned element doesn't exist in the accumulator, the proof is invalid.
     pub(crate) fn calculate_hashes_delete(
         &self,
-        del_hashes: &[(NodeHash, NodeHash)],
+        del_hashes: &[(Hash, Hash)],
         num_leaves: u64,
-    ) -> Result<NodesAndRootsOldNew, String> {
+    ) -> Result<NodesAndRootsOldNew<Hash>, String> {
         // Where all the root hashes that we've calculated will go to.
         let total_rows = util::tree_rows(num_leaves);
 
         // Where all the parent hashes we've calculated in a given row will go to.
         let mut calculated_root_hashes =
-            Vec::<(NodeHash, NodeHash)>::with_capacity(util::num_roots(num_leaves));
+            Vec::<(Hash, Hash)>::with_capacity(util::num_roots(num_leaves));
 
         // the positions that should be passed as a proof
         let proof_positions = get_proof_positions(&self.targets, num_leaves, total_rows);
@@ -415,14 +484,14 @@ impl Proof {
             }
 
             let parent_hash = match (next_hash_new.is_empty(), sibling_hash_new.is_empty()) {
-                (true, true) => NodeHash::empty(),
+                (true, true) => AccumulatorHash::empty(),
                 (true, false) => sibling_hash_new,
                 (false, true) => next_hash_new,
-                (false, false) => NodeHash::parent_hash(&next_hash_new, &sibling_hash_new),
+                (false, false) => AccumulatorHash::parent_hash(&next_hash_new, &sibling_hash_new),
             };
 
             let parent = util::parent(next_pos, total_rows);
-            let old_parent_hash = NodeHash::parent_hash(&next_hash_old, &sibling_hash_old);
+            let old_parent_hash = AccumulatorHash::parent_hash(&next_hash_old, &sibling_hash_old);
             computed.push((parent, (old_parent_hash, parent_hash)));
         }
 
@@ -445,15 +514,14 @@ impl Proof {
     /// needed for verification (i.e. the current accumulator).
     pub(crate) fn calculate_hashes(
         &self,
-        del_hashes: &[NodeHash],
+        del_hashes: &[Hash],
         num_leaves: u64,
-    ) -> Result<NodesAndRootsCurrent, String> {
+    ) -> Result<NodesAndRootsCurrent<Hash>, String> {
         // Where all the root hashes that we've calculated will go to.
         let total_rows = util::tree_rows(num_leaves);
 
         // Where all the parent hashes we've calculated in a given row will go to.
-        let mut calculated_root_hashes =
-            Vec::<NodeHash>::with_capacity(util::num_roots(num_leaves));
+        let mut calculated_root_hashes = Vec::<Hash>::with_capacity(util::num_roots(num_leaves));
 
         // the positions that should be passed as a proof
         let proof_positions = get_proof_positions(&self.targets, num_leaves, total_rows);
@@ -500,7 +568,7 @@ impl Proof {
                 return Err(format!("Missing sibling for {}", next_pos));
             }
 
-            let parent_hash = NodeHash::parent_hash(&next_hash, &sibling_hash);
+            let parent_hash = AccumulatorHash::parent_hash(&next_hash, &sibling_hash);
             let parent = util::parent(next_pos, total_rows);
             computed.push((parent, parent_hash));
         }
@@ -541,18 +609,19 @@ impl Proof {
             (None, None) => None,
         }
     }
+
     /// Uses the data passed in to update a proof, creating a valid proof for a given
     /// set of targets, after an update. This is useful for caching UTXOs. You grab a proof
     /// for it once and then keep updating it every block, yielding an always valid proof
     /// over those UTXOs.
     pub fn update(
         self,
-        cached_hashes: Vec<NodeHash>,
-        add_hashes: Vec<NodeHash>,
+        cached_hashes: Vec<Hash>,
+        add_hashes: Vec<Hash>,
         block_targets: Vec<u64>,
         remembers: Vec<u64>,
-        update_data: UpdateData,
-    ) -> Result<(Proof, Vec<NodeHash>), String> {
+        update_data: UpdateData<Hash>,
+    ) -> Result<(Proof<Hash>, Vec<Hash>), String> {
         let (proof_after_deletion, cached_hashes) = self.update_proof_remove(
             block_targets,
             cached_hashes,
@@ -571,17 +640,18 @@ impl Proof {
 
         Ok(data_after_addition)
     }
+
     fn update_proof_add(
         self,
-        adds: Vec<NodeHash>,
-        cached_del_hashes: Vec<NodeHash>,
+        adds: Vec<Hash>,
+        cached_del_hashes: Vec<Hash>,
         remembers: Vec<u64>,
-        new_nodes: Vec<(u64, NodeHash)>,
+        new_nodes: Vec<(u64, Hash)>,
         before_num_leaves: u64,
         to_destroy: Vec<u64>,
-    ) -> Result<(Proof, Vec<NodeHash>), String> {
+    ) -> Result<(Proof<Hash>, Vec<Hash>), String> {
         // Combine the hashes with the targets.
-        let orig_targets_with_hash: Vec<(u64, NodeHash)> = self
+        let orig_targets_with_hash: Vec<(u64, Hash)> = self
             .targets
             .iter()
             .copied()
@@ -616,7 +686,7 @@ impl Proof {
 
         // remembers is an index telling what newly created UTXO should be cached
         for remember in remembers {
-            let remember_target: Option<&NodeHash> = adds.get(remember as usize);
+            let remember_target: Option<&Hash> = adds.get(remember as usize);
             if let Some(remember_target) = remember_target {
                 let node = new_nodes_iter.find(|(_, hash)| *hash == *remember_target);
                 if let Some((pos, hash)) = node {
@@ -655,22 +725,23 @@ impl Proof {
         }
         new_proof.sort();
 
-        let (_, hashes): (Vec<u64>, Vec<NodeHash>) = new_proof.into_iter().unzip();
+        let (_, hashes): (Vec<u64>, Vec<Hash>) = new_proof.into_iter().unzip();
         Ok((
-            Proof {
+            Proof::<Hash> {
                 hashes,
                 targets: new_target_pos,
             },
             target_hashes,
         ))
     }
+
     /// maybe_remap remaps the passed in hash and pos if the tree_rows increase after
     /// adding the new nodes.
     fn maybe_remap(
         num_leaves: u64,
         num_adds: u64,
-        positions: Vec<(u64, NodeHash)>,
-    ) -> Vec<(u64, NodeHash)> {
+        positions: Vec<(u64, Hash)>,
+    ) -> Vec<(u64, Hash)> {
         let new_forest_rows = util::tree_rows(num_leaves + num_adds);
         let old_forest_rows = util::tree_rows(num_leaves);
         let tree_rows = util::tree_rows(num_leaves);
@@ -697,13 +768,13 @@ impl Proof {
     fn update_proof_remove(
         self,
         block_targets: Vec<u64>,
-        cached_hashes: Vec<NodeHash>,
-        updated: Vec<(u64, NodeHash)>,
+        cached_hashes: Vec<Hash>,
+        updated: Vec<(u64, Hash)>,
         num_leaves: u64,
-    ) -> Result<(Proof, Vec<NodeHash>), String> {
+    ) -> Result<(Proof<Hash>, Vec<Hash>), String> {
         let total_rows = util::tree_rows(num_leaves);
 
-        let targets_with_hash: Vec<(u64, NodeHash)> = self
+        let targets_with_hash: Vec<(u64, Hash)> = self
             .targets
             .iter()
             .cloned()
@@ -767,7 +838,7 @@ impl Proof {
 
         proof_elements.sort();
         // Grab the hashes for the proof
-        let (_, hashes): (Vec<u64>, Vec<NodeHash>) = proof_elements.into_iter().unzip();
+        let (_, hashes): (Vec<u64>, Vec<Hash>) = proof_elements.into_iter().unzip();
         // Gets all proof targets, but with their new positions after delete
         let (targets, target_hashes) =
             Proof::calc_next_positions(&block_targets, &targets_with_hash, num_leaves, true)?
@@ -779,10 +850,10 @@ impl Proof {
 
     fn calc_next_positions(
         block_targets: &Vec<u64>,
-        old_positions: &Vec<(u64, NodeHash)>,
+        old_positions: &Vec<(u64, Hash)>,
         num_leaves: u64,
         append_roots: bool,
-    ) -> Result<Vec<(u64, NodeHash)>, String> {
+    ) -> Result<Vec<(u64, Hash)>, String> {
         let total_rows = util::tree_rows(num_leaves);
         let mut new_positions = vec![];
 
@@ -825,9 +896,11 @@ mod tests {
     use serde::Deserialize;
 
     use super::Proof;
-    use crate::accumulator::node_hash::NodeHash;
+    use crate::accumulator::node_hash::AccumulatorHash;
+    use crate::accumulator::node_hash::BitcoinNodeHash;
     use crate::accumulator::stump::Stump;
     use crate::accumulator::util::hash_from_u8;
+
     #[derive(Deserialize)]
     struct TestCase {
         numleaves: usize,
@@ -837,12 +910,13 @@ mod tests {
         proofhashes: Vec<String>,
         expected: bool,
     }
+
     /// This test checks whether our update proof works for different scenarios. We start
     /// with a (valid) cached proof, then we receive `blocks`, like we would in normal Bitcoin
     /// but for this test, block is just random data. For each block we update our Stump and
     /// our proof as well, after that, our proof **must** still be valid for the latest Stump.
     ///
-    /// Fix-me: Using derive for deserialize, when also using NodeHash leads to an odd
+    /// Fix-me: Using derive for deserialize, when also using AccumulatorHash leads to an odd
     /// error that can't be easily fixed. Even bumping version doesn't appear to help.
     /// Deriving hashes directly reduces the amount of boilerplate code used, and makes everything
     /// more clearer, hence, it's preferable.
@@ -893,19 +967,19 @@ mod tests {
                 .cached_proof
                 .hashes
                 .iter()
-                .map(|val| NodeHash::from_str(val).unwrap())
+                .map(|val| BitcoinNodeHash::from_str(val).unwrap())
                 .collect();
             let cached_hashes: Vec<_> = case_values
                 .cached_hashes
                 .iter()
-                .map(|val| NodeHash::from_str(val).unwrap())
+                .map(|val| BitcoinNodeHash::from_str(val).unwrap())
                 .collect();
 
             let cached_proof = Proof::new(case_values.cached_proof.targets, proof_hashes);
             let roots = case_values
                 .initial_roots
                 .into_iter()
-                .map(|hash| NodeHash::from_str(&hash).unwrap())
+                .map(|hash| BitcoinNodeHash::from_str(&hash).unwrap())
                 .collect();
 
             let stump = Stump {
@@ -923,14 +997,14 @@ mod tests {
                 .update
                 .del_hashes
                 .iter()
-                .map(|hash| NodeHash::from_str(hash).unwrap())
+                .map(|hash| BitcoinNodeHash::from_str(hash).unwrap())
                 .collect::<Vec<_>>();
             let block_proof_hashes = case_values
                 .update
                 .proof
                 .hashes
                 .iter()
-                .map(|hash| NodeHash::from_str(hash).unwrap())
+                .map(|hash| BitcoinNodeHash::from_str(hash).unwrap())
                 .collect::<Vec<_>>();
 
             let block_proof =
@@ -951,13 +1025,13 @@ mod tests {
             let expected_roots: Vec<_> = case_values
                 .expected_roots
                 .iter()
-                .map(|hash| NodeHash::from_str(hash).unwrap())
+                .map(|hash| BitcoinNodeHash::from_str(hash).unwrap())
                 .collect();
 
             let expected_cached_hashes: Vec<_> = case_values
                 .expected_cached_hashes
                 .iter()
-                .map(|hash| NodeHash::from_str(hash).unwrap())
+                .map(|hash| BitcoinNodeHash::from_str(hash).unwrap())
                 .collect();
             assert_eq!(res, Ok(true));
             assert_eq!(cached_proof.targets, case_values.expected_targets);
@@ -969,29 +1043,54 @@ mod tests {
     #[test]
     fn test_get_next() {
         use super::Proof;
-        let computed = vec![(1, NodeHash::empty()), (3, NodeHash::empty())];
-        let provided = vec![(2, NodeHash::empty()), (4, NodeHash::empty())];
+        let computed = vec![(1, BitcoinNodeHash::empty()), (3, BitcoinNodeHash::empty())];
+        let provided = vec![(2, BitcoinNodeHash::empty()), (4, BitcoinNodeHash::empty())];
         let mut computed_pos = 0;
         let mut provided_pos = 0;
 
         assert_eq!(
-            Proof::get_next(&computed, &provided, &mut computed_pos, &mut provided_pos),
-            Some((1, NodeHash::empty()))
+            Proof::<BitcoinNodeHash>::get_next(
+                &computed,
+                &provided,
+                &mut computed_pos,
+                &mut provided_pos
+            ),
+            Some((1, AccumulatorHash::empty()))
         );
         assert_eq!(
-            Proof::get_next(&computed, &provided, &mut computed_pos, &mut provided_pos),
-            Some((2, NodeHash::empty()))
+            Proof::<BitcoinNodeHash>::get_next(
+                &computed,
+                &provided,
+                &mut computed_pos,
+                &mut provided_pos
+            ),
+            Some((2, AccumulatorHash::empty()))
         );
         assert_eq!(
-            Proof::get_next(&computed, &provided, &mut computed_pos, &mut provided_pos),
-            Some((3, NodeHash::empty()))
+            Proof::<BitcoinNodeHash>::get_next(
+                &computed,
+                &provided,
+                &mut computed_pos,
+                &mut provided_pos
+            ),
+            Some((3, AccumulatorHash::empty()))
         );
         assert_eq!(
-            Proof::get_next(&computed, &provided, &mut computed_pos, &mut provided_pos),
-            Some((4, NodeHash::empty()))
+            Proof::<BitcoinNodeHash>::get_next(
+                &computed,
+                &provided,
+                &mut computed_pos,
+                &mut provided_pos
+            ),
+            Some((4, AccumulatorHash::empty()))
         );
         assert_eq!(
-            Proof::get_next(&computed, &provided, &mut computed_pos, &mut provided_pos),
+            Proof::<BitcoinNodeHash>::get_next(
+                &computed,
+                &provided,
+                &mut computed_pos,
+                &mut provided_pos
+            ),
             None
         );
     }
@@ -1004,11 +1103,11 @@ mod tests {
         struct Test {
             name: &'static str,
             block_targets: Vec<u64>,
-            old_positions: Vec<(u64, NodeHash)>,
+            old_positions: Vec<(u64, BitcoinNodeHash)>,
             num_leaves: u64,
             num_adds: u64,
             append_roots: bool,
-            expected: Vec<(u64, NodeHash)>,
+            expected: Vec<(u64, BitcoinNodeHash)>,
         }
 
         let tests = vec![Test {
@@ -1017,28 +1116,28 @@ mod tests {
             old_positions: vec![
                 (
                     1,
-                    NodeHash::from_str(
+                    BitcoinNodeHash::from_str(
                         "4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a",
                     )
                     .unwrap(),
                 ),
                 (
                     13,
-                    NodeHash::from_str(
+                    BitcoinNodeHash::from_str(
                         "9d1e0e2d9459d06523ad13e28a4093c2316baafe7aec5b25f30eba2e113599c4",
                     )
                     .unwrap(),
                 ),
                 (
                     17,
-                    NodeHash::from_str(
+                    BitcoinNodeHash::from_str(
                         "9576f4ade6e9bc3a6458b506ce3e4e890df29cb14cb5d3d887672aef55647a2b",
                     )
                     .unwrap(),
                 ),
                 (
                     25,
-                    NodeHash::from_str(
+                    BitcoinNodeHash::from_str(
                         "29590a14c1b09384b94a2c0e94bf821ca75b62eacebc47893397ca88e3bbcbd7",
                     )
                     .unwrap(),
@@ -1050,28 +1149,28 @@ mod tests {
             expected: (vec![
                 (
                     1,
-                    NodeHash::from_str(
+                    BitcoinNodeHash::from_str(
                         "4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a",
                     )
                     .unwrap(),
                 ),
                 (
                     17,
-                    NodeHash::from_str(
+                    BitcoinNodeHash::from_str(
                         "9576f4ade6e9bc3a6458b506ce3e4e890df29cb14cb5d3d887672aef55647a2b",
                     )
                     .unwrap(),
                 ),
                 (
                     21,
-                    NodeHash::from_str(
+                    BitcoinNodeHash::from_str(
                         "9d1e0e2d9459d06523ad13e28a4093c2316baafe7aec5b25f30eba2e113599c4",
                     )
                     .unwrap(),
                 ),
                 (
                     25,
-                    NodeHash::from_str(
+                    BitcoinNodeHash::from_str(
                         "29590a14c1b09384b94a2c0e94bf821ca75b62eacebc47893397ca88e3bbcbd7",
                     )
                     .unwrap(),
@@ -1091,6 +1190,7 @@ mod tests {
             assert_eq!(res, test.expected, "testcase: \"{}\" fail", test.name);
         }
     }
+
     #[test]
     fn test_update_proof_delete() {
         let preimages = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
@@ -1107,7 +1207,7 @@ mod tests {
         ];
         let proof_hashes = proof_hashes
             .into_iter()
-            .map(|hash| NodeHash::from_str(hash).unwrap())
+            .map(|hash| BitcoinNodeHash::from_str(hash).unwrap())
             .collect();
 
         let cached_proof_hashes = [
@@ -1117,7 +1217,7 @@ mod tests {
         ];
         let cached_proof_hashes = cached_proof_hashes
             .iter()
-            .map(|hash| NodeHash::from_str(hash).unwrap())
+            .map(|hash| BitcoinNodeHash::from_str(hash).unwrap())
             .collect();
         let cached_proof = Proof::new(vec![0, 1, 7], cached_proof_hashes);
 
@@ -1142,6 +1242,7 @@ mod tests {
         let res = stump.verify(&new_proof, &[hash_from_u8(0), hash_from_u8(7)]);
         assert_eq!(res, Ok(true));
     }
+
     #[test]
     fn test_calculate_hashes() {
         // Tests if the calculated roots and nodes are correct.
@@ -1164,7 +1265,7 @@ mod tests {
         ];
         let proof_hashes = proof
             .into_iter()
-            .map(|hash| NodeHash::from_str(hash).unwrap())
+            .map(|hash| BitcoinNodeHash::from_str(hash).unwrap())
             .collect();
 
         let p = Proof::new(vec![0, 2, 4, 6], proof_hashes);
@@ -1191,12 +1292,12 @@ mod tests {
 
         let expected_roots: Vec<_> = expected_roots
             .iter()
-            .map(|root| NodeHash::from_str(root).unwrap())
+            .map(|root| BitcoinNodeHash::from_str(root).unwrap())
             .collect();
 
         let mut expected_computed = expected_hashes
             .iter()
-            .map(|hash| NodeHash::from_str(hash).unwrap())
+            .map(|hash| BitcoinNodeHash::from_str(hash).unwrap())
             .zip(&expected_pos);
 
         let calculated = p.calculate_hashes(&del_hashes, s.leaves);
@@ -1235,22 +1336,24 @@ mod tests {
 
         let proof_hashes = proof
             .into_iter()
-            .map(|hash| NodeHash::from_str(hash).unwrap())
+            .map(|hash| BitcoinNodeHash::from_str(hash).unwrap())
             .collect();
 
         let p = Proof::new(vec![0], proof_hashes);
         let del_hashes = del_hashes
             .into_iter()
-            .map(|hash| (hash, NodeHash::empty()))
+            .map(|hash| (hash, BitcoinNodeHash::empty()))
             .collect::<Vec<_>>();
 
         let (computed, roots) = p.calculate_hashes_delete(&del_hashes, 8).unwrap();
-        let expected_root_old =
-            NodeHash::from_str("b151a956139bb821d4effa34ea95c17560e0135d1e4661fc23cedc3af49dac42")
-                .unwrap();
-        let expected_root_new =
-            NodeHash::from_str("726fdd3b432cc59e68487d126e70f0db74a236267f8daeae30b31839a4e7ebed")
-                .unwrap();
+        let expected_root_old = BitcoinNodeHash::from_str(
+            "b151a956139bb821d4effa34ea95c17560e0135d1e4661fc23cedc3af49dac42",
+        )
+        .unwrap();
+        let expected_root_new = BitcoinNodeHash::from_str(
+            "726fdd3b432cc59e68487d126e70f0db74a236267f8daeae30b31839a4e7ebed",
+        )
+        .unwrap();
 
         let computed_positions = [0_u64, 1, 9, 13, 8, 12, 14].to_vec();
         let computed_hashes = [
@@ -1263,7 +1366,7 @@ mod tests {
             "726fdd3b432cc59e68487d126e70f0db74a236267f8daeae30b31839a4e7ebed",
         ]
         .iter()
-        .map(|hash| NodeHash::from_str(hash).unwrap())
+        .map(|hash| BitcoinNodeHash::from_str(hash).unwrap())
         .collect::<Vec<_>>();
         let expected_computed: Vec<_> = computed_positions
             .into_iter()
@@ -1282,6 +1385,7 @@ mod tests {
         let deserialized = Proof::deserialize(&mut serialized.as_slice()).unwrap();
         assert_eq!(p, deserialized);
     }
+
     #[test]
     fn test_get_proof_subset() {
         // Tests if the calculated roots and nodes are correct.
@@ -1304,7 +1408,7 @@ mod tests {
         ];
         let proof_hashes = proof
             .into_iter()
-            .map(|hash| NodeHash::from_str(hash).unwrap())
+            .map(|hash| BitcoinNodeHash::from_str(hash).unwrap())
             .collect();
 
         let p = Proof::new(vec![0, 2, 4, 6], proof_hashes);
@@ -1314,6 +1418,7 @@ mod tests {
         assert_eq!(s.verify(&subset, &[del_hashes[0]]), Ok(true));
         assert_eq!(s.verify(&subset, &[del_hashes[2]]), Ok(false));
     }
+
     #[test]
     #[cfg(feature = "with-serde")]
     fn test_serde_rtt() {
@@ -1324,12 +1429,13 @@ mod tests {
             serde_json::from_str(&serialized).expect("Deserialization failed");
         assert_eq!(proof, deserialized);
     }
+
     fn run_single_case(case: &serde_json::Value) {
         let case = serde_json::from_value::<TestCase>(case.clone()).expect("Invalid test case");
         let roots = case
             .roots
             .into_iter()
-            .map(|root| NodeHash::from_str(root.as_str()).expect("Test case hash is valid"))
+            .map(|root| BitcoinNodeHash::from_str(root.as_str()).expect("Test case hash is valid"))
             .collect();
 
         let s = Stump {
@@ -1347,7 +1453,7 @@ mod tests {
         let proof_hashes = case
             .proofhashes
             .into_iter()
-            .map(|hash| NodeHash::from_str(hash.as_str()).expect("Test case hash is valid"))
+            .map(|hash| BitcoinNodeHash::from_str(hash.as_str()).expect("Test case hash is valid"))
             .collect();
 
         let p = Proof::new(targets, proof_hashes);
@@ -1357,16 +1463,17 @@ mod tests {
         assert!(Ok(expected) == res);
         // Test getting proof subset (only if the original proof is valid)
         if expected {
-            let (subset, _) = p.targets.split_at(p.targets() / 2);
+            let (subset, _) = p.targets.split_at(p.n_targets() / 2);
             let proof = p.get_proof_subset(&del_hashes, subset, s.leaves).unwrap();
             let set_hashes = subset
                 .iter()
                 .map(|preimage| hash_from_u8(*preimage as u8))
-                .collect::<Vec<NodeHash>>();
+                .collect::<Vec<BitcoinNodeHash>>();
 
             assert_eq!(s.verify(&proof, &set_hashes), Ok(true));
         }
     }
+
     #[test]
     fn test_proof_verify() {
         let contents = std::fs::read_to_string("test_values/test_cases.json")
@@ -1411,6 +1518,7 @@ mod bench {
 
         bencher.iter(|| proof.calculate_hashes(&cached_hashes, stump.leaves))
     }
+
     #[bench]
     fn bench_proof_update(bencher: &mut Bencher) {
         let preimages = [0_u8, 1, 2, 3, 4, 5];
