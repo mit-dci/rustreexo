@@ -6,13 +6,13 @@
 //! ```
 //! use std::str::FromStr;
 //!
-//! use rustreexo::accumulator::node_hash::NodeHash;
+//! use rustreexo::accumulator::node_hash::BitcoinNodeHash;
 //! use rustreexo::accumulator::proof::Proof;
 //! use rustreexo::accumulator::stump::Stump;
 //! // Create a new empty Stump
 //! let s = Stump::new();
 //! // The newly create outputs
-//! let utxos = vec![NodeHash::from_str(
+//! let utxos = vec![BitcoinNodeHash::from_str(
 //!     "b151a956139bb821d4effa34ea95c17560e0135d1e4661fc23cedc3af49dac42",
 //! )
 //! .unwrap()];
@@ -21,7 +21,7 @@
 //! // Modify the Stump, adding the new outputs and removing the spent ones, notice how
 //! // it returns a new Stump, instead of modifying the old one. This is due to the fact
 //! // that modify is a pure function that doesn't modify the old Stump.
-//! let s = s.modify(&utxos, &stxos, &Proof::default());
+//! let s = s.modify(&utxos, &stxos, &Proof::<BitcoinNodeHash>::default());
 //! assert!(s.is_ok());
 //! assert_eq!(s.unwrap().0.roots, utxos);
 //! ```
@@ -35,28 +35,35 @@ use serde::Deserialize;
 #[cfg(feature = "with-serde")]
 use serde::Serialize;
 
-use super::node_hash::NodeHash;
+use super::node_hash::AccumulatorHash;
+use super::node_hash::BitcoinNodeHash;
 use super::proof::NodesAndRootsOldNew;
 use super::proof::Proof;
 use super::util;
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "with-serde", derive(Serialize, Deserialize))]
-pub struct Stump {
+pub struct Stump<Hash: AccumulatorHash = BitcoinNodeHash> {
     pub leaves: u64,
-    pub roots: Vec<NodeHash>,
+    pub roots: Vec<Hash>,
+}
+
+impl Default for Stump {
+    fn default() -> Self {
+        Stump::new()
+    }
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct UpdateData {
+pub struct UpdateData<Hash: AccumulatorHash> {
     /// to_destroy is the positions of the empty roots removed after the add.
     pub(crate) to_destroy: Vec<u64>,
     /// pre_num_leaves is the numLeaves of the stump before the add.
     pub(crate) prev_num_leaves: u64,
     /// new_add are the new hashes for the newly created roots after the addition.
-    pub(crate) new_add: Vec<(u64, NodeHash)>,
+    pub(crate) new_add: Vec<(u64, Hash)>,
     /// new_del are the new hashes after the deletion.
-    pub(crate) new_del: Vec<(u64, NodeHash)>,
+    pub(crate) new_del: Vec<(u64, Hash)>,
 }
 
 impl Stump {
@@ -72,9 +79,87 @@ impl Stump {
             roots: Vec::new(),
         }
     }
-    pub fn verify(&self, proof: &Proof, del_hashes: &[NodeHash]) -> Result<bool, String> {
+
+    /// Serialize the Stump into a byte array
+    /// # Example
+    /// ```
+    /// use rustreexo::accumulator::node_hash::BitcoinNodeHash;
+    /// use rustreexo::accumulator::proof::Proof;
+    /// use rustreexo::accumulator::stump::Stump;
+    /// let hashes = [0, 1, 2, 3, 4, 5, 6, 7]
+    ///     .iter()
+    ///     .map(|&el| BitcoinNodeHash::from([el; 32]))
+    ///     .collect::<Vec<_>>();
+    /// let (stump, _) = Stump::new()
+    ///     .modify(&hashes, &[], &Proof::default())
+    ///     .unwrap();
+    /// let mut writer = Vec::new();
+    /// stump.serialize(&mut writer).unwrap();
+    /// assert_eq!(
+    ///     writer,
+    ///     vec![
+    ///         8, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 2, 150, 124, 244, 241, 98, 69, 217,
+    ///         222, 235, 97, 61, 137, 135, 76, 197, 134, 232, 173, 253, 8, 28, 17, 124, 123, 16, 4,
+    ///         66, 30, 63, 113, 246, 74,
+    ///     ]
+    /// );
+    /// ```
+    pub fn serialize<Dst: Write>(&self, mut writer: &mut Dst) -> std::io::Result<usize> {
+        let mut len = 8;
+        writer.write_all(&self.leaves.to_le_bytes())?;
+        writer.write_all(&self.roots.len().to_le_bytes())?;
+        for root in self.roots.iter() {
+            len += 32;
+            root.write(&mut writer)?;
+        }
+        Ok(len)
+    }
+
+    /// Rewinds old tree state, this should be used in case of reorgs.
+    /// Takes the ownership over `old_state`.
+    ///# Example
+    /// ```
+    /// use rustreexo::accumulator::node_hash::BitcoinNodeHash;
+    /// use rustreexo::accumulator::proof::Proof;
+    /// use rustreexo::accumulator::stump::Stump;
+    ///
+    /// let s_old = Stump::new();
+    /// let mut s_new = Stump::new();
+    ///
+    /// let s_old = s_old.modify(&vec![], &vec![], &Proof::default()).unwrap().0;
+    /// s_new = s_old.clone();
+    /// s_new = s_new.modify(&vec![], &vec![], &Proof::default()).unwrap().0;
+    ///
+    /// // A reorg happened
+    /// s_new.undo(s_old);
+    /// ```
+    pub fn undo(&mut self, old_state: Stump) {
+        self.leaves = old_state.leaves;
+        self.roots = old_state.roots;
+    }
+}
+
+impl<Hash: AccumulatorHash> Stump<Hash> {
+    /// Verifies the proof against the Stump. The proof is a list of hashes that are used to
+    /// recompute the root of the accumulator. The del_hashes are the hashes that are being
+    /// deleted from the accumulator.
+    /// // TODO: Add example
+    pub fn verify(&self, proof: &Proof<Hash>, del_hashes: &[Hash]) -> Result<bool, String> {
         proof.verify(del_hashes, &self.roots, self.leaves)
     }
+
+    /// Creates a new Stump with a custom hash type
+    ///
+    /// If you need to use a hash type that's not the [BitcoinNodeHash], you can use this
+    /// function to create a new Stump with the desired hash type. Use [BitcoinNodeHash::new]
+    /// to create a new Stump with the default hash type.
+    pub fn new_with_hash() -> Stump<Hash> {
+        Stump {
+            leaves: 0,
+            roots: Vec::new(),
+        }
+    }
+
     /// Modify is the external API to change the accumulator state. Since order
     /// matters, you can only modify, providing a list of utxos to be added,
     /// and txos to be removed, along with it's proof. Either may be
@@ -83,12 +168,12 @@ impl Stump {
     /// ```
     /// use std::str::FromStr;
     ///
-    /// use rustreexo::accumulator::node_hash::NodeHash;
+    /// use rustreexo::accumulator::node_hash::BitcoinNodeHash;
     /// use rustreexo::accumulator::proof::Proof;
     /// use rustreexo::accumulator::stump::Stump;
     ///
     /// let s = Stump::new();
-    /// let utxos = vec![NodeHash::from_str(
+    /// let utxos = vec![BitcoinNodeHash::from_str(
     ///     "b151a956139bb821d4effa34ea95c17560e0135d1e4661fc23cedc3af49dac42",
     /// )
     /// .unwrap()];
@@ -99,10 +184,10 @@ impl Stump {
     /// ```
     pub fn modify(
         &self,
-        utxos: &[NodeHash],
-        del_hashes: &[NodeHash],
-        proof: &Proof,
-    ) -> Result<(Stump, UpdateData), String> {
+        utxos: &[Hash],
+        del_hashes: &[Hash],
+        proof: &Proof<Hash>,
+    ) -> Result<(Stump<Hash>, UpdateData<Hash>), String> {
         let (intermediate, mut computed_roots) = self.remove(del_hashes, proof)?;
         let mut new_roots = vec![];
 
@@ -139,101 +224,48 @@ impl Stump {
 
         Ok((new_stump, update_data))
     }
-    /// Serialize the Stump into a byte array
-    /// # Example
-    /// ```
-    /// use rustreexo::accumulator::node_hash::NodeHash;
-    /// use rustreexo::accumulator::proof::Proof;
-    /// use rustreexo::accumulator::stump::Stump;
-    /// let hashes = [0, 1, 2, 3, 4, 5, 6, 7]
-    ///     .iter()
-    ///     .map(|&el| NodeHash::from([el; 32]))
-    ///     .collect::<Vec<_>>();
-    /// let (stump, _) = Stump::new()
-    ///     .modify(&hashes, &[], &Proof::default())
-    ///     .unwrap();
-    /// let mut writer = Vec::new();
-    /// stump.serialize(&mut writer).unwrap();
-    /// assert_eq!(
-    ///     writer,
-    ///     vec![
-    ///         8, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 150, 124, 244, 241, 98, 69, 217, 222,
-    ///         235, 97, 61, 137, 135, 76, 197, 134, 232, 173, 253, 8, 28, 17, 124, 123, 16, 4, 66, 30,
-    ///         63, 113, 246, 74,
-    ///     ]
-    /// );
-    /// ```
-    pub fn serialize<Dst: Write>(&self, writer: &mut Dst) -> std::io::Result<usize> {
-        let mut len = 8;
-        writer.write_all(&self.leaves.to_le_bytes())?;
-        writer.write_all(&self.roots.len().to_le_bytes())?;
-        for root in self.roots.iter() {
-            len += 32;
-            writer.write_all(&**root)?;
-        }
-        Ok(len)
-    }
+
     /// Deserialize the Stump from a Reader
     /// # Example
     /// ```
-    /// use rustreexo::accumulator::node_hash::NodeHash;
+    /// use rustreexo::accumulator::node_hash::BitcoinNodeHash;
     /// use rustreexo::accumulator::proof::Proof;
     /// use rustreexo::accumulator::stump::Stump;
     /// let buffer = vec![
-    ///     8, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 150, 124, 244, 241, 98, 69, 217, 222, 235,
-    ///     97, 61, 137, 135, 76, 197, 134, 232, 173, 253, 8, 28, 17, 124, 123, 16, 4, 66, 30, 63, 113,
-    ///     246, 74,
+    ///     8, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 2, 150, 124, 244, 241, 98, 69, 217, 222,
+    ///     235, 97, 61, 137, 135, 76, 197, 134, 232, 173, 253, 8, 28, 17, 124, 123, 16, 4, 66, 30, 63,
+    ///     113, 246, 74,
     /// ];
     /// let mut buffer = std::io::Cursor::new(buffer);
     /// let hashes = [0, 1, 2, 3, 4, 5, 6, 7]
     ///     .iter()
-    ///     .map(|&el| NodeHash::from([el; 32]))
+    ///     .map(|&el| BitcoinNodeHash::from([el; 32]))
     ///     .collect::<Vec<_>>();
     /// let (stump, _) = Stump::new()
     ///     .modify(&hashes, &[], &Proof::default())
     ///     .unwrap();
-    /// assert_eq!(stump, Stump::deserialize(buffer).unwrap());
+    /// assert_eq!(
+    ///     stump,
+    ///     Stump::<BitcoinNodeHash>::deserialize(buffer).unwrap()
+    /// );
     /// ```
-    pub fn deserialize<Source: Read>(data: Source) -> Result<Self, String> {
-        let mut data = data;
+    pub fn deserialize<Source: Read>(mut data: Source) -> Result<Self, String> {
         let leaves = util::read_u64(&mut data)?;
         let roots_len = util::read_u64(&mut data)?;
         let mut roots = vec![];
 
         for _ in 0..roots_len {
-            let mut root = [0u8; 32];
-            data.read_exact(&mut root).map_err(|e| e.to_string())?;
-
-            roots.push(NodeHash::from(root));
+            let root = Hash::read(&mut data).map_err(|e| e.to_string())?;
+            roots.push(root);
         }
         Ok(Stump { leaves, roots })
-    }
-    /// Rewinds old tree state, this should be used in case of reorgs.
-    /// Takes the ownership over `old_state`.
-    ///# Example
-    /// ```
-    /// use rustreexo::accumulator::proof::Proof;
-    /// use rustreexo::accumulator::stump::Stump;
-    /// let s_old = Stump::new();
-    /// let mut s_new = Stump::new();
-    ///
-    /// let s_old = s_old.modify(&vec![], &vec![], &Proof::default()).unwrap().0;
-    /// s_new = s_old.clone();
-    /// s_new = s_new.modify(&vec![], &vec![], &Proof::default()).unwrap().0;
-    ///
-    /// // A reorg happened
-    /// s_new.undo(s_old);
-    /// ```
-    pub fn undo(&mut self, old_state: Stump) {
-        self.leaves = old_state.leaves;
-        self.roots = old_state.roots;
     }
 
     fn remove(
         &self,
-        del_hashes: &[NodeHash],
-        proof: &Proof,
-    ) -> Result<NodesAndRootsOldNew, String> {
+        del_hashes: &[Hash],
+        proof: &Proof<Hash>,
+    ) -> Result<NodesAndRootsOldNew<Hash>, String> {
         if del_hashes.is_empty() {
             return Ok((
                 vec![],
@@ -243,19 +275,20 @@ impl Stump {
 
         let del_hashes = del_hashes
             .iter()
-            .map(|hash| (*hash, NodeHash::empty()))
+            .map(|hash| (*hash, Hash::empty()))
             .collect::<Vec<_>>();
+
         proof.calculate_hashes_delete(&del_hashes, self.leaves)
     }
 
     /// Adds new leaves into the root
     fn add(
-        mut roots: Vec<NodeHash>,
-        utxos: &[NodeHash],
+        mut roots: Vec<Hash>,
+        utxos: &[Hash],
         mut leaves: u64,
-    ) -> (Vec<NodeHash>, Vec<(u64, NodeHash)>, Vec<u64>) {
+    ) -> (Vec<Hash>, Vec<(u64, Hash)>, Vec<u64>) {
         let after_rows = util::tree_rows(leaves + (utxos.len() as u64));
-        let mut updated_subtree: Vec<(u64, NodeHash)> = vec![];
+        let mut updated_subtree: Vec<(u64, Hash)> = vec![];
         let all_deleted = util::roots_to_destroy(utxos.len() as u64, leaves, &roots);
 
         for (i, add) in utxos.iter().enumerate() {
@@ -287,7 +320,7 @@ impl Stump {
                         updated_subtree.push((pos, to_add));
                         pos = util::parent(pos, after_rows);
 
-                        to_add = NodeHash::parent_hash(&root, &to_add);
+                        to_add = AccumulatorHash::parent_hash(&root, &to_add);
                     }
                 }
                 h += 1;
@@ -306,13 +339,17 @@ impl Stump {
 
 #[cfg(test)]
 mod test {
+    use std::fmt::Display;
+    use std::io::Read;
+    use std::io::Write;
     use std::str::FromStr;
     use std::vec;
 
     use serde::Deserialize;
 
     use super::Stump;
-    use crate::accumulator::node_hash::NodeHash;
+    use crate::accumulator::node_hash::AccumulatorHash;
+    use crate::accumulator::node_hash::BitcoinNodeHash;
     use crate::accumulator::proof::Proof;
     use crate::accumulator::util::hash_from_u8;
 
@@ -331,6 +368,75 @@ mod test {
         assert!(s.leaves == 0);
         assert!(s.roots.is_empty());
     }
+
+    #[test]
+    fn test_custom_hash_type() {
+        #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
+        struct CustomHash([u8; 32]);
+
+        impl Display for CustomHash {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "{:?}", self.0)
+            }
+        }
+
+        impl AccumulatorHash for CustomHash {
+            fn empty() -> Self {
+                CustomHash([0; 32])
+            }
+            fn is_empty(&self) -> bool {
+                self.0.iter().all(|&x| x == 0)
+            }
+            fn parent_hash(left: &Self, right: &Self) -> Self {
+                let mut hash = [0; 32];
+                for i in 0..32 {
+                    hash[i] = left.0[i] ^ right.0[i];
+                }
+                CustomHash(hash)
+            }
+            fn read<R: Read>(reader: &mut R) -> std::io::Result<Self> {
+                let mut hash = [0; 32];
+                reader
+                    .read_exact(&mut hash)
+                    .map_err(|e| e.to_string())
+                    .unwrap();
+                Ok(CustomHash(hash))
+            }
+            fn write<W: Write>(&self, writer: &mut W) -> std::io::Result<()> {
+                writer
+                    .write_all(&self.0)
+                    .map_err(|e| e.to_string())
+                    .unwrap();
+                Ok(())
+            }
+            fn is_placeholder(&self) -> bool {
+                false
+            }
+            fn placeholder() -> Self {
+                CustomHash([0; 32])
+            }
+        }
+
+        let s = Stump::<CustomHash>::new_with_hash();
+        assert!(s.leaves == 0);
+        assert!(s.roots.is_empty());
+
+        let hashes = [0, 1, 2, 3, 4, 5, 6, 7]
+            .iter()
+            .map(|&el| CustomHash([el; 32]))
+            .collect::<Vec<_>>();
+
+        let (stump, _) = s
+            .modify(
+                &hashes,
+                &[],
+                &Proof::<CustomHash>::new_with_hash(Vec::new(), Vec::new()),
+            )
+            .unwrap();
+        assert_eq!(stump.leaves, 8);
+        assert_eq!(stump.roots.len(), 1);
+    }
+
     #[test]
     fn test_updated_data() {
         /// This test initializes a Stump, with some utxos. Then, we add a couple more utxos
@@ -366,7 +472,7 @@ mod test {
             let roots = data
                 .roots
                 .iter()
-                .map(|hash| NodeHash::from_str(hash).unwrap())
+                .map(|hash| BitcoinNodeHash::from_str(hash).unwrap())
                 .collect();
             let stump = Stump {
                 leaves: data.leaves,
@@ -381,12 +487,12 @@ mod test {
             let del_hashes = data
                 .del_hashes
                 .iter()
-                .map(|hash| NodeHash::from_str(hash).unwrap())
+                .map(|hash| BitcoinNodeHash::from_str(hash).unwrap())
                 .collect::<Vec<_>>();
             let proof_hashes = data
                 .proof_hashes
                 .iter()
-                .map(|hash| NodeHash::from_str(hash).unwrap())
+                .map(|hash| BitcoinNodeHash::from_str(hash).unwrap())
                 .collect::<Vec<_>>();
             let proof = Proof::new(data.proof_targets, proof_hashes);
             let (_, updated) = stump.modify(&utxos, &del_hashes, &proof).unwrap();
@@ -394,7 +500,7 @@ mod test {
             let new_add_hash: Vec<_> = data
                 .new_add_hash
                 .iter()
-                .map(|hash| NodeHash::from_str(hash).unwrap())
+                .map(|hash| BitcoinNodeHash::from_str(hash).unwrap())
                 .collect();
             let new_add: Vec<_> = data
                 .new_add_pos
@@ -405,7 +511,7 @@ mod test {
             let new_del_hash: Vec<_> = data
                 .new_del_hashes
                 .iter()
-                .map(|hash| NodeHash::from_str(hash).unwrap())
+                .map(|hash| BitcoinNodeHash::from_str(hash).unwrap())
                 .collect();
             let new_del: Vec<_> = data
                 .new_del_pos
@@ -421,6 +527,7 @@ mod test {
             }
         }
     }
+
     #[test]
     fn test_update_data_add() {
         let preimages = vec![0, 1, 2, 3];
@@ -442,7 +549,7 @@ mod test {
             "df46b17be5f66f0750a4b3efa26d4679db170a72d41eb56c3e4ff75a58c65386",
         ]
         .iter()
-        .map(|hash| NodeHash::from_str(hash).unwrap())
+        .map(|hash| BitcoinNodeHash::from_str(hash).unwrap())
         .collect();
 
         let positions: Vec<_> = positions.into_iter().zip(hashes).collect();
@@ -462,6 +569,7 @@ mod test {
             serde_json::from_str(&serialized).expect("Deserialization failed");
         assert_eq!(stump, deserialized);
     }
+
     fn run_case_with_deletion(case: TestCase) {
         let leaf_hashes = case
             .leaf_preimages
@@ -481,7 +589,9 @@ mod test {
             .proofhashes
             .unwrap_or_default()
             .into_iter()
-            .map(|hash| NodeHash::from_str(hash.as_str()).expect("Test case hashes are valid"))
+            .map(|hash| {
+                BitcoinNodeHash::from_str(hash.as_str()).expect("Test case hashes are valid")
+            })
             .collect::<Vec<_>>();
 
         let proof = Proof::new(case.target_values.unwrap(), proof_hashes);
@@ -489,8 +599,10 @@ mod test {
         let roots = case
             .expected_roots
             .into_iter()
-            .map(|hash| NodeHash::from_str(hash.as_str()).expect("Test case hashes are valid"))
-            .collect::<Vec<NodeHash>>();
+            .map(|hash| {
+                BitcoinNodeHash::from_str(hash.as_str()).expect("Test case hashes are valid")
+            })
+            .collect::<Vec<BitcoinNodeHash>>();
 
         let (stump, _) = Stump::new()
             .modify(&leaf_hashes, &[], &Proof::default())
@@ -519,6 +631,7 @@ mod test {
             assert_eq!(root, s.roots[i].to_string());
         }
     }
+
     #[test]
     fn test_undo() {
         let mut hashes = vec![];
@@ -555,7 +668,7 @@ mod test {
     fn test_serialize() {
         let hashes = [0, 1, 2, 3, 4, 5, 6, 7]
             .iter()
-            .map(|&el| NodeHash::from([el; 32]))
+            .map(|&el| BitcoinNodeHash::from([el; 32]))
             .collect::<Vec<_>>();
         let (stump, _) = Stump::new()
             .modify(&hashes, &[], &Proof::default())
@@ -567,6 +680,7 @@ mod test {
         let stump2 = Stump::deserialize(&mut reader).unwrap();
         assert_eq!(stump, stump2);
     }
+
     #[test]
     fn run_test_cases() {
         #[derive(Deserialize)]
@@ -598,7 +712,7 @@ mod bench {
     use test::Bencher;
 
     use super::Stump;
-    use crate::accumulator::node_hash::NodeHash;
+    use crate::accumulator::node_hash::AccumulatorHash;
     use crate::accumulator::proof::Proof;
     use crate::accumulator::util::hash_from_u8;
 
@@ -613,13 +727,14 @@ mod bench {
             "4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459f",
         ]
         .iter()
-        .map(|&hash| NodeHash::try_from(hash).unwrap())
+        .map(|&hash| AccumulatorHash::try_from(hash).unwrap())
         .collect::<Vec<_>>();
         let proof = &Proof::default();
         bencher.iter(move || {
             let _ = Stump::new().modify(&hash, &[], &proof);
         });
     }
+
     #[bench]
     fn bench_add_del(bencher: &mut Bencher) {
         let leaf_preimages = [0_u8, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
@@ -639,7 +754,7 @@ mod bench {
             "c413035120e8c9b0ca3e40c93d06fe60a0d056866138300bb1f1dd172b4923c3",
         ]
         .iter()
-        .map(|&value| NodeHash::try_from(value).unwrap())
+        .map(|&value| AccumulatorHash::try_from(value).unwrap())
         .collect::<Vec<_>>();
         let acc = Stump::new()
             .modify(&leaves, &vec![], &Proof::default())

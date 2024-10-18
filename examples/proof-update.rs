@@ -12,7 +12,7 @@
 
 use std::str::FromStr;
 
-use rustreexo::accumulator::node_hash::NodeHash;
+use rustreexo::accumulator::node_hash::BitcoinNodeHash;
 use rustreexo::accumulator::proof::Proof;
 use rustreexo::accumulator::stump::Stump;
 
@@ -36,7 +36,7 @@ fn main() {
         .update(vec![], utxos.clone(), vec![], vec![0, 1], update_data)
         .unwrap();
     // This should be a valid proof over 0 and 1.
-    assert_eq!(p.targets(), 2);
+    assert_eq!(p.n_targets(), 2);
     assert_eq!(s.verify(&p, &cached_hashes), Ok(true));
 
     // Get a subset of the proof, for the first UTXO only
@@ -65,7 +65,7 @@ fn main() {
 
 /// Returns the hashes for UTXOs in the first block in this fictitious example, there's nothing
 /// special about them, they are just the first 8 integers hashed as u8s.
-fn get_utxo_hashes1() -> Vec<NodeHash> {
+fn get_utxo_hashes1() -> Vec<BitcoinNodeHash> {
     let hashes = [
         "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
         "4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a",
@@ -78,11 +78,11 @@ fn get_utxo_hashes1() -> Vec<NodeHash> {
     ];
     hashes
         .iter()
-        .map(|h| NodeHash::from_str(h).unwrap())
+        .map(|h| BitcoinNodeHash::from_str(h).unwrap())
         .collect()
 }
 /// Returns the hashes for UTXOs in the second block.
-fn get_utxo_hashes2() -> Vec<NodeHash> {
+fn get_utxo_hashes2() -> Vec<BitcoinNodeHash> {
     let utxo_hashes = [
         "bf4aff60ee0f3b2d82b47b94f6eff3018d1a47d1b0bc5dfbf8d3a95a2836bf5b",
         "2e6adf10ab3174629fc388772373848bbe277ffee1f72568e6d06e823b39d2dd",
@@ -91,6 +91,6 @@ fn get_utxo_hashes2() -> Vec<NodeHash> {
     ];
     utxo_hashes
         .iter()
-        .map(|h| NodeHash::from_str(h).unwrap())
+        .map(|h| BitcoinNodeHash::from_str(h).unwrap())
         .collect()
 }

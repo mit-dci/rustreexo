@@ -17,6 +17,7 @@ serde = { version = "1.0", features = ["derive"], optional = true }
 [dev-dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0.81"
+starknet-crypto = "0.7.2"
 
 [features]
 with-serde = ["serde"]
@@ -27,3 +28,6 @@ name = "simple-stump-update"
 
 [[example]]
 name = "proof-update"
+
+[[example]]
+name = "custom-hash-type"
