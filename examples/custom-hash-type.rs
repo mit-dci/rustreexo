@@ -9,17 +9,17 @@
 //! for zero-knowledge proofs, and is used in projects like ZCash and StarkNet.
 //! If you want to work with utreexo proofs in zero-knowledge you may want to use this instead
 //! of our usual sha512-256 that we use by default, since that will give you smaller circuits.
-//! This example shows how to use both the [Pollard](crate::accumulator::pollard::Pollard) and
+//! This example shows how to use both the [MemForest](crate::accumulator::MemForest::MemForest) and
 //! proofs with a custom hash type. The code here should be pretty much all you need to do to
 //! use your custom hashes, just tweak the implementation of
 //! [NodeHash](crate::accumulator::node_hash::NodeHash) for your hash type.
 
+use rustreexo::accumulator::mem_forest::MemForest;
 use rustreexo::accumulator::node_hash::AccumulatorHash;
-use rustreexo::accumulator::pollard::Pollard;
 use starknet_crypto::poseidon_hash_many;
 use starknet_crypto::Felt;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 /// We need a stateful wrapper around the actual hash, this is because we use those different
 /// values inside our accumulator. Here we use an enum to represent the different states, you
 /// may want to use a struct with more data, depending on your needs.
@@ -34,6 +34,8 @@ enum PoseidonHash {
     /// returns sane values (that is, if we call [NodeHash::placeholder] calling [NodeHash::is_placeholder]
     /// on the result should return true).
     Placeholder,
+
+    #[default]
     /// This is an empty value, it represents a node that was deleted from the accumulator.
     ///
     /// Same as the placeholder, you can implement this the way you want, just make sure that
@@ -123,17 +125,17 @@ impl AccumulatorHash for PoseidonHash {
 }
 
 fn main() {
-    // Create a vector with two utxos that will be added to the Pollard
+    // Create a vector with two utxos that will be added to the MemForest
     let elements = vec![
         PoseidonHash::Hash(Felt::from(1)),
         PoseidonHash::Hash(Felt::from(2)),
     ];
 
-    // Create a new Pollard, and add the utxos to it
-    let mut p = Pollard::<PoseidonHash>::new_with_hash();
+    // Create a new MemForest, and add the utxos to it
+    let mut p = MemForest::<PoseidonHash>::new_with_hash();
     p.modify(&elements, &[]).unwrap();
 
-    // Create a proof that the first utxo is in the Pollard
+    // Create a proof that the first utxo is in the MemForest
     let proof = p.prove(&[elements[0]]).unwrap();
 
     // check that the proof has exactly one target

@@ -4,8 +4,8 @@
 
 use std::str::FromStr;
 
+use rustreexo::accumulator::mem_forest::MemForest;
 use rustreexo::accumulator::node_hash::BitcoinNodeHash;
-use rustreexo::accumulator::pollard::Pollard;
 use rustreexo::accumulator::proof::Proof;
 use rustreexo::accumulator::stump::Stump;
 
@@ -20,11 +20,11 @@ fn main() {
         )
         .unwrap(),
     ];
-    // Create a new Pollard, and add the utxos to it
-    let mut p = Pollard::new();
+    // Create a new MemForest, and add the utxos to it
+    let mut p = MemForest::new();
     p.modify(&elements, &[]).unwrap();
 
-    // Create a proof that the first utxo is in the Pollard
+    // Create a proof that the first utxo is in the MemForest
     let proof = p.prove(&[elements[0]]).unwrap();
     // Verify the proof. Notice how we use the del_hashes returned by `prove` here.
     let s = Stump::new()
@@ -32,7 +32,7 @@ fn main() {
         .unwrap()
         .0;
     assert_eq!(s.verify(&proof, &[elements[0]]), Ok(true));
-    // Now we want to update the Pollard, by removing the first utxo, and adding a new one.
+    // Now we want to update the MemForest, by removing the first utxo, and adding a new one.
     // This would be in case we received a new block with a transaction spending the first utxo,
     // and creating a new one.
     let new_utxo = BitcoinNodeHash::from_str(
@@ -41,6 +41,6 @@ fn main() {
     .unwrap();
     p.modify(&[new_utxo], &[elements[0]]).unwrap();
 
-    // Now we can prove that the new utxo is in the Pollard.
+    // Now we can prove that the new utxo is in the MemForest.
     let _ = p.prove(&[new_utxo]).unwrap();
 }
