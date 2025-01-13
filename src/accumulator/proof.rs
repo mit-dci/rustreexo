@@ -462,13 +462,9 @@ impl<Hash: AccumulatorHash> Proof<Hash> {
         let mut computed = Vec::with_capacity(nodes.len() * 2);
         let mut computed_index = 0;
         let mut provided_index = 0;
-        loop {
-            let Some((next_pos, (next_hash_old, next_hash_new))) =
-                Self::get_next(&computed, &nodes, &mut computed_index, &mut provided_index)
-            else {
-                break;
-            };
-
+        while let Some((next_pos, (next_hash_old, next_hash_new))) =
+            Self::get_next(&computed, &nodes, &mut computed_index, &mut provided_index)
+        {
             if util::is_root_position(next_pos, num_leaves, total_rows) {
                 calculated_root_hashes.push((next_hash_old, next_hash_new));
                 continue;
@@ -547,13 +543,10 @@ impl<Hash: AccumulatorHash> Proof<Hash> {
         let mut computed = Vec::with_capacity(nodes.len() * 2);
         let mut computed_index = 0;
         let mut provided_index = 0;
-        loop {
-            let Some((next_pos, next_hash)) =
-                Self::get_next(&computed, &nodes, &mut computed_index, &mut provided_index)
-            else {
-                break;
-            };
 
+        while let Some((next_pos, next_hash)) =
+            Self::get_next(&computed, &nodes, &mut computed_index, &mut provided_index)
+        {
             if util::is_root_position(next_pos, num_leaves, total_rows) {
                 calculated_root_hashes.push(next_hash);
                 continue;

@@ -534,7 +534,7 @@ impl<Hash: AccumulatorHash> Pollard<Hash> {
 
     /// Creates a new empty [Pollard]
     pub fn new() -> Pollard<Hash> {
-        let roots: [Option<Rc<PollardNode<Hash>>>; 64] = [const { None }; 64];
+        let roots: [Option<Rc<PollardNode<Hash>>>; 64] = std::array::from_fn(|_| None);
         Pollard::<Hash> { roots, leaves: 0 }
     }
 }
@@ -849,7 +849,10 @@ impl<Hash: AccumulatorHash> Pollard<Hash> {
             // my parent is a root, I'm a root now
             for i in 0..64 {
                 let aunt = node.aunt().unwrap();
-                let Some(root) = self.roots[i].as_ref() else {
+
+                let root = if let Some(root) = self.roots[i].as_ref() {
+                    root
+                } else {
                     continue;
                 };
                 if root.hash() == aunt.hash() {

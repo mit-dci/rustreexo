@@ -389,6 +389,7 @@ mod test {
             }
             fn parent_hash(left: &Self, right: &Self) -> Self {
                 let mut hash = [0; 32];
+                #[allow(clippy::needless_range_loop)]
                 for i in 0..32 {
                     hash[i] = left.0[i] ^ right.0[i];
                 }
