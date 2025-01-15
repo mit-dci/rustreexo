@@ -255,7 +255,7 @@ impl<Hash: AccumulatorHash> MemForest<Hash> {
     /// ```
     pub fn serialize<W: Write>(&self, mut writer: W) -> std::io::Result<()> {
         writer.write_all(&self.leaves.to_le_bytes())?;
-        writer.write_all(&self.roots.len().to_le_bytes())?;
+        writer.write_all(&(self.roots.len() as u64).to_le_bytes())?;
 
         for root in &self.roots {
             root.write_one(&mut writer).unwrap();

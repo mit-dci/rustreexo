@@ -370,12 +370,12 @@ impl<Hash: AccumulatorHash> Proof<Hash> {
     /// ```
     pub fn serialize<W: Write>(&self, mut writer: W) -> std::io::Result<usize> {
         let mut len = 16;
-        writer.write_all(&self.targets.len().to_le_bytes())?;
+        writer.write_all(&(self.targets.len() as u64).to_le_bytes())?;
         for target in &self.targets {
             len += 8;
             writer.write_all(&target.to_le_bytes())?;
         }
-        writer.write_all(&self.hashes.len().to_le_bytes())?;
+        writer.write_all(&(self.hashes.len() as u64).to_le_bytes())?;
         for hash in &self.hashes {
             len += 32;
             hash.write(&mut writer)?;
