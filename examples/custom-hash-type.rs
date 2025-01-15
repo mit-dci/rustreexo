@@ -16,18 +16,16 @@
 
 use rustreexo::accumulator::mem_forest::MemForest;
 use rustreexo::accumulator::node_hash::AccumulatorHash;
-use starknet_crypto::poseidon_hash_many;
-use starknet_crypto::Felt;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 /// We need a stateful wrapper around the actual hash, this is because we use those different
 /// values inside our accumulator. Here we use an enum to represent the different states, you
 /// may want to use a struct with more data, depending on your needs.
-enum PoseidonHash {
+enum CustomHash {
     /// This means this holds an actual value
     ///
     /// It usually represents a node in the accumulator that haven't been deleted.
-    Hash(Felt),
+    Hash([u8; 32]),
     /// Placeholder is a value that haven't been deleted, but we don't have the actual value.
     /// The only thing that matters about it is that it's not empty. You can implement this
     /// the way you want, just make sure that [NodeHash::is_placeholder] and [NodeHash::placeholder]
@@ -44,39 +42,39 @@ enum PoseidonHash {
 }
 
 // you'll need to implement Display for your hash type, so you can print it.
-impl std::fmt::Display for PoseidonHash {
+impl std::fmt::Display for CustomHash {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            PoseidonHash::Hash(h) => write!(f, "Hash({})", h),
-            PoseidonHash::Placeholder => write!(f, "Placeholder"),
-            PoseidonHash::Empty => write!(f, "Empty"),
+            CustomHash::Hash(h) => write!(f, "Hash({:?})", h),
+            CustomHash::Placeholder => write!(f, "Placeholder"),
+            CustomHash::Empty => write!(f, "Empty"),
         }
     }
 }
 
 // this is the implementation of the NodeHash trait for our custom hash type. And it's the only
 // thing you need to do to use your custom hash type with the accumulator data structures.
-impl AccumulatorHash for PoseidonHash {
+impl AccumulatorHash for CustomHash {
     // returns a new placeholder type such that is_placeholder returns true
     fn placeholder() -> Self {
-        PoseidonHash::Placeholder
+        CustomHash::Placeholder
     }
 
     // returns an empty hash such that is_empty returns true
     fn empty() -> Self {
-        PoseidonHash::Empty
+        CustomHash::Empty
     }
 
     // returns true if this is a placeholder. This should be true iff this type was created by
     // calling placeholder.
     fn is_placeholder(&self) -> bool {
-        matches!(self, PoseidonHash::Placeholder)
+        matches!(self, CustomHash::Placeholder)
     }
 
     // returns true if this is an empty hash. This should be true iff this type was created by
     // calling empty.
     fn is_empty(&self) -> bool {
-        matches!(self, PoseidonHash::Empty)
+        matches!(self, CustomHash::Empty)
     }
 
     // used for serialization, writes the hash to the writer
@@ -87,9 +85,9 @@ impl AccumulatorHash for PoseidonHash {
         W: std::io::Write,
     {
         match self {
-            PoseidonHash::Hash(h) => writer.write_all(&h.to_bytes_be()),
-            PoseidonHash::Placeholder => writer.write_all(&[0u8; 32]),
-            PoseidonHash::Empty => writer.write_all(&[0u8; 32]),
+            CustomHash::Hash(h) => writer.write_all(h),
+            CustomHash::Placeholder => writer.write_all(&[0u8; 32]),
+            CustomHash::Empty => writer.write_all(&[0u8; 32]),
         }
     }
 
@@ -100,12 +98,12 @@ impl AccumulatorHash for PoseidonHash {
     where
         R: std::io::Read,
     {
-        let mut buf = [0u8; 32];
-        reader.read_exact(&mut buf)?;
-        if buf.iter().all(|&b| b == 0) {
-            Ok(PoseidonHash::Empty)
+        let mut h = [0u8; 32];
+        reader.read_exact(&mut h)?;
+        if h.iter().all(|&x| x == 0) {
+            Ok(CustomHash::Placeholder)
         } else {
-            Ok(PoseidonHash::Hash(Felt::from_bytes_be(&buf)))
+            Ok(CustomHash::Hash(h))
         }
     }
 
@@ -114,25 +112,25 @@ impl AccumulatorHash for PoseidonHash {
     // exact same algorithm to calculate the next hash. Rustreexo won't call this method, unless
     // **both** children are not empty.
     fn parent_hash(left: &Self, right: &Self) -> Self {
-        if let (PoseidonHash::Hash(left), PoseidonHash::Hash(right)) = (left, right) {
-            return PoseidonHash::Hash(poseidon_hash_many(&[*left, *right]));
+        match (left, right) {
+            (CustomHash::Hash(l), CustomHash::Hash(r)) => {
+                let mut h = [0u8; 32];
+                for i in 0..32 {
+                    h[i] = l[i] ^ r[i];
+                }
+                CustomHash::Hash(h)
+            }
+            _ => unreachable!(),
         }
-
-        // This should never happen, since rustreexo won't call this method unless both children
-        // are not empty.
-        unreachable!()
     }
 }
 
 fn main() {
     // Create a vector with two utxos that will be added to the MemForest
-    let elements = vec![
-        PoseidonHash::Hash(Felt::from(1)),
-        PoseidonHash::Hash(Felt::from(2)),
-    ];
+    let elements = vec![CustomHash::Hash([1; 32]), CustomHash::Hash([2; 32])];
 
     // Create a new MemForest, and add the utxos to it
-    let mut p = MemForest::<PoseidonHash>::new_with_hash();
+    let mut p = MemForest::<CustomHash>::new_with_hash();
     p.modify(&elements, &[]).unwrap();
 
     // Create a proof that the first utxo is in the MemForest
