@@ -107,7 +107,7 @@ impl Stump {
     pub fn serialize<Dst: Write>(&self, mut writer: &mut Dst) -> std::io::Result<usize> {
         let mut len = 8;
         writer.write_all(&self.leaves.to_le_bytes())?;
-        writer.write_all(&self.roots.len().to_le_bytes())?;
+        writer.write_all(&(self.roots.len() as u64).to_le_bytes())?;
         for root in self.roots.iter() {
             len += 32;
             root.write(&mut writer)?;
