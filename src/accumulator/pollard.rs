@@ -124,6 +124,65 @@ impl<Hash: AccumulatorHash> PollardNode<Hash> {
         })
     }
 
+    fn serialize<W: std::io::Write>(&self, writer: &mut W) -> Result<(), std::io::Error> {
+        let is_leaf = self.left_niece().is_none() as u8;
+        writer.write_all(&is_leaf.to_be_bytes())?;
+
+        let self_hash = self.hash();
+        self_hash.write(writer)?;
+
+        if is_leaf == 0 {
+            self.left_niece().unwrap().serialize(writer)?;
+            self.right_niece().unwrap().serialize(writer)?;
+        }
+
+        Ok(())
+    }
+
+    fn deserialize<R: std::io::Read>(
+        reader: &mut R,
+        ancestor: Option<Weak<PollardNode<Hash>>>,
+        leaf_map: &mut HashMap<Hash, Weak<PollardNode<Hash>>>,
+    ) -> Result<Rc<PollardNode<Hash>>, std::io::Error> {
+        let mut is_leaf = [0u8; 1];
+        reader.read_exact(&mut is_leaf)?;
+
+        let is_leaf = is_leaf[0];
+
+        let hash = Hash::read(reader)?;
+
+        if is_leaf == 1 {
+            let node = Rc::new(PollardNode {
+                remember: true,
+                hash: Cell::new(hash),
+                aunt: RefCell::new(ancestor),
+                left_niece: RefCell::new(None),
+                right_niece: RefCell::new(None),
+            });
+
+            leaf_map.insert(hash, Rc::downgrade(&node));
+            return Ok(node);
+        }
+
+        let node = Rc::new(PollardNode {
+            remember: true,
+            hash: Cell::new(hash),
+            aunt: RefCell::new(ancestor),
+            left_niece: RefCell::new(None),
+            right_niece: RefCell::new(None),
+        });
+
+        let node_weak = Rc::downgrade(&node);
+
+        let left = PollardNode::<Hash>::deserialize(reader, Some(node_weak.clone()), leaf_map)?;
+        let right = PollardNode::<Hash>::deserialize(reader, Some(node_weak), leaf_map)?;
+
+        node.left_niece.replace(Some(left));
+        node.right_niece.replace(Some(right));
+
+        Ok(node)
+    }
+
     fn parent(&self) -> Option<Rc<PollardNode<Hash>>> {
         let granparent = self.grandparent();
         if granparent.is_none() {
@@ -579,6 +638,62 @@ impl<Hash: AccumulatorHash> Pollard<Hash> {
             leaf_map: HashMap::new(),
         }
     }
+
+    /// Serializes the [Pollard] into a sync
+    ///
+    /// This function serializes the [Pollard] into a sync that implements [Write]. This will be
+    /// serialized in a compact binary format, so it can be stored in a file or sent over the
+    /// network. This function will return an error if it fails to write to the sync.
+    ///
+    /// To deserialize the [Pollard] back, you can use the [deserialize] function.
+    pub fn serialize<W: std::io::Write>(&self, writer: &mut W) -> Result<(), std::io::Error> {
+        writer.write_all(&self.leaves.to_be_bytes())?;
+
+        for root in self.roots.iter() {
+            match root {
+                Some(root) => {
+                    let marker = 1u8;
+                    writer.write_all(&marker.to_be_bytes())?;
+                    root.serialize(writer)?
+                }
+                None => {
+                    let marker = 0u8;
+                    writer.write_all(&marker.to_be_bytes())?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Deserializes a [Pollard] from a stream
+    ///
+    /// This function deserializes a [Pollard] from a stream that implements [Read]. This stream
+    /// should contain a [Pollard] serialized with the [serialize] function.
+    pub fn deserialize<R: std::io::Read>(reader: &mut R) -> Result<Pollard<Hash>, std::io::Error> {
+        let mut leaves = [0u8; 8];
+        reader.read_exact(&mut leaves)?;
+        let leaves = u64::from_be_bytes(leaves);
+
+        let mut pollard = Pollard::<Hash>::new();
+        pollard.leaves = leaves;
+
+        for root in pollard.roots.iter_mut() {
+            let mut marker = [0u8; 1];
+            reader.read_exact(&mut marker)?;
+            let marker = marker[0];
+
+            if marker == 1 {
+                *root = Some(PollardNode::<Hash>::deserialize(
+                    reader,
+                    None,
+                    &mut pollard.leaf_map,
+                )?);
+            }
+        }
+
+        Ok(pollard)
+    }
 }
 
 // private methods
@@ -993,6 +1108,85 @@ mod tests {
     use super::*;
     use crate::accumulator::node_hash::BitcoinNodeHash;
     use crate::accumulator::util::hash_from_u8;
+
+    #[test]
+    fn test_ser_rtt() {
+        let mut p = Pollard::<BitcoinNodeHash>::new();
+        let adds = vec![
+            PollardAddition {
+                hash: hash_from_u8(0),
+                remember: true,
+            },
+            PollardAddition {
+                hash: hash_from_u8(1),
+                remember: true,
+            },
+            PollardAddition {
+                hash: hash_from_u8(2),
+                remember: true,
+            },
+            PollardAddition {
+                hash: hash_from_u8(3),
+                remember: true,
+            },
+            PollardAddition {
+                hash: hash_from_u8(4),
+                remember: true,
+            },
+            PollardAddition {
+                hash: hash_from_u8(5),
+                remember: true,
+            },
+            PollardAddition {
+                hash: hash_from_u8(6),
+                remember: true,
+            },
+            PollardAddition {
+                hash: hash_from_u8(7),
+                remember: true,
+            },
+            PollardAddition {
+                hash: hash_from_u8(8),
+                remember: true,
+            },
+            PollardAddition {
+                hash: hash_from_u8(9),
+                remember: true,
+            },
+            PollardAddition {
+                hash: hash_from_u8(10),
+                remember: true,
+            },
+            PollardAddition {
+                hash: hash_from_u8(11),
+                remember: true,
+            },
+            PollardAddition {
+                hash: hash_from_u8(12),
+                remember: true,
+            },
+            PollardAddition {
+                hash: hash_from_u8(13),
+                remember: true,
+            },
+            PollardAddition {
+                hash: hash_from_u8(14),
+                remember: true,
+            },
+        ];
+
+        let proof = Proof::default();
+        let dels = Vec::new();
+
+        p.modify(&adds, &dels, proof.clone()).unwrap();
+        p.prune(&[0, 1, 6, 7, 10]).unwrap();
+
+        let mut buffer = Vec::new();
+        p.serialize(&mut buffer).unwrap();
+
+        let p2 = Pollard::deserialize(&mut buffer.as_slice()).unwrap();
+        assert_eq!(p, p2);
+    }
 
     #[test]
     fn test_add() {
