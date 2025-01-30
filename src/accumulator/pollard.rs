@@ -37,6 +37,7 @@
 use std::cell::Cell;
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::convert::TryInto;
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::rc::Rc;
@@ -44,9 +45,11 @@ use std::rc::Weak;
 
 use super::node_hash::AccumulatorHash;
 use super::proof::Proof;
+use super::stump::Stump;
 use super::util::detect_row;
 use super::util::detwin;
 use super::util::get_proof_positions;
+use super::util::is_root_populated;
 use super::util::is_root_position;
 use super::util::left_child;
 use super::util::max_position_at_row;
@@ -639,9 +642,37 @@ impl<Hash: AccumulatorHash> Pollard<Hash> {
         }
     }
 
+    /// Reconstructs the [Pollard] from a set of roots and number of leaves
+    ///
+    /// One use for a partial pollard is for mempool and wallet implementations, where you need to
+    /// keep track of a subset of the whole tree. Instead of remputing the pollard from genesis for
+    /// every flavor of accumulator you have, you can sync-up using the [Stump] and then use its
+    /// roots to create a up-to-date pollard.
+    pub fn from_roots(roots: Vec<Hash>, leaves: u64) -> Pollard<Hash> {
+        let mut pollard = Pollard::<Hash>::new();
+        pollard.leaves = leaves;
+
+        let roots = (0..=63)
+            .map(|x| {
+                if is_root_populated(x, leaves) {
+                    return Some(PollardNode::<Hash>::new(*roots.get(x as usize)?, true));
+                }
+                None
+            })
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap();
+
+        Pollard {
+            roots,
+            leaves,
+            leaf_map: HashMap::new(),
+        }
+    }
+
     /// Serializes the [Pollard] into a sync
     ///
-    /// This function serializes the [Pollard] into a sync that implements [Write]. This will be
+    /// This function serializes the [Pollard] into a sync that implements [std::io::Write]. This will be
     /// serialized in a compact binary format, so it can be stored in a file or sent over the
     /// network. This function will return an error if it fails to write to the sync.
     ///
@@ -668,7 +699,7 @@ impl<Hash: AccumulatorHash> Pollard<Hash> {
 
     /// Deserializes a [Pollard] from a stream
     ///
-    /// This function deserializes a [Pollard] from a stream that implements [Read]. This stream
+    /// This function deserializes a [Pollard] from a stream that implements [std::io::Read]. This stream
     /// should contain a [Pollard] serialized with the [serialize] function.
     pub fn deserialize<R: std::io::Read>(reader: &mut R) -> Result<Pollard<Hash>, std::io::Error> {
         let mut leaves = [0u8; 8];
@@ -1099,6 +1130,12 @@ impl<Hash: AccumulatorHash> Pollard<Hash> {
     }
 }
 
+impl<Hash: AccumulatorHash> From<Stump<Hash>> for Pollard<Hash> {
+    fn from(stump: Stump<Hash>) -> Self {
+        Pollard::<Hash>::from_roots(stump.roots, stump.leaves)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::str::FromStr;
@@ -1186,6 +1223,39 @@ mod tests {
 
         let p2 = Pollard::deserialize(&mut buffer.as_slice()).unwrap();
         assert_eq!(p, p2);
+    }
+
+    #[test]
+    fn test_from_roots() {
+        let roots = vec![
+            hash_from_u8(0),
+            hash_from_u8(1),
+            hash_from_u8(2),
+            hash_from_u8(3),
+        ];
+
+        let leaves = 15;
+
+        let p = Pollard::<BitcoinNodeHash>::from_roots(roots.clone(), leaves);
+        assert_eq!(roots, p.roots());
+        assert_eq!(leaves, p.leaves());
+    }
+
+    #[test]
+    fn test_from_stump() {
+        let roots = vec![
+            hash_from_u8(0),
+            hash_from_u8(1),
+            hash_from_u8(2),
+            hash_from_u8(3),
+        ];
+        let leaves = 15;
+
+        let stump = Stump { roots, leaves };
+        let p: Pollard<BitcoinNodeHash> = stump.clone().into();
+
+        assert_eq!(stump.roots, p.roots());
+        assert_eq!(leaves, p.leaves());
     }
 
     #[test]
