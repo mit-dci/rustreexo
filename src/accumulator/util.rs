@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+use std::collections::HashSet;
 use std::io::Read;
 
 // Rustreexo
@@ -270,46 +272,48 @@ pub fn is_right_sibling(node: u64, next: u64) -> bool {
 fn is_sibling(a: u64, b: u64) -> bool {
     a ^ 1 == b
 }
+
 /// Returns which node should have its hashes on the proof, along with all nodes
 /// whose hashes will be calculated to reach a root
 pub fn get_proof_positions(targets: &[u64], num_leaves: u64, forest_rows: u8) -> Vec<u64> {
-    let mut proof_positions = vec![];
+    let mut proof_positions = BTreeSet::new();
+    let mut map = HashSet::new();
+
     let mut computed_positions = targets.to_vec();
-    computed_positions.sort();
+    computed_positions.reserve(targets.len() * 2);
 
-    for row in 0..=forest_rows {
-        let mut row_targets = computed_positions
-            .iter()
-            .cloned()
-            .filter(|x| super::util::detect_row(*x, forest_rows) == row)
-            .collect::<Vec<_>>()
-            .into_iter()
-            .peekable();
+    map.reserve(targets.len() * 2);
+    map.extend(targets.iter().copied());
 
-        while let Some(node) = row_targets.next() {
-            if is_root_position(node, num_leaves, forest_rows) {
-                continue;
-            }
+    let mut i = 0;
 
-            if let Some(next) = row_targets.peek() {
-                if !is_sibling(node, *next) {
-                    proof_positions.push(node ^ 1);
-                } else {
-                    row_targets.next();
-                }
-            } else {
-                proof_positions.push(node ^ 1);
-            }
-
-            computed_positions.push(parent(node, forest_rows));
+    while i < computed_positions.len() {
+        let pos = computed_positions[i];
+        if is_root_position(pos, num_leaves, forest_rows) {
+            i += 1;
+            continue;
         }
 
-        computed_positions.sort();
+        let sibling = pos ^ 1;
+        if !map.contains(&sibling) {
+            proof_positions.insert(sibling);
+        }
+
+        if map.contains(&sibling) {
+            proof_positions.remove(&pos);
+        }
+
+        let parent = parent(pos, forest_rows);
+        if !map.contains(&parent) {
+            computed_positions.push(parent);
+            map.insert(parent);
+        }
+
+        i += 1;
     }
 
-    proof_positions
+    proof_positions.into_iter().collect()
 }
-
 #[cfg(any(test, bench))]
 pub fn hash_from_u8(value: u8) -> super::node_hash::BitcoinNodeHash {
     use bitcoin_hashes::sha256;
