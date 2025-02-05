@@ -50,26 +50,43 @@ pub fn calc_next_pos(position: u64, del_pos: u64, forest_rows: u8) -> Result<u64
     // Put the bits together and return it.
     Ok(higher_bits | lower_bits)
 }
+
 pub fn detwin(nodes: Vec<u64>, forest_rows: u8) -> Vec<u64> {
-    let mut dels_after = nodes;
-    let mut n = 0;
+    let mut computed: Vec<u64> = nodes;
+    let mut detwinned = Vec::new();
 
-    while (n + 1) < dels_after.len() {
-        // If the next node in line is the current node's sibling
-        // grab the parent as well
-        let i = dels_after[n];
-        let j = dels_after[n + 1];
-
-        if is_right_sibling(i, j) {
-            dels_after.drain(n..n + 2);
-            dels_after = add_and_sort(dels_after, parent(i, forest_rows));
-        } else {
-            n += 1;
+    loop {
+        if computed.is_empty() {
+            break;
         }
+
+        let node = computed.remove(0);
+        let sibling = node ^ 1;
+        let next = match computed.first() {
+            Some(next) => *next,
+            None => {
+                detwinned.push(node);
+                continue;
+            }
+        };
+
+        if next == sibling {
+            let parent = parent(node, forest_rows);
+
+            if let Err(_) = computed.binary_search(&parent) {
+                computed.push(parent);
+            }
+
+            computed.remove(0);
+            continue;
+        }
+
+        detwinned.push(node);
     }
 
-    dels_after
+    detwinned
 }
+
 // start_position_at_row returns the smallest position an accumulator can have for the
 // requested row for the given numLeaves.
 pub fn start_position_at_row(row: u8, forest_rows: u8) -> u64 {
@@ -78,17 +95,15 @@ pub fn start_position_at_row(row: u8, forest_rows: u8) -> u64 {
     // subtract (2 << `row complement of forest_rows`) from (2 << forest_rows)
     (2 << forest_rows) - (2 << (forest_rows - row)) as u64
 }
-fn add_and_sort(mut vec: Vec<u64>, value: u64) -> Vec<u64> {
-    vec.push(value);
-    vec.sort();
-    vec
-}
+
 pub fn is_left_niece(position: u64) -> bool {
     position & 1 == 0
 }
+
 pub fn left_sibling(position: u64) -> u64 {
     (position | 1) ^ 1
 }
+
 // roots_to_destroy returns the empty roots that get written over after num_adds
 // amount of leaves have been added.
 pub fn roots_to_destroy<Hash: AccumulatorHash>(
@@ -96,6 +111,10 @@ pub fn roots_to_destroy<Hash: AccumulatorHash>(
     mut num_leaves: u64,
     orig_roots: &[Hash],
 ) -> Vec<u64> {
+    if !orig_roots.iter().any(|root| root.is_empty()) {
+        return vec![];
+    }
+
     let mut roots = orig_roots.to_vec();
     let mut deleted = vec![];
     let mut h = 0;
@@ -281,6 +300,9 @@ pub fn get_proof_positions(targets: &[u64], num_leaves: u64, forest_rows: u8) ->
 
     let mut computed_positions = targets.to_vec();
     computed_positions.reserve(targets.len() * 2);
+
+    map.reserve(targets.len() * 2);
+    map.extend(targets.iter().copied());
 
     map.reserve(targets.len() * 2);
     map.extend(targets.iter().copied());

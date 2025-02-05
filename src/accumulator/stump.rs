@@ -26,6 +26,7 @@
 //! assert_eq!(s.unwrap().0.roots, utxos);
 //! ```
 
+use std::collections::BTreeSet;
 use std::io::Read;
 use std::io::Write;
 use std::vec;
@@ -288,7 +289,7 @@ impl<Hash: AccumulatorHash> Stump<Hash> {
         mut leaves: u64,
     ) -> (Vec<Hash>, Vec<(u64, Hash)>, Vec<u64>) {
         let after_rows = util::tree_rows(leaves + (utxos.len() as u64));
-        let mut updated_subtree: Vec<(u64, Hash)> = vec![];
+        let mut updated_subtree: BTreeSet<(u64, Hash)> = BTreeSet::new();
         let all_deleted = util::roots_to_destroy(utxos.len() as u64, leaves, &roots);
 
         for (i, add) in utxos.iter().enumerate() {
@@ -316,8 +317,8 @@ impl<Hash: AccumulatorHash> Stump<Hash> {
 
                 if let Some(root) = root {
                     if !root.is_empty() {
-                        updated_subtree.push((util::left_sibling(pos), root));
-                        updated_subtree.push((pos, to_add));
+                        updated_subtree.insert((util::left_sibling(pos), root));
+                        updated_subtree.insert((pos, to_add));
                         pos = util::parent(pos, after_rows);
 
                         to_add = AccumulatorHash::parent_hash(&root, &to_add);
@@ -325,15 +326,13 @@ impl<Hash: AccumulatorHash> Stump<Hash> {
                 }
                 h += 1;
             }
-            updated_subtree.push((pos, to_add));
 
-            updated_subtree.sort();
-            updated_subtree.dedup();
+            updated_subtree.insert((pos, to_add));
 
             roots.push(to_add);
             leaves += 1;
         }
-        (roots, updated_subtree, all_deleted)
+        (roots, updated_subtree.into_iter().collect(), all_deleted)
     }
 }
 
