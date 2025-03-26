@@ -101,6 +101,108 @@ struct PollardNode<Hash: AccumulatorHash> {
     right_niece: RefCell<Option<Rc<PollardNode<Hash>>>>,
 }
 
+pub enum PollardError<Hash: AccumulatorHash> {
+    /// We couldn't find the requested node inside map
+    ///
+    /// This is either due to this node not existing at all, or due to it being pruned. If the node
+    /// was pruned, we can't generate a proof for it, as we don't have the necessary data.
+    NodeNotFound(Hash),
+
+    /// We couldn't find the requested position inside the forest
+    ///
+    /// We've tried to fetch a position that doesn't exist inside this forest, or we don't have the
+    /// branch for. You can know whether it should exist by looking at the number of leaves in the
+    /// forest, and the position you're trying to fetch.
+    PositionNotFound(u64),
+
+    /// The proof is invalid
+    ///
+    /// We've tried to ingest a proof that is invalid. This may be due to the proof being tampered
+    /// with, or due to the UTXO actually not being in the accumulator. When designing protocols
+    /// or implementing Bitcoin-related Utreexo stuff, make sure you account for proofs being
+    /// malleated by some untrusted third-party, so and invalid proofs doesn't necessarily mean
+    /// that the UTXO is not in the accumulator.
+    InvalidProof,
+
+    /// We've had some I/O error while serializing or deserializing the forest
+    IO(std::io::Error),
+
+    /// We couldn't upgrade a node to a root
+    ///
+    /// This should never happen, as it would mean that a child was pruned before its parent, which
+    /// is a bug in the code. If you see this error, please report it to the developers.
+    CouldNotUpgradeNode,
+
+    /// We couldn't find the children of a node
+    ///
+    /// This could happen in a variety of situations, but it's generally a bug in the code. If you
+    /// see this error, please report it to the developers.
+    CouldNotFindChildren,
+
+    /// We couldn't find the aunt of a node
+    ///
+    /// This could happen in a variety of situations, but it's generally a bug in the code. If you
+    /// see this error, please report it to the developers.
+    AuntNotFound,
+
+    /// We couldn't find the sibling of a node
+    ///
+    /// This could happen in a variety of situations, but it's generally a bug in the code. If you
+    /// see this error, please report it to the developers.
+    SiblingNotFound,
+
+    /// We couldn't find the niece of a node
+    ///
+    /// This could happen in a variety of situations, but it's generally a bug in the code. If you
+    /// see this error, please report it to the developers.
+    NieceNotFound,
+
+    /// Couldn't find the root for a given subtree
+    ///
+    /// Probably due to an invalid proof passed during deletion
+    RootNotFound,
+}
+
+impl<Hash: AccumulatorHash> From<std::io::Error> for PollardError<Hash> {
+    fn from(err: std::io::Error) -> Self {
+        PollardError::IO(err)
+    }
+}
+
+impl<Hash: AccumulatorHash> PartialEq for PollardError<Hash> {
+    #[allow(unused)] // false positive
+    fn eq(&self, other: &Self) -> bool {
+        matches!(self, other)
+    }
+}
+
+impl<Hash: AccumulatorHash> Debug for PollardError<Hash> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PollardError::NodeNotFound(hash) => write!(f, "Node not found: {}", hash),
+            PollardError::PositionNotFound(pos) => write!(f, "Position not found: {}", pos),
+            PollardError::InvalidProof => write!(f, "Invalid proof"),
+            PollardError::IO(err) => write!(f, "IO error: {}", err),
+            PollardError::CouldNotUpgradeNode => {
+                write!(f, "Could not upgrade node, this is probably a bug")
+            }
+            PollardError::CouldNotFindChildren => {
+                write!(f, "BUG: Could not find children in a case where it should")
+            }
+            PollardError::AuntNotFound => write!(f, "Could not find the aunt of a node in a case where it probably should, this might be a bug"),
+            PollardError::SiblingNotFound => write!(f, "Could not find the sibling of a node in a case where it probably should, this might be a bug"),
+            PollardError::NieceNotFound => write!(f, "Could not find the niece of a node in a case where it probably should, this might be a bug"),
+            PollardError::RootNotFound => write!(f, "Could not find the root for a given subtree. Your proof is probably invalid"),
+        }
+    }
+}
+
+impl<Hash: AccumulatorHash> std::fmt::Display for PollardError<Hash> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
 impl<Hash: AccumulatorHash> Debug for PollardNode<Hash> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.hash().to_string())
@@ -113,6 +215,7 @@ impl<Hash: AccumulatorHash> PartialEq for PollardNode<Hash> {
     }
 }
 
+// we mostly use it for testing
 impl<Hash: AccumulatorHash> Eq for PollardNode<Hash> {}
 
 impl<Hash: AccumulatorHash> PollardNode<Hash> {
@@ -127,7 +230,7 @@ impl<Hash: AccumulatorHash> PollardNode<Hash> {
         })
     }
 
-    fn serialize<W: std::io::Write>(&self, writer: &mut W) -> Result<(), std::io::Error> {
+    fn serialize<W: std::io::Write>(&self, writer: &mut W) -> Result<(), PollardError<Hash>> {
         let is_leaf = self.left_niece().is_none() as u8;
         writer.write_all(&is_leaf.to_be_bytes())?;
 
@@ -135,8 +238,13 @@ impl<Hash: AccumulatorHash> PollardNode<Hash> {
         self_hash.write(writer)?;
 
         if is_leaf == 0 {
-            self.left_niece().unwrap().serialize(writer)?;
-            self.right_niece().unwrap().serialize(writer)?;
+            self.left_niece()
+                .ok_or(PollardError::CouldNotFindChildren)?
+                .serialize(writer)?;
+
+            self.right_niece()
+                .ok_or(PollardError::CouldNotFindChildren)?
+                .serialize(writer)?;
         }
 
         Ok(())
@@ -146,7 +254,7 @@ impl<Hash: AccumulatorHash> PollardNode<Hash> {
         reader: &mut R,
         ancestor: Option<Weak<PollardNode<Hash>>>,
         leaf_map: &mut HashMap<Hash, Weak<PollardNode<Hash>>>,
-    ) -> Result<Rc<PollardNode<Hash>>, std::io::Error> {
+    ) -> Result<Rc<PollardNode<Hash>>, PollardError<Hash>> {
         let mut is_leaf = [0u8; 1];
         reader.read_exact(&mut is_leaf)?;
 
@@ -223,8 +331,7 @@ impl<Hash: AccumulatorHash> PollardNode<Hash> {
             return Some((self.left_niece()?, self.right_niece()?));
         }
 
-        let sibling = self.sibling().unwrap();
-
+        let sibling = self.sibling()?;
         Some((sibling.left_niece()?, sibling.right_niece()?))
     }
 
@@ -262,7 +369,7 @@ impl<Hash: AccumulatorHash> PollardNode<Hash> {
     ///
     /// This function will walk up the tree and recompute the hashes for each node. We may need
     /// this if we delete a node, and we need to update the hashes of the ancestors.
-    fn recompute_hashes(&self) -> Option<()> {
+    fn recompute_hashes(&self) {
         if let Some((left, right)) = self.children() {
             let new_hash = Hash::parent_hash(&left.hash(), &right.hash());
             self.hash.set(new_hash);
@@ -273,10 +380,8 @@ impl<Hash: AccumulatorHash> PollardNode<Hash> {
                 return parent.recompute_hashes();
             }
 
-            return aunt.recompute_hashes();
+            aunt.recompute_hashes()
         }
-
-        Some(())
     }
 
     fn recompute_hashes_down(&self) -> Option<()> {
@@ -313,21 +418,33 @@ impl<Hash: AccumulatorHash> PollardNode<Hash> {
     /// This function does exactly that. It moves this node up the tree, and updates the hashes
     /// of the ancestors to reflect the new subtree (in the example above, the hash of `06` would
     /// be updated to the hash of 04 and 02).
-    fn migrate_up(&self) -> Option<()> {
-        let aunt = self.aunt().unwrap();
-        let grandparent = aunt.aunt()?;
-        let parent = aunt.sibling()?;
+    fn migrate_up(&self) -> Result<(), PollardError<Hash>> {
+        let aunt = self.aunt().ok_or(PollardError::AuntNotFound)?;
+        let grandparent = aunt.aunt().ok_or(PollardError::AuntNotFound)?;
+        let parent = aunt.sibling().ok_or(PollardError::SiblingNotFound)?;
 
-        let _self = if aunt.left_niece()?.hash() == self.hash() {
-            aunt.left_niece()?
+        let left_niece = aunt.left_niece().ok_or(PollardError::NieceNotFound)?;
+
+        let _self = if left_niece.hash() == self.hash() {
+            aunt.left_niece().ok_or(PollardError::NieceNotFound)?
         } else {
-            aunt.right_niece()?
+            aunt.right_niece().ok_or(PollardError::NieceNotFound)?
         };
 
-        let (left_niece, right_niece) = if grandparent.left_niece()?.hash() == aunt.hash() {
-            (grandparent.left_niece()?, _self.clone())
+        let left_niece = grandparent
+            .left_niece()
+            .ok_or(PollardError::NieceNotFound)?;
+
+        let (left_niece, right_niece) = if left_niece.hash() == aunt.hash() {
+            let left_niece = grandparent
+                .left_niece()
+                .ok_or(PollardError::NieceNotFound)?;
+            (left_niece, _self.clone())
         } else {
-            (_self.clone(), grandparent.right_niece()?)
+            let right_niece = grandparent
+                .right_niece()
+                .ok_or(PollardError::NieceNotFound)?;
+            (_self.clone(), right_niece)
         };
 
         // place myself and my parent's sibling as my grandancestor's nieces
@@ -342,15 +459,15 @@ impl<Hash: AccumulatorHash> PollardNode<Hash> {
         if let Some(x) = parent.left_niece() {
             x.set_aunt(Rc::downgrade(&_self))
         };
+
         if let Some(x) = parent.right_niece() {
             x.set_aunt(Rc::downgrade(&_self))
         }
 
         // take my parent's nieces, as they are still needed
         self.swap_nieces(&parent);
-
         _self.recompute_hashes();
-        Some(())
+        Ok(())
     }
 
     /// Sets the nieces of this nodes to the provided values
@@ -422,7 +539,7 @@ pub struct Pollard<Hash: AccumulatorHash> {
     ///
     /// The roots are stored in an array, where the index is the row of the tree where the root is
     /// located. The first root is at index 0, and so on. The roots are stored in the array in the
-    /// stack to make it more efficent to access and move them around. At any given time, a row may
+    /// stack to make it more efficient to access and move them around. At any given time, a row may
     /// or may not have a root. If a row doesn't have a root, the value at that index is `None`.
     roots: [Option<Rc<PollardNode<Hash>>>; 64],
     /// How many leaves have been added to the tree
@@ -488,13 +605,19 @@ impl<Hash: AccumulatorHash> Pollard<Hash> {
         proof: Proof<Hash>,
         del_hashes: &[Hash],
         remembers: &[u64],
-    ) -> Result<(), String> {
+    ) -> Result<(), PollardError<Hash>> {
         self.do_ingest_proof(proof, del_hashes, remembers, false)
     }
 
-    pub fn verify(&self, proof: &Proof<Hash>, del_hashes: &[Hash]) -> Result<bool, String> {
+    pub fn verify(
+        &self,
+        proof: &Proof<Hash>,
+        del_hashes: &[Hash],
+    ) -> Result<bool, PollardError<Hash>> {
         let roots = self.roots();
-        proof.verify(del_hashes, &roots, self.leaves)
+        proof
+            .verify(del_hashes, &roots, self.leaves)
+            .map_err(|_| PollardError::InvalidProof)
     }
 
     pub fn verify_and_ingest(
@@ -502,13 +625,14 @@ impl<Hash: AccumulatorHash> Pollard<Hash> {
         proof: Proof<Hash>,
         del_hashes: &[Hash],
         remembers: &[u64],
-    ) -> Result<(), String> {
+    ) -> Result<(), PollardError<Hash>> {
         let roots = self.roots();
         proof
             .verify(del_hashes, &roots, self.leaves)
+            .map_err(|_| PollardError::InvalidProof)
             .map(|valid| {
                 if !valid {
-                    return Err("Proof is not valid".to_owned());
+                    return Err(PollardError::InvalidProof);
                 }
 
                 Ok(())
@@ -517,17 +641,15 @@ impl<Hash: AccumulatorHash> Pollard<Hash> {
         self.do_ingest_proof(proof, del_hashes, remembers, false)
     }
 
-    pub fn prune(&mut self, positions: &[u64]) -> Result<(), &'static str> {
+    pub fn prune(&mut self, positions: &[u64]) -> Result<(), PollardError<Hash>> {
         self.prune_map(positions);
 
         let positions = detwin(positions.to_vec(), tree_rows(self.leaves));
-        let nodes = positions
-            .into_iter()
-            .map(|pos| self.grab_position(pos))
-            .collect::<Vec<_>>();
+        for node in positions {
+            let (node, _) = self
+                .grab_position(node)
+                .ok_or(PollardError::PositionNotFound(node))?;
 
-        for node in nodes {
-            let (node, _) = node.ok_or("Position not found")?;
             self.leaf_map.remove(&node.hash());
             node.prune();
         }
@@ -549,13 +671,14 @@ impl<Hash: AccumulatorHash> Pollard<Hash> {
     /// Proves the inclusion of the nodes at the given positions
     ///
     /// This function takes a list of positions and returns a list of proofs for each position.
-    pub fn batch_proof(&self, targets: &[Hash]) -> Result<Proof<Hash>, String> {
+    pub fn batch_proof(&self, targets: &[Hash]) -> Result<Proof<Hash>, PollardError<Hash>> {
         let mut target_positions = Vec::new();
         for target in targets {
             let node = self
                 .leaf_map
                 .get(target)
-                .ok_or(format!("leaf {target} not found in the forest"))?;
+                .ok_or(PollardError::NodeNotFound(*target))?;
+
             let position = self.get_pos(node)?;
             target_positions.push(position);
         }
@@ -567,7 +690,7 @@ impl<Hash: AccumulatorHash> Pollard<Hash> {
         for pos in proof_positions.iter() {
             let hash = self
                 .grab_position(*pos)
-                .ok_or("Position not found")?
+                .ok_or(PollardError::PositionNotFound(*pos))?
                 .0
                 .hash();
 
@@ -580,8 +703,12 @@ impl<Hash: AccumulatorHash> Pollard<Hash> {
         })
     }
 
-    pub fn prove_single(&self, leaf: Hash) -> Result<Proof<Hash>, String> {
-        let node = self.leaf_map.get(&leaf).ok_or("Leaf not found")?;
+    pub fn prove_single(&self, leaf: Hash) -> Result<Proof<Hash>, PollardError<Hash>> {
+        let node = self
+            .leaf_map
+            .get(&leaf)
+            .ok_or(PollardError::NodeNotFound(leaf))?;
+
         let pos = self.get_pos(node)?;
         let hashes = self.prove_single_inner(pos)?;
         let targets = vec![pos];
@@ -604,16 +731,16 @@ impl<Hash: AccumulatorHash> Pollard<Hash> {
         adds: &[PollardAddition<Hash>],
         del_hashes: &[Hash],
         proof: Proof<Hash>,
-    ) -> Result<(), String> {
+    ) -> Result<(), PollardError<Hash>> {
         let targets = proof.targets.clone();
-        self.ingest_proof(proof.clone(), del_hashes, &targets)?;
+        self.ingest_proof(proof, del_hashes, &targets)?;
 
         let targets = detwin(targets, tree_rows(self.leaves));
         let targets = targets
-            .into_iter()
-            .map(|pos| {
-                self.grab_position(pos)
-                    .ok_or(format!("Position {pos} not found"))
+            .iter()
+            .map(|x| {
+                self.grab_position(*x)
+                    .ok_or(PollardError::PositionNotFound(*x))
             })
             .collect::<Vec<_>>();
 
@@ -677,7 +804,7 @@ impl<Hash: AccumulatorHash> Pollard<Hash> {
     /// network. This function will return an error if it fails to write to the sync.
     ///
     /// To deserialize the [Pollard] back, you can use the [deserialize] function.
-    pub fn serialize<W: std::io::Write>(&self, writer: &mut W) -> Result<(), std::io::Error> {
+    pub fn serialize<W: std::io::Write>(&self, writer: &mut W) -> Result<(), PollardError<Hash>> {
         writer.write_all(&self.leaves.to_be_bytes())?;
 
         for root in self.roots.iter() {
@@ -701,7 +828,9 @@ impl<Hash: AccumulatorHash> Pollard<Hash> {
     ///
     /// This function deserializes a [Pollard] from a stream that implements [std::io::Read]. This stream
     /// should contain a [Pollard] serialized with the [serialize] function.
-    pub fn deserialize<R: std::io::Read>(reader: &mut R) -> Result<Pollard<Hash>, std::io::Error> {
+    pub fn deserialize<R: std::io::Read>(
+        reader: &mut R,
+    ) -> Result<Pollard<Hash>, PollardError<Hash>> {
         let mut leaves = [0u8; 8];
         reader.read_exact(&mut leaves)?;
         let leaves = u64::from_be_bytes(leaves);
@@ -769,7 +898,7 @@ impl<Hash: AccumulatorHash> Pollard<Hash> {
         &mut self,
         mut iter: impl Iterator<Item = (u64, Hash)>,
         remembers: &[u64],
-    ) -> Result<(), String> {
+    ) -> Result<(), PollardError<Hash>> {
         let forest_rows = tree_rows(self.leaves);
         while let Some((pos1, hash1)) = iter.next() {
             if is_root_position(pos1, self.leaves, forest_rows) {
@@ -778,15 +907,15 @@ impl<Hash: AccumulatorHash> Pollard<Hash> {
                 continue;
             }
 
-            let (pos2, hash2) = iter.next().ok_or("Proof is not valid")?;
+            let (pos2, hash2) = iter.next().ok_or(PollardError::InvalidProof)?;
             if pos1 != (pos2 ^ 1) {
-                return Err(format!("Proof is not valid, missing pos {}", pos2 ^ 1));
+                return Err(PollardError::InvalidProof);
             }
 
             let aunt = parent(pos1, forest_rows);
             let aunt = self
                 .grab_position(aunt)
-                .ok_or(format!("can't find aunt for {pos1} {self:?}"))?
+                .ok_or(PollardError::AuntNotFound)?
                 .1;
 
             if aunt.left_niece().is_some() {
@@ -816,9 +945,12 @@ impl<Hash: AccumulatorHash> Pollard<Hash> {
         del_hashes: &[Hash],
         remembers: &[u64],
         recompute: bool,
-    ) -> Result<(), String> {
+    ) -> Result<(), PollardError<Hash>> {
         let forest_rows = tree_rows(self.leaves);
-        let (mut all_nodes, _) = proof.calculate_hashes(del_hashes, self.leaves)?;
+        let (mut all_nodes, _) = proof
+            .calculate_hashes(del_hashes, self.leaves)
+            .map_err(|_| PollardError::InvalidProof)?;
+
         let proof_positions = get_proof_positions(&proof.targets, self.leaves, forest_rows);
 
         all_nodes.extend(proof_positions.into_iter().zip(proof.hashes.clone()));
@@ -861,10 +993,10 @@ impl<Hash: AccumulatorHash> Pollard<Hash> {
         (bigger_trees, (tr - nr), marker)
     }
 
-    fn get_hash(&self, pos: u64) -> Result<Hash, &'static str> {
+    fn get_hash(&self, pos: u64) -> Result<Hash, PollardError<Hash>> {
         match self.grab_position(pos) {
             Some(node) => Ok(node.0.hash()),
-            None => Err("Position not found"),
+            None => Err(PollardError::PositionNotFound(pos)),
         }
     }
 
@@ -878,12 +1010,7 @@ impl<Hash: AccumulatorHash> Pollard<Hash> {
         if fh > 6 {
             let s = format!("Can't print {} leaves. roots: \n", self.leaves);
             return self.roots.iter().fold(s, |mut a, b| {
-                a.push_str(
-                    &b.as_ref()
-                        .map(|b| b.hash())
-                        .unwrap_or(Hash::empty())
-                        .to_string(),
-                );
+                a.push_str(&b.as_ref().map(|b| b.hash()).unwrap_or_default().to_string());
                 a
             });
         }
@@ -940,8 +1067,10 @@ impl<Hash: AccumulatorHash> Pollard<Hash> {
         })
     }
 
-    fn prove_single_inner(&self, pos: u64) -> Result<Vec<Hash>, &'static str> {
-        let (node, sibling) = self.grab_position(pos).ok_or("Position not found")?;
+    fn prove_single_inner(&self, pos: u64) -> Result<Vec<Hash>, PollardError<Hash>> {
+        let (node, sibling) = self
+            .grab_position(pos)
+            .ok_or(PollardError::PositionNotFound(pos))?;
         let mut proof = vec![sibling.hash()];
         let mut current = node;
 
@@ -956,7 +1085,10 @@ impl<Hash: AccumulatorHash> Pollard<Hash> {
         Ok(proof)
     }
 
-    fn add_single(&mut self, node: PollardAddition<Hash>) -> Result<AddSingleResult<Hash>, String> {
+    fn add_single(
+        &mut self,
+        node: PollardAddition<Hash>,
+    ) -> Result<AddSingleResult<Hash>, PollardError<Hash>> {
         let mut row = 0;
         let mut new_node = PollardNode::new(node.hash, node.remember);
         self.leaf_map.insert(node.hash, Rc::downgrade(&new_node));
@@ -1031,7 +1163,7 @@ impl<Hash: AccumulatorHash> Pollard<Hash> {
         Ok((add_positions, roots_to_destroy))
     }
 
-    fn delete_single(&mut self, node: Rc<PollardNode<Hash>>) -> Result<(), String> {
+    fn delete_single(&mut self, node: Rc<PollardNode<Hash>>) -> Result<(), PollardError<Hash>> {
         self.leaf_map.remove(&node.hash());
         // we are deleting a root, just write an empty hash where it was
         if node.aunt.borrow().is_none() {
@@ -1042,47 +1174,46 @@ impl<Hash: AccumulatorHash> Pollard<Hash> {
                 }
             }
 
-            return Err("Root not found".to_string());
+            return Err(PollardError::RootNotFound);
         }
 
-        let sibling = node
-            .sibling()
-            .ok_or(format!("Sibling for {} not found", node.hash()))?;
+        let sibling = node.sibling().ok_or(PollardError::SiblingNotFound)?;
+
         if node.grandparent().is_none() {
             // my parent is a root, I'm a root now
             for i in 0..64 {
-                let aunt = node.aunt().unwrap();
+                let aunt = node.aunt().ok_or(PollardError::AuntNotFound)?;
 
                 let root = if let Some(root) = self.roots[i].as_ref() {
                     root
                 } else {
                     continue;
                 };
+
                 if root.hash() == aunt.hash() {
                     self.roots[i] = Some(sibling);
                     return Ok(());
                 }
             }
 
-            return Err("Root not found".to_string());
+            return Err(PollardError::RootNotFound);
         };
+
         sibling.migrate_up().unwrap();
         Ok(())
     }
 
     /// Returns the position in the tree of this node
-    fn get_pos(&self, node: &Weak<PollardNode<Hash>>) -> Result<u64, String> {
+    fn get_pos(&self, node: &Weak<PollardNode<Hash>>) -> Result<u64, PollardError<Hash>> {
         // This indicates whether the node is a left or right child at each level
         // When we go down the tree, we can use the indicator to know which
         // child to take.
         let mut left_child_indicator = 0_u64;
         let mut rows_to_top = 0;
-        let mut node = node
-            .upgrade()
-            .ok_or("Could not upgrade node. Is this reference valid?")?;
+        let mut node = node.upgrade().ok_or(PollardError::CouldNotUpgradeNode)?;
 
         while let Some(aunt) = node.parent() {
-            let aunt_left = aunt.children().ok_or("Aunt has no children")?.0;
+            let aunt_left = aunt.children().ok_or(PollardError::CouldNotFindChildren)?.0;
             // If the current node is a left child, we left-shift the indicator
             // and leave the LSB as 0
             if aunt_left.hash() == node.hash() {
@@ -1106,10 +1237,7 @@ impl<Hash: AccumulatorHash> Pollard<Hash> {
         });
 
         let forest_rows = tree_rows(self.leaves);
-        let root_row = root_row.ok_or(format!(
-            "Could not find the root position for root {:?}",
-            node.hash()
-        ))?;
+        let root_row = root_row.ok_or(PollardError::RootNotFound)?;
 
         let mut pos = root_position(self.leaves, root_row as u8, forest_rows);
         for _ in 0..rows_to_top {
