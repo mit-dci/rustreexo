@@ -52,6 +52,7 @@ use std::ops::Deref;
 use std::str::FromStr;
 
 use bitcoin_hashes::hex;
+use bitcoin_hashes::hex::DisplayHex;
 use bitcoin_hashes::sha256;
 use bitcoin_hashes::sha512_256;
 use bitcoin_hashes::Hash;
@@ -77,6 +78,51 @@ pub trait AccumulatorHash:
         R: std::io::Read;
 }
 
+/// (de)serialize as hex if the (de)serializer is human readable.
+#[cfg(feature = "with-serde")]
+mod serde_hex {
+    pub fn serialize<S, T>(data: T, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+        T: serde::Serialize + bitcoin_hashes::hex::DisplayHex,
+    {
+        if serializer.is_human_readable() {
+            serializer.collect_str(&format_args!("{:x}", data.as_hex()))
+        } else {
+            data.serialize(serializer)
+        }
+    }
+
+    pub fn deserialize<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+        T: serde::Deserialize<'de> + bitcoin_hashes::hex::FromHex,
+    {
+        struct HexVisitor<T>(std::marker::PhantomData<T>);
+
+        impl<'de, T> serde::de::Visitor<'de> for HexVisitor<T>
+        where
+            T: bitcoin_hashes::hex::FromHex,
+        {
+            type Value = T;
+
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("an ASCII hex string")
+            }
+
+            fn visit_str<E: serde::de::Error>(self, data: &str) -> Result<Self::Value, E> {
+                T::from_hex(data).map_err(serde::de::Error::custom)
+            }
+        }
+
+        if deserializer.is_human_readable() {
+            deserializer.deserialize_str(HexVisitor(std::marker::PhantomData))
+        } else {
+            T::deserialize(deserializer)
+        }
+    }
+}
+
 #[derive(Eq, PartialEq, Copy, Clone, Hash, PartialOrd, Ord)]
 #[cfg_attr(feature = "with-serde", derive(Serialize, Deserialize))]
 /// AccumulatorHash is a wrapper around a 32 byte array that represents a hash of a node in the tree.
@@ -94,7 +140,7 @@ pub enum BitcoinNodeHash {
     #[default]
     Empty,
     Placeholder,
-    Some([u8; 32]),
+    Some(#[cfg_attr(feature = "with-serde", serde(with = "serde_hex"))] [u8; 32]),
 }
 
 #[deprecated(since = "0.4.0", note = "Please use BitcoinNodeHash instead.")]
@@ -114,11 +160,7 @@ impl Deref for BitcoinNodeHash {
 impl Display for BitcoinNodeHash {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
         if let BitcoinNodeHash::Some(ref inner) = self {
-            let mut s = String::new();
-            for byte in inner.iter() {
-                s.push_str(&format!("{:02x}", byte));
-            }
-            write!(f, "{}", s)
+            Display::fmt(&inner.as_hex(), f)
         } else {
             write!(f, "empty")
         }
@@ -130,13 +172,7 @@ impl Debug for BitcoinNodeHash {
         match self {
             BitcoinNodeHash::Empty => write!(f, "empty"),
             BitcoinNodeHash::Placeholder => write!(f, "placeholder"),
-            BitcoinNodeHash::Some(ref inner) => {
-                let mut s = String::new();
-                for byte in inner.iter() {
-                    s.push_str(&format!("{:02x}", byte));
-                }
-                write!(f, "{}", s)
-            }
+            BitcoinNodeHash::Some(ref inner) => Debug::fmt(&inner.as_hex(), f),
         }
     }
 }
@@ -350,5 +386,79 @@ mod test {
         )
         .unwrap();
         assert_eq!(hash, AccumulatorHash::empty());
+    }
+
+    #[cfg(feature = "with-serde")]
+    fn test_serde_json_roundtrip(
+        node_hash: BitcoinNodeHash,
+        expected_serialized: serde_json::Value,
+    ) -> Result<(), serde_json::Error> {
+        let serialized = serde_json::to_value(node_hash)?;
+        assert_eq!(serialized, expected_serialized);
+        let deserialized = serde_json::from_value(serialized)?;
+        assert_eq!(node_hash, deserialized);
+        Ok(())
+    }
+
+    #[cfg(feature = "with-serde")]
+    #[test]
+    fn test_serde_human_readable_impls() -> Result<(), serde_json::Error> {
+        let empty = BitcoinNodeHash::Empty;
+        let placeholder = BitcoinNodeHash::Placeholder;
+        let hash = {
+            let mut bytes = [0u8; 32];
+            for (idx, byte) in bytes.iter_mut().enumerate() {
+                *byte = idx as u8;
+            }
+            BitcoinNodeHash::Some(bytes)
+        };
+        let () = test_serde_json_roundtrip(empty, serde_json::Value::String("Empty".to_owned()))?;
+        let () = test_serde_json_roundtrip(
+            placeholder,
+            serde_json::Value::String("Placeholder".to_owned()),
+        )?;
+        let () = test_serde_json_roundtrip(
+            hash,
+            serde_json::json!({
+                "Some": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+            }),
+        )?;
+        Ok(())
+    }
+
+    #[cfg(feature = "with-serde")]
+    fn test_postcard_roundtrip(
+        node_hash: BitcoinNodeHash,
+        expected_serialized: &[u8],
+    ) -> Result<(), postcard::Error> {
+        let serialized = postcard::to_allocvec(&node_hash)?;
+        assert_eq!(&serialized, expected_serialized);
+        let deserialized = postcard::from_bytes(&serialized)?;
+        assert_eq!(node_hash, deserialized);
+        Ok(())
+    }
+
+    #[cfg(feature = "with-serde")]
+    #[test]
+    fn test_serde_non_human_readable_impls() -> Result<(), postcard::Error> {
+        let empty = BitcoinNodeHash::Empty;
+        let placeholder = BitcoinNodeHash::Placeholder;
+        let hash = {
+            let mut bytes = [0u8; 32];
+            for (idx, byte) in bytes.iter_mut().enumerate() {
+                *byte = idx as u8;
+            }
+            BitcoinNodeHash::Some(bytes)
+        };
+        let () = test_postcard_roundtrip(empty, &[0u8])?;
+        let () = test_postcard_roundtrip(placeholder, &[1u8])?;
+        let () = test_postcard_roundtrip(hash, &{
+            let mut bytes = [2u8; 33];
+            for (idx, byte) in bytes.iter_mut().skip(1).enumerate() {
+                *byte = idx as u8;
+            }
+            bytes
+        })?;
+        Ok(())
     }
 }
