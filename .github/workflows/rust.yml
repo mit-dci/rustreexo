@@ -32,7 +32,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        toolchain: [nightly, stable, 1.63.0]
+        toolchain: [nightly, stable, 1.73.0]
 
     runs-on: ${{ matrix.os }}
     steps:
