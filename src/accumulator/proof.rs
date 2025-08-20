@@ -477,10 +477,10 @@ impl<Hash: AccumulatorHash> Proof<Hash> {
             let sibling = next_pos | 1;
             let (sibling_pos, (sibling_hash_old, sibling_hash_new)) =
                 Self::get_next(&computed, &nodes, &mut computed_index, &mut provided_index)
-                    .ok_or(format!("Missing sibling for {}", next_pos))?;
+                    .ok_or(format!("Missing sibling for {next_pos}"))?;
 
             if sibling_pos != sibling {
-                return Err(format!("Missing sibling for {}", next_pos));
+                return Err(format!("Missing sibling for {next_pos}"));
             }
 
             let parent_hash = match (next_hash_new.is_empty(), sibling_hash_new.is_empty()) {
@@ -559,10 +559,10 @@ impl<Hash: AccumulatorHash> Proof<Hash> {
             let sibling = next_pos | 1;
             let (sibling_pos, sibling_hash) =
                 Self::get_next(&computed, &nodes, &mut computed_index, &mut provided_index)
-                    .ok_or(format!("Missing sibling for {}", next_pos))?;
+                    .ok_or(format!("Missing sibling for {next_pos}"))?;
 
             if sibling_pos != sibling {
-                return Err(format!("Missing sibling for {}", next_pos));
+                return Err(format!("Missing sibling for {next_pos}"));
             }
 
             let parent_hash = AccumulatorHash::parent_hash(&next_hash, &sibling_hash);
@@ -716,7 +716,7 @@ impl<Hash: AccumulatorHash> Proof<Hash> {
                 // This node must be in either new_nodes or in the old proof, otherwise we can't
                 // update our proof
                 if !new_proof.iter().any(|(proof_pos, _)| *proof_pos == pos) {
-                    return Err(format!("Missing position {}", pos));
+                    return Err(format!("Missing position {pos}"));
                 }
             }
         }

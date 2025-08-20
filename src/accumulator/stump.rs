@@ -170,9 +170,9 @@ impl<Hash: AccumulatorHash> Stump<Hash> {
     /// deleted from the accumulator.
     /// // TODO: Add example
     pub fn verify(&self, proof: &Proof<Hash>, del_hashes: &[Hash]) -> Result<bool, StumpError> {
-        Ok(proof
+        proof
             .verify(del_hashes, &self.roots, self.leaves)
-            .map_err(|error| StumpError::InvalidProof(error))?)
+            .map_err(StumpError::InvalidProof)
     }
 
     /// Creates a new Stump with a custom hash type
@@ -307,9 +307,9 @@ impl<Hash: AccumulatorHash> Stump<Hash> {
             .map(|hash| (*hash, Hash::empty()))
             .collect::<Vec<_>>();
 
-        Ok(proof
+        proof
             .calculate_hashes_delete(&del_hashes, self.leaves)
-            .map_err(|reason| StumpError::InvalidProof(reason))?)
+            .map_err(StumpError::InvalidProof)
     }
 
     /// Adds new leaves into the root

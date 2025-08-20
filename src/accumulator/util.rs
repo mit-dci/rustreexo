@@ -35,8 +35,7 @@ pub fn calc_next_pos(position: u64, del_pos: u64, forest_rows: u8) -> Result<u64
 
     if del_row < pos_row {
         return Err(format!(
-            "calc_next_pos fail: del_pos of {} is at a lower row than position at {}",
-            del_pos, position
+            "calc_next_pos fail: del_pos of {del_pos} is at a lower row than position at {position}"
         ));
     }
 
@@ -73,7 +72,7 @@ pub fn detwin(nodes: Vec<u64>, forest_rows: u8) -> Vec<u64> {
         if next == sibling {
             let parent = parent(node, forest_rows);
 
-            if let Err(_) = computed.binary_search(&parent) {
+            if computed.binary_search(&parent).is_err() {
                 computed.push(parent);
             }
 
@@ -255,8 +254,7 @@ pub fn parent_many(pos: u64, rise: u8, forest_rows: u8) -> Result<u64, String> {
     }
     if rise > forest_rows {
         return Err(format!(
-            "Cannot rise more than the forestRows: rise: {} forest_rows: {}",
-            rise, forest_rows
+            "Cannot rise more than the forestRows: rise: {rise} forest_rows: {forest_rows}"
         ));
     }
 

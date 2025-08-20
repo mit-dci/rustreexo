@@ -411,7 +411,7 @@ impl<Hash: AccumulatorHash> MemForest<Hash> {
         if let (Some(node), Some(sibling), Some(parent)) = (n, sibling, parent) {
             return Ok((node, sibling, parent));
         }
-        Err(format!("node {} not found", pos))
+        Err(format!("node {pos} not found"))
     }
 
     fn del(&mut self, targets: &[Hash]) -> Result<(), String> {
@@ -434,7 +434,7 @@ impl<Hash: AccumulatorHash> MemForest<Hash> {
                     self.del_single(&target.upgrade().unwrap());
                 }
                 None => {
-                    return Err(format!("node {} not in the forest", target));
+                    return Err(format!("node {target} not in the forest"));
                 }
             }
         }
