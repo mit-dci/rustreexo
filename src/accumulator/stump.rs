@@ -42,6 +42,40 @@ use super::proof::NodesAndRootsOldNew;
 use super::proof::Proof;
 use super::util;
 
+#[derive(Debug, Clone, Default)]
+pub struct UpdateData<Hash: AccumulatorHash> {
+    /// to_destroy is the positions of the empty roots removed after the add.
+    pub(crate) to_destroy: Vec<u64>,
+    /// pre_num_leaves is the numLeaves of the stump before the add.
+    pub(crate) prev_num_leaves: u64,
+    /// new_add are the new hashes for the newly created roots after the addition.
+    pub(crate) new_add: Vec<(u64, Hash)>,
+    /// new_del are the new hashes after the deletion.
+    pub(crate) new_del: Vec<(u64, Hash)>,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+/// The error kinds returned by Stump's methods
+pub enum StumpError {
+    /// User passed in a proof that doesn't have any elements, but a non-zero list of
+    /// targets.
+    EmptyProof,
+
+    /// An IO error occurred, this is usually due to a failure in reading or writing
+    /// the Stump to a reader/writer. This error will be returned during [de]serialization.
+    Io(std::io::ErrorKind),
+
+    /// The provided proof is invalid. This will happen during proof verification and stump
+    /// modification.
+    InvalidProof(String),
+}
+
+impl From<std::io::Error> for StumpError {
+    fn from(err: std::io::Error) -> Self {
+        StumpError::Io(err.kind())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "with-serde", derive(Serialize, Deserialize))]
 pub struct Stump<Hash: AccumulatorHash = BitcoinNodeHash> {
@@ -53,18 +87,6 @@ impl Default for Stump {
     fn default() -> Self {
         Stump::new()
     }
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct UpdateData<Hash: AccumulatorHash> {
-    /// to_destroy is the positions of the empty roots removed after the add.
-    pub(crate) to_destroy: Vec<u64>,
-    /// pre_num_leaves is the numLeaves of the stump before the add.
-    pub(crate) prev_num_leaves: u64,
-    /// new_add are the new hashes for the newly created roots after the addition.
-    pub(crate) new_add: Vec<(u64, Hash)>,
-    /// new_del are the new hashes after the deletion.
-    pub(crate) new_del: Vec<(u64, Hash)>,
 }
 
 impl Stump {
@@ -105,14 +127,16 @@ impl Stump {
     ///     ]
     /// );
     /// ```
-    pub fn serialize<Dst: Write>(&self, mut writer: &mut Dst) -> std::io::Result<usize> {
+    pub fn serialize<Dst: Write>(&self, mut writer: &mut Dst) -> Result<u64, StumpError> {
         let mut len = 8;
         writer.write_all(&self.leaves.to_le_bytes())?;
         writer.write_all(&(self.roots.len() as u64).to_le_bytes())?;
+
         for root in self.roots.iter() {
             len += 32;
             root.write(&mut writer)?;
         }
+
         Ok(len)
     }
 
@@ -145,8 +169,10 @@ impl<Hash: AccumulatorHash> Stump<Hash> {
     /// recompute the root of the accumulator. The del_hashes are the hashes that are being
     /// deleted from the accumulator.
     /// // TODO: Add example
-    pub fn verify(&self, proof: &Proof<Hash>, del_hashes: &[Hash]) -> Result<bool, String> {
-        proof.verify(del_hashes, &self.roots, self.leaves)
+    pub fn verify(&self, proof: &Proof<Hash>, del_hashes: &[Hash]) -> Result<bool, StumpError> {
+        Ok(proof
+            .verify(del_hashes, &self.roots, self.leaves)
+            .map_err(|error| StumpError::InvalidProof(error))?)
     }
 
     /// Creates a new Stump with a custom hash type
@@ -188,7 +214,7 @@ impl<Hash: AccumulatorHash> Stump<Hash> {
         utxos: &[Hash],
         del_hashes: &[Hash],
         proof: &Proof<Hash>,
-    ) -> Result<(Stump<Hash>, UpdateData<Hash>), String> {
+    ) -> Result<(Stump<Hash>, UpdateData<Hash>), StumpError> {
         let (intermediate, mut computed_roots) = self.remove(del_hashes, proof)?;
         let mut new_roots = vec![];
 
@@ -207,7 +233,7 @@ impl<Hash: AccumulatorHash> Stump<Hash> {
         // If there are still roots to be added, it means that the proof is invalid
         // as we should have consumed all the roots.
         if !computed_roots.is_empty() {
-            return Err("Invalid proof".to_string());
+            return Err(StumpError::EmptyProof);
         }
 
         let (roots, updated, destroyed) = Stump::add(new_roots, utxos, self.leaves);
@@ -216,6 +242,7 @@ impl<Hash: AccumulatorHash> Stump<Hash> {
             leaves: self.leaves + utxos.len() as u64,
             roots,
         };
+
         let update_data = UpdateData {
             new_add: updated,
             prev_num_leaves: self.leaves,
@@ -250,15 +277,16 @@ impl<Hash: AccumulatorHash> Stump<Hash> {
     ///     Stump::<BitcoinNodeHash>::deserialize(buffer).unwrap()
     /// );
     /// ```
-    pub fn deserialize<Source: Read>(mut data: Source) -> Result<Self, String> {
+    pub fn deserialize<Source: Read>(mut data: Source) -> Result<Self, StumpError> {
         let leaves = util::read_u64(&mut data)?;
         let roots_len = util::read_u64(&mut data)?;
         let mut roots = vec![];
 
         for _ in 0..roots_len {
-            let root = Hash::read(&mut data).map_err(|e| e.to_string())?;
+            let root = Hash::read(&mut data)?;
             roots.push(root);
         }
+
         Ok(Stump { leaves, roots })
     }
 
@@ -266,7 +294,7 @@ impl<Hash: AccumulatorHash> Stump<Hash> {
         &self,
         del_hashes: &[Hash],
         proof: &Proof<Hash>,
-    ) -> Result<NodesAndRootsOldNew<Hash>, String> {
+    ) -> Result<NodesAndRootsOldNew<Hash>, StumpError> {
         if del_hashes.is_empty() {
             return Ok((
                 vec![],
@@ -279,7 +307,9 @@ impl<Hash: AccumulatorHash> Stump<Hash> {
             .map(|hash| (*hash, Hash::empty()))
             .collect::<Vec<_>>();
 
-        proof.calculate_hashes_delete(&del_hashes, self.leaves)
+        Ok(proof
+            .calculate_hashes_delete(&del_hashes, self.leaves)
+            .map_err(|reason| StumpError::InvalidProof(reason))?)
     }
 
     /// Adds new leaves into the root

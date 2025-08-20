@@ -397,18 +397,22 @@ impl<Hash: AccumulatorHash> Proof<Hash> {
     /// assert_eq!(Proof::default(), deserialized_proof);
     /// ```
     pub fn deserialize<Source: Read>(mut buf: Source) -> Result<Self, String> {
-        let targets_len = read_u64(&mut buf)? as usize;
+        let targets_len =
+            read_u64(&mut buf).map_err(|reason| format!("io error {reason}"))? as usize;
 
         let mut targets = Vec::with_capacity(targets_len);
         for _ in 0..targets_len {
             targets.push(read_u64(&mut buf).map_err(|_| "Failed to parse target")?);
         }
-        let hashes_len = read_u64(&mut buf)? as usize;
+
+        let hashes_len =
+            read_u64(&mut buf).map_err(|reason| format!("io error {reason}"))? as usize;
         let mut hashes = Vec::with_capacity(hashes_len);
         for _ in 0..hashes_len {
             let hash = Hash::read(&mut buf).map_err(|_| "Failed to parse hash")?;
             hashes.push(hash);
         }
+
         Ok(Proof { targets, hashes })
     }
 
