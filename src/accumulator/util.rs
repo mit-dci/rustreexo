@@ -35,8 +35,7 @@ pub fn calc_next_pos(position: u64, del_pos: u64, forest_rows: u8) -> Result<u64
 
     if del_row < pos_row {
         return Err(format!(
-            "calc_next_pos fail: del_pos of {} is at a lower row than position at {}",
-            del_pos, position
+            "calc_next_pos fail: del_pos of {del_pos} is at a lower row than position at {position}"
         ));
     }
 
@@ -73,7 +72,7 @@ pub fn detwin(nodes: Vec<u64>, forest_rows: u8) -> Vec<u64> {
         if next == sibling {
             let parent = parent(node, forest_rows);
 
-            if let Err(_) = computed.binary_search(&parent) {
+            if computed.binary_search(&parent).is_err() {
                 computed.push(parent);
             }
 
@@ -223,12 +222,13 @@ pub fn max_position_at_row(row: u8, total_rows: u8, num_leaves: u64) -> Result<u
 pub fn parent(pos: u64, forest_rows: u8) -> u64 {
     (pos >> 1) | (1 << forest_rows)
 }
-pub fn read_u64<Source: Read>(buf: &mut Source) -> Result<u64, String> {
+
+pub fn read_u64<Source: Read>(buf: &mut Source) -> Result<u64, std::io::Error> {
     let mut bytes = [0u8; 8];
-    buf.read_exact(&mut bytes)
-        .map_err(|_| "Failed to read u64")?;
+    buf.read_exact(&mut bytes)?;
     Ok(u64::from_le_bytes(bytes))
 }
+
 // tree_rows returns the number of rows given n leaves
 pub fn tree_rows(n: u64) -> u8 {
     if n == 0 {
@@ -254,8 +254,7 @@ pub fn parent_many(pos: u64, rise: u8, forest_rows: u8) -> Result<u64, String> {
     }
     if rise > forest_rows {
         return Err(format!(
-            "Cannot rise more than the forestRows: rise: {} forest_rows: {}",
-            rise, forest_rows
+            "Cannot rise more than the forestRows: rise: {rise} forest_rows: {forest_rows}"
         ));
     }
 
@@ -280,16 +279,6 @@ pub fn is_ancestor(higher_pos: u64, lower_pos: u64, forest_rows: u8) -> Result<b
     let ancestor = parent_many(lower_pos, higher_row - lower_row, forest_rows)?;
 
     Ok(higher_pos == ancestor)
-}
-
-/// Returns whether next is node's sibling or not
-pub fn is_right_sibling(node: u64, next: u64) -> bool {
-    node | 1 == next
-}
-
-/// Returns whether a and b are sibling or not
-fn is_sibling(a: u64, b: u64) -> bool {
-    a ^ 1 == b
 }
 
 /// Returns which node should have its hashes on the proof, along with all nodes
@@ -374,25 +363,12 @@ mod tests {
     }
 
     #[test]
-    fn test_is_sibling() {
-        assert!(super::is_sibling(0, 1));
-        assert!(super::is_sibling(1, 0));
-        assert!(!super::is_sibling(1, 2));
-        assert!(!super::is_sibling(2, 1));
-    }
-
-    #[test]
     fn test_root_position() {
         let pos = super::root_position(5, 2, 3);
         assert_eq!(pos, 12);
 
         let pos = super::root_position(5, 0, 3);
         assert_eq!(pos, 4);
-    }
-
-    #[test]
-    fn test_is_right_sibling() {
-        assert!(super::is_right_sibling(0, 1));
     }
 
     #[test]

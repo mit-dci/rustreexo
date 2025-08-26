@@ -179,10 +179,10 @@ impl<Hash: AccumulatorHash> PartialEq for PollardError<Hash> {
 impl<Hash: AccumulatorHash> Debug for PollardError<Hash> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            PollardError::NodeNotFound(hash) => write!(f, "Node not found: {}", hash),
-            PollardError::PositionNotFound(pos) => write!(f, "Position not found: {}", pos),
+            PollardError::NodeNotFound(hash) => write!(f, "Node not found: {hash}"),
+            PollardError::PositionNotFound(pos) => write!(f, "Position not found: {pos}"),
             PollardError::InvalidProof => write!(f, "Invalid proof"),
-            PollardError::IO(err) => write!(f, "IO error: {}", err),
+            PollardError::IO(err) => write!(f, "IO error: {err}"),
             PollardError::CouldNotUpgradeNode => {
                 write!(f, "Could not upgrade node, this is probably a bug")
             }
@@ -199,7 +199,7 @@ impl<Hash: AccumulatorHash> Debug for PollardError<Hash> {
 
 impl<Hash: AccumulatorHash> std::fmt::Display for PollardError<Hash> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
+        write!(f, "{self:?}")
     }
 }
 

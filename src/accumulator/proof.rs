@@ -397,18 +397,22 @@ impl<Hash: AccumulatorHash> Proof<Hash> {
     /// assert_eq!(Proof::default(), deserialized_proof);
     /// ```
     pub fn deserialize<Source: Read>(mut buf: Source) -> Result<Self, String> {
-        let targets_len = read_u64(&mut buf)? as usize;
+        let targets_len =
+            read_u64(&mut buf).map_err(|reason| format!("io error {reason}"))? as usize;
 
         let mut targets = Vec::with_capacity(targets_len);
         for _ in 0..targets_len {
             targets.push(read_u64(&mut buf).map_err(|_| "Failed to parse target")?);
         }
-        let hashes_len = read_u64(&mut buf)? as usize;
+
+        let hashes_len =
+            read_u64(&mut buf).map_err(|reason| format!("io error {reason}"))? as usize;
         let mut hashes = Vec::with_capacity(hashes_len);
         for _ in 0..hashes_len {
             let hash = Hash::read(&mut buf).map_err(|_| "Failed to parse hash")?;
             hashes.push(hash);
         }
+
         Ok(Proof { targets, hashes })
     }
 
@@ -473,10 +477,10 @@ impl<Hash: AccumulatorHash> Proof<Hash> {
             let sibling = next_pos | 1;
             let (sibling_pos, (sibling_hash_old, sibling_hash_new)) =
                 Self::get_next(&computed, &nodes, &mut computed_index, &mut provided_index)
-                    .ok_or(format!("Missing sibling for {}", next_pos))?;
+                    .ok_or(format!("Missing sibling for {next_pos}"))?;
 
             if sibling_pos != sibling {
-                return Err(format!("Missing sibling for {}", next_pos));
+                return Err(format!("Missing sibling for {next_pos}"));
             }
 
             let parent_hash = match (next_hash_new.is_empty(), sibling_hash_new.is_empty()) {
@@ -555,10 +559,10 @@ impl<Hash: AccumulatorHash> Proof<Hash> {
             let sibling = next_pos | 1;
             let (sibling_pos, sibling_hash) =
                 Self::get_next(&computed, &nodes, &mut computed_index, &mut provided_index)
-                    .ok_or(format!("Missing sibling for {}", next_pos))?;
+                    .ok_or(format!("Missing sibling for {next_pos}"))?;
 
             if sibling_pos != sibling {
-                return Err(format!("Missing sibling for {}", next_pos));
+                return Err(format!("Missing sibling for {next_pos}"));
             }
 
             let parent_hash = AccumulatorHash::parent_hash(&next_hash, &sibling_hash);
@@ -712,7 +716,7 @@ impl<Hash: AccumulatorHash> Proof<Hash> {
                 // This node must be in either new_nodes or in the old proof, otherwise we can't
                 // update our proof
                 if !new_proof.iter().any(|(proof_pos, _)| *proof_pos == pos) {
-                    return Err(format!("Missing position {}", pos));
+                    return Err(format!("Missing position {pos}"));
                 }
             }
         }
