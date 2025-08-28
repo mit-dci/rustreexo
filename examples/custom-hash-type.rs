@@ -45,7 +45,7 @@ enum CustomHash {
 impl std::fmt::Display for CustomHash {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            CustomHash::Hash(h) => write!(f, "Hash({:?})", h),
+            CustomHash::Hash(h) => write!(f, "Hash({h:?})"),
             CustomHash::Placeholder => write!(f, "Placeholder"),
             CustomHash::Empty => write!(f, "Empty"),
         }

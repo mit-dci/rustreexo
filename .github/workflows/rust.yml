@@ -2,15 +2,14 @@ name: Rust
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-
   linting:
     runs-on: ubuntu-latest
 
@@ -32,7 +31,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        toolchain: [nightly, stable, 1.63.0]
+        toolchain: [nightly, stable]
 
     runs-on: ${{ matrix.os }}
     steps:
@@ -41,7 +40,6 @@ jobs:
         with:
           toolchain: ${{ matrix.toolchain }}
           components: rustfmt, clippy
- 
+
       - name: Run Tests
         run: cargo +${{ matrix.toolchain }} test --all
-

@@ -281,6 +281,18 @@ pub fn is_ancestor(higher_pos: u64, lower_pos: u64, forest_rows: u8) -> Result<b
     Ok(higher_pos == ancestor)
 }
 
+/// Returns whether next is node's sibling or not
+#[allow(dead_code)]
+pub fn is_right_sibling(node: u64, next: u64) -> bool {
+    node | 1 == next
+}
+
+/// Returns whether a and b are sibling or not
+#[allow(dead_code)]
+fn is_sibling(a: u64, b: u64) -> bool {
+    a ^ 1 == b
+}
+
 /// Returns which node should have its hashes on the proof, along with all nodes
 /// whose hashes will be calculated to reach a root
 pub fn get_proof_positions(targets: &[u64], num_leaves: u64, forest_rows: u8) -> Vec<u64> {
@@ -328,7 +340,6 @@ pub fn get_proof_positions(targets: &[u64], num_leaves: u64, forest_rows: u8) ->
 #[cfg(any(test, bench))]
 pub fn hash_from_u8(value: u8) -> super::node_hash::BitcoinNodeHash {
     use bitcoin_hashes::sha256;
-    use bitcoin_hashes::Hash;
     use bitcoin_hashes::HashEngine;
 
     let mut engine = bitcoin_hashes::sha256::Hash::engine();

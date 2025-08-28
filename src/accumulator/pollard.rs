@@ -1476,7 +1476,7 @@ mod tests {
         let roots = p.roots().iter().copied().rev().collect::<Vec<_>>();
 
         assert_eq!(roots.len(), case.expected_roots.len());
-        assert_eq!(expected_roots, roots, "Test case failed {:?}", case);
+        assert_eq!(expected_roots, roots, "Test case failed {case:?}");
     }
 
     fn run_case_with_deletion(case: TestCase) {
@@ -1524,7 +1524,7 @@ mod tests {
 
         let roots = p.roots().iter().copied().rev().collect::<Vec<_>>();
         assert_eq!(roots.len(), case.expected_roots.len());
-        assert_eq!(expected_roots, roots, "Test case failed {:?}", case);
+        assert_eq!(expected_roots, roots, "Test case failed {case:?}");
     }
 
     #[test]
@@ -1719,7 +1719,7 @@ mod tests {
         let left = root.left_niece().unwrap();
         let right = root.right_niece().unwrap();
 
-        assert_eq!(p.get_pos(&Rc::downgrade(&root)), Ok(28));
+        assert_eq!(p.get_pos(&Rc::downgrade(root)), Ok(28));
         assert_eq!(p.get_pos(&Rc::downgrade(&left)), Ok(24));
         assert_eq!(p.get_pos(&Rc::downgrade(&right)), Ok(25));
     }
