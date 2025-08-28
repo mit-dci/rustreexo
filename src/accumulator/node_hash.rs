@@ -54,7 +54,6 @@ use std::str::FromStr;
 use bitcoin_hashes::hex;
 use bitcoin_hashes::sha256;
 use bitcoin_hashes::sha512_256;
-use bitcoin_hashes::Hash;
 use bitcoin_hashes::HashEngine;
 #[cfg(feature = "with-serde")]
 use serde::Deserialize;

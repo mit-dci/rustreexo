@@ -1,0 +1,229 @@
+name: Performance Benchmarks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Run benchmarks daily at 2 AM UTC for performance monitoring
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+    inputs:
+      benchmark_suite:
+        description: "Benchmark suite to run"
+        required: false
+        default: "all"
+        type: choice
+        options:
+          - all
+          - stump
+          - proof
+          - accumulator
+          - simple
+      baseline:
+        description: 'Compare against baseline (branch name or "none")'
+        required: false
+        default: "none"
+        type: string
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  benchmark:
+    name: Run Performance Benchmarks
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        rust: [stable]
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: macos-latest
+            target: x86_64-apple-darwin
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Full history for baseline comparison
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ matrix.rust }}
+          components: clippy, rustfmt
+
+      - name: Configure Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.os }}-benchmark-${{ matrix.rust }}
+          cache-on-failure: true
+
+      - name: System information
+        run: |
+          echo "System Information:"
+          echo "OS: ${{ matrix.os }}"
+          echo "Target: ${{ matrix.target }}"
+          echo "Rust version: ${{ matrix.rust }}"
+          echo "CPU cores: $(nproc 2>/dev/null || sysctl -n hw.ncpu)"
+          echo "Memory: $(free -h 2>/dev/null || echo 'N/A on macOS')"
+          echo "Disk space: $(df -h . | tail -1)"
+
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          echo "Installing benchmark dependencies..."
+          sudo apt-get update
+          sudo apt-get install -y gnuplot
+
+      - name: Install dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          echo "Installing benchmark dependencies..."
+          brew install gnuplot coreutils || true
+
+      - name: Optimize environment for benchmarking (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          echo "Optimizing macOS environment for benchmarking..."
+          # Reduce background processes impact
+          sudo launchctl unload /System/Library/LaunchDaemons/com.apple.mds.messages.scan.plist || true
+
+      - name: Validate benchmark compilation
+        run: |
+          echo "Checking benchmark compilation..."
+          cargo check --benches --verbose
+          echo "Benchmarks compile successfully ✅"
+
+      - name: Run quick benchmark check
+        run: |
+          echo "Running quick benchmark compilation check..."
+          cargo bench --bench stump_benchmarks --help > /dev/null || echo "Benchmark help completed"
+
+      - name: Run Stump benchmarks
+        if: ${{ github.event.inputs.benchmark_suite == 'all' || github.event.inputs.benchmark_suite == 'stump' || github.event.inputs.benchmark_suite == '' }}
+        timeout-minutes: 30
+        run: |
+          echo "Running Stump accumulator benchmarks..."
+          mkdir -p benchmark-results
+          cargo bench --bench stump_benchmarks
+          echo "✅ Stump benchmarks completed successfully"
+
+      - name: Run Proof benchmarks
+        if: ${{ github.event.inputs.benchmark_suite == 'all' || github.event.inputs.benchmark_suite == 'proof' || github.event.inputs.benchmark_suite == '' }}
+        timeout-minutes: 30
+        run: |
+          echo "Running Proof operation benchmarks..."
+          mkdir -p benchmark-results
+          cargo bench --bench proof_benchmarks
+          echo "✅ Proof benchmarks completed successfully"
+
+      - name: Run Accumulator comparison benchmarks
+        if: ${{ github.event.inputs.benchmark_suite == 'all' || github.event.inputs.benchmark_suite == 'accumulator' || github.event.inputs.benchmark_suite == '' }}
+        timeout-minutes: 30
+        run: |
+          echo "Running Accumulator comparison benchmarks..."
+          mkdir -p benchmark-results
+          cargo bench --bench accumulator_benchmarks
+          echo "✅ Accumulator benchmarks completed successfully"
+
+      - name: Run all benchmarks with HTML report generation
+        if: ${{ github.event.inputs.benchmark_suite == 'all' || github.event.inputs.benchmark_suite == '' }}
+        timeout-minutes: 30
+        run: |
+          echo "Generating comprehensive HTML reports..."
+          cargo bench
+          echo "✅ Full benchmark suite with HTML reports completed successfully"
+
+      - name: Generate performance summary
+        run: |
+          echo "Generating performance summary..."
+          mkdir -p benchmark-results
+
+          # Create a summary file
+          cat > benchmark-results/summary.md << 'EOF'
+          # Benchmark Results Summary
+
+          **Date:** $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          **OS:** ${{ matrix.os }}
+          **Rust:** ${{ matrix.rust }}
+          **Commit:** ${{ github.sha }}
+          **Branch:** ${{ github.ref_name }}
+
+          ## Environment
+          - **CPU Cores:** $(nproc 2>/dev/null || sysctl -n hw.ncpu)
+          - **Runner:** ${{ runner.name }}
+          - **Architecture:** ${{ matrix.target }}
+
+          ## Benchmark Execution
+          - **Trigger:** ${{ github.event_name }}
+          - **Suite:** ${{ github.event.inputs.benchmark_suite || 'all' }}
+          - **Baseline:** ${{ github.event.inputs.baseline || 'none' }}
+
+          ## Results
+          Detailed results are available in the artifacts and HTML reports.
+
+          Key performance metrics:
+          - Stump operations: See stump_results.json
+          - Proof operations: See proof_results.json  
+          - Accumulator comparisons: See accumulator_results.json
+          EOF
+
+      - name: Collect benchmark artifacts
+        run: |
+          echo "Collecting benchmark artifacts..."
+
+          # Use the benchmark collection script
+          ./collect_benchmark_results.sh benchmark-results
+
+          mkdir -p artifacts
+
+          # Copy collected results
+          cp -r benchmark-results/* artifacts/ 2>/dev/null || echo "No benchmark results to copy"
+
+          # Copy HTML reports
+          cp -r target/criterion artifacts/html-reports 2>/dev/null || echo "No HTML reports to copy"
+
+          # Copy logs
+          find . -name "*.log" -exec cp {} artifacts/ \; 2>/dev/null || echo "No logs found"
+
+          # Create archive info
+          echo "Archive created: $(date)" > artifacts/archive-info.txt
+          echo "Commit: ${{ github.sha }}" >> artifacts/archive-info.txt
+          echo "Branch: ${{ github.ref_name }}" >> artifacts/archive-info.txt
+          echo "Workflow: ${{ github.workflow }}" >> artifacts/archive-info.txt
+          echo "Run number: ${{ github.run_number }}" >> artifacts/archive-info.txt
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results-${{ matrix.os }}-${{ github.run_number }}
+          path: artifacts/
+          retention-days: 90
+          compression-level: 6
+
+      - name: Upload HTML reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: benchmark-html-reports-${{ matrix.os }}-${{ github.run_number }}
+          path: target/criterion/
+          retention-days: 30
+          compression-level: 9
+
+  cleanup:
+    name: Cleanup
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [benchmark]
+
+    steps:
+      - name: Reset environment
+        run: |
+          echo "Cleanup completed - environment reset for next run"
+          echo "Benchmark workflow execution finished"

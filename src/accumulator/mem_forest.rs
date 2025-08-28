@@ -694,7 +694,6 @@ mod test {
     use std::vec;
 
     use bitcoin_hashes::sha256::Hash as Data;
-    use bitcoin_hashes::Hash;
     use bitcoin_hashes::HashEngine;
     use serde::Deserialize;
 
@@ -885,7 +884,7 @@ mod test {
             .iter()
             .map(|root| root.data.get())
             .collect::<Vec<_>>();
-        assert_eq!(expected_roots, roots, "Test case failed {:?}", case);
+        assert_eq!(expected_roots, roots, "Test case failed {case:?}");
     }
 
     fn run_case_with_deletion(case: TestCase) {
@@ -916,7 +915,7 @@ mod test {
             .iter()
             .map(|root| root.data.get())
             .collect::<Vec<_>>();
-        assert_eq!(expected_roots, roots, "Test case failed {:?}", case);
+        assert_eq!(expected_roots, roots, "Test case failed {case:?}");
     }
 
     #[test]
