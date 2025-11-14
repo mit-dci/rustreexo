@@ -106,7 +106,7 @@ pub struct Proof<Hash: AccumulatorHash = BitcoinNodeHash> {
 // the default hash type for a proof is BitcoinNodeHash
 impl Default for Proof<BitcoinNodeHash> {
     fn default() -> Self {
-        Proof {
+        Self {
             targets: Vec::new(),
             hashes: Vec::new(),
         }
@@ -159,8 +159,8 @@ impl Proof {
     /// // Fill `proof_hashes` up with all hashes
     /// Proof::new(targets, proof_hashes);
     /// ```
-    pub fn new(targets: Vec<u64>, hashes: Vec<BitcoinNodeHash>) -> Proof<BitcoinNodeHash> {
-        Proof { targets, hashes }
+    pub fn new(targets: Vec<u64>, hashes: Vec<BitcoinNodeHash>) -> Self {
+        Self { targets, hashes }
     }
 }
 
@@ -203,7 +203,7 @@ impl<Hash: AccumulatorHash> Proof<Hash> {
     /// Proof::<BitcoinNodeHash>::new_with_hash(targets, proof_hashes);
     /// ```
     pub fn new_with_hash(targets: Vec<u64>, hashes: Vec<Hash>) -> Self {
-        Proof { targets, hashes }
+        Self { targets, hashes }
     }
 
     /// Public interface for verifying proofs. Returns a result with a bool or an Error
@@ -316,7 +316,7 @@ impl<Hash: AccumulatorHash> Proof<Hash> {
         del_hashes: &[Hash],
         new_targets: &[u64],
         num_leaves: u64,
-    ) -> Result<Proof<Hash>, String> {
+    ) -> Result<Self, String> {
         let forest_rows = tree_rows(num_leaves);
         let old_proof_positions = get_proof_positions(&self.targets, num_leaves, forest_rows);
         let needed_positions = get_proof_positions(new_targets, num_leaves, forest_rows);
@@ -341,7 +341,7 @@ impl<Hash: AccumulatorHash> Proof<Hash> {
         }
         new_proof.sort();
         let (_, new_proof): (Vec<u64>, Vec<Hash>) = new_proof.into_iter().unzip();
-        Ok(Proof {
+        Ok(Self {
             targets: new_targets.to_vec(),
             hashes: new_proof,
         })
@@ -413,7 +413,7 @@ impl<Hash: AccumulatorHash> Proof<Hash> {
             hashes.push(hash);
         }
 
-        Ok(Proof { targets, hashes })
+        Ok(Self { targets, hashes })
     }
 
     /// Returns how many targets this proof has
@@ -618,7 +618,7 @@ impl<Hash: AccumulatorHash> Proof<Hash> {
         block_targets: Vec<u64>,
         remembers: Vec<u64>,
         update_data: UpdateData<Hash>,
-    ) -> Result<(Proof<Hash>, Vec<Hash>), String> {
+    ) -> Result<(Self, Vec<Hash>), String> {
         let (proof_after_deletion, cached_hashes) = self.update_proof_remove(
             block_targets,
             cached_hashes,
@@ -646,7 +646,7 @@ impl<Hash: AccumulatorHash> Proof<Hash> {
         new_nodes: Vec<(u64, Hash)>,
         before_num_leaves: u64,
         to_destroy: Vec<u64>,
-    ) -> Result<(Proof<Hash>, Vec<Hash>), String> {
+    ) -> Result<(Self, Vec<Hash>), String> {
         // Combine the hashes with the targets.
         let orig_targets_with_hash: Vec<(u64, Hash)> = self
             .targets
@@ -665,20 +665,20 @@ impl<Hash: AccumulatorHash> Proof<Hash> {
 
         // Remap the positions if we moved up a after the addition row.
         let targets_after_remap =
-            Proof::maybe_remap(before_num_leaves, adds.len() as u64, orig_targets_with_hash);
+            Self::maybe_remap(before_num_leaves, adds.len() as u64, orig_targets_with_hash);
         let mut final_targets = targets_after_remap;
         let mut new_nodes_iter = new_nodes.iter();
         let mut proof_with_pos =
-            Proof::maybe_remap(before_num_leaves, adds.len() as u64, proof_with_pos);
+            Self::maybe_remap(before_num_leaves, adds.len() as u64, proof_with_pos);
 
         let num_leaves = before_num_leaves + (adds.len() as u64);
         // Move up positions that need to be moved up due to the empty roots
         // being written over.
         for node in to_destroy {
             final_targets =
-                Proof::calc_next_positions(&vec![node], &final_targets, num_leaves, true)?;
+                Self::calc_next_positions(&vec![node], &final_targets, num_leaves, true)?;
             proof_with_pos =
-                Proof::calc_next_positions(&vec![node], &proof_with_pos, num_leaves, true)?;
+                Self::calc_next_positions(&vec![node], &proof_with_pos, num_leaves, true)?;
         }
 
         // remembers is an index telling what newly created UTXO should be cached
@@ -724,7 +724,7 @@ impl<Hash: AccumulatorHash> Proof<Hash> {
 
         let (_, hashes): (Vec<u64>, Vec<Hash>) = new_proof.into_iter().unzip();
         Ok((
-            Proof::<Hash> {
+            Self {
                 hashes,
                 targets: new_target_pos,
             },
@@ -768,7 +768,7 @@ impl<Hash: AccumulatorHash> Proof<Hash> {
         cached_hashes: Vec<Hash>,
         updated: Vec<(u64, Hash)>,
         num_leaves: u64,
-    ) -> Result<(Proof<Hash>, Vec<Hash>), String> {
+    ) -> Result<(Self, Vec<Hash>), String> {
         let total_rows = util::tree_rows(num_leaves);
 
         let targets_with_hash: Vec<(u64, Hash)> = self
@@ -831,18 +831,18 @@ impl<Hash: AccumulatorHash> Proof<Hash> {
         // element. If so we move it to its new position. After that the vector is probably unsorted, so we sort it.
 
         let mut proof_elements: Vec<_> =
-            Proof::calc_next_positions(&block_targets, &new_proof, num_leaves, true)?;
+            Self::calc_next_positions(&block_targets, &new_proof, num_leaves, true)?;
 
         proof_elements.sort();
         // Grab the hashes for the proof
         let (_, hashes): (Vec<u64>, Vec<Hash>) = proof_elements.into_iter().unzip();
         // Gets all proof targets, but with their new positions after delete
         let (targets, target_hashes) =
-            Proof::calc_next_positions(&block_targets, &targets_with_hash, num_leaves, true)?
+            Self::calc_next_positions(&block_targets, &targets_with_hash, num_leaves, true)?
                 .into_iter()
                 .unzip();
 
-        Ok((Proof { hashes, targets }, target_hashes))
+        Ok((Self { hashes, targets }, target_hashes))
     }
 
     fn calc_next_positions(
