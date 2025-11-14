@@ -45,9 +45,9 @@ enum CustomHash {
 impl std::fmt::Display for CustomHash {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            CustomHash::Hash(h) => write!(f, "Hash({h:?})"),
-            CustomHash::Placeholder => write!(f, "Placeholder"),
-            CustomHash::Empty => write!(f, "Empty"),
+            Self::Hash(h) => write!(f, "Hash({h:?})"),
+            Self::Placeholder => write!(f, "Placeholder"),
+            Self::Empty => write!(f, "Empty"),
         }
     }
 }
@@ -57,24 +57,24 @@ impl std::fmt::Display for CustomHash {
 impl AccumulatorHash for CustomHash {
     // returns a new placeholder type such that is_placeholder returns true
     fn placeholder() -> Self {
-        CustomHash::Placeholder
+        Self::Placeholder
     }
 
     // returns an empty hash such that is_empty returns true
     fn empty() -> Self {
-        CustomHash::Empty
+        Self::Empty
     }
 
     // returns true if this is a placeholder. This should be true iff this type was created by
     // calling placeholder.
     fn is_placeholder(&self) -> bool {
-        matches!(self, CustomHash::Placeholder)
+        matches!(self, Self::Placeholder)
     }
 
     // returns true if this is an empty hash. This should be true iff this type was created by
     // calling empty.
     fn is_empty(&self) -> bool {
-        matches!(self, CustomHash::Empty)
+        matches!(self, Self::Empty)
     }
 
     // used for serialization, writes the hash to the writer
@@ -85,9 +85,9 @@ impl AccumulatorHash for CustomHash {
         W: std::io::Write,
     {
         match self {
-            CustomHash::Hash(h) => writer.write_all(h),
-            CustomHash::Placeholder => writer.write_all(&[0u8; 32]),
-            CustomHash::Empty => writer.write_all(&[0u8; 32]),
+            Self::Hash(h) => writer.write_all(h),
+            Self::Placeholder => writer.write_all(&[0u8; 32]),
+            Self::Empty => writer.write_all(&[0u8; 32]),
         }
     }
 
@@ -101,9 +101,9 @@ impl AccumulatorHash for CustomHash {
         let mut h = [0u8; 32];
         reader.read_exact(&mut h)?;
         if h.iter().all(|&x| x == 0) {
-            Ok(CustomHash::Placeholder)
+            Ok(Self::Placeholder)
         } else {
-            Ok(CustomHash::Hash(h))
+            Ok(Self::Hash(h))
         }
     }
 
@@ -113,12 +113,12 @@ impl AccumulatorHash for CustomHash {
     // **both** children are not empty.
     fn parent_hash(left: &Self, right: &Self) -> Self {
         match (left, right) {
-            (CustomHash::Hash(l), CustomHash::Hash(r)) => {
+            (Self::Hash(l), Self::Hash(r)) => {
                 let mut h = [0u8; 32];
                 for i in 0..32 {
                     h[i] = l[i] ^ r[i];
                 }
-                CustomHash::Hash(h)
+                Self::Hash(h)
             }
             _ => unreachable!(),
         }
