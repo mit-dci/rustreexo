@@ -72,7 +72,7 @@ pub enum StumpError {
 
 impl From<std::io::Error> for StumpError {
     fn from(err: std::io::Error) -> Self {
-        StumpError::Io(err.kind())
+        Self::Io(err.kind())
     }
 }
 
@@ -85,7 +85,7 @@ pub struct Stump<Hash: AccumulatorHash = BitcoinNodeHash> {
 
 impl Default for Stump {
     fn default() -> Self {
-        Stump::new()
+        Self::new()
     }
 }
 
@@ -97,7 +97,7 @@ impl Stump {
     /// let s = Stump::new();
     /// ```
     pub fn new() -> Self {
-        Stump {
+        Self {
             leaves: 0,
             roots: Vec::new(),
         }
@@ -158,7 +158,7 @@ impl Stump {
     /// // A reorg happened
     /// s_new.undo(s_old);
     /// ```
-    pub fn undo(&mut self, old_state: Stump) {
+    pub fn undo(&mut self, old_state: Self) {
         self.leaves = old_state.leaves;
         self.roots = old_state.roots;
     }
@@ -180,8 +180,8 @@ impl<Hash: AccumulatorHash> Stump<Hash> {
     /// If you need to use a hash type that's not the [BitcoinNodeHash], you can use this
     /// function to create a new Stump with the desired hash type. Use [BitcoinNodeHash::new]
     /// to create a new Stump with the default hash type.
-    pub fn new_with_hash() -> Stump<Hash> {
-        Stump {
+    pub fn new_with_hash() -> Self {
+        Self {
             leaves: 0,
             roots: Vec::new(),
         }
@@ -214,7 +214,7 @@ impl<Hash: AccumulatorHash> Stump<Hash> {
         utxos: &[Hash],
         del_hashes: &[Hash],
         proof: &Proof<Hash>,
-    ) -> Result<(Stump<Hash>, UpdateData<Hash>), StumpError> {
+    ) -> Result<(Self, UpdateData<Hash>), StumpError> {
         let (intermediate, mut computed_roots) = self.remove(del_hashes, proof)?;
         let mut new_roots = vec![];
 
@@ -236,9 +236,9 @@ impl<Hash: AccumulatorHash> Stump<Hash> {
             return Err(StumpError::EmptyProof);
         }
 
-        let (roots, updated, destroyed) = Stump::add(new_roots, utxos, self.leaves);
+        let (roots, updated, destroyed) = Self::add(new_roots, utxos, self.leaves);
 
-        let new_stump = Stump {
+        let new_stump = Self {
             leaves: self.leaves + utxos.len() as u64,
             roots,
         };
@@ -287,7 +287,7 @@ impl<Hash: AccumulatorHash> Stump<Hash> {
             roots.push(root);
         }
 
-        Ok(Stump { leaves, roots })
+        Ok(Self { leaves, roots })
     }
 
     fn remove(
@@ -411,7 +411,7 @@ mod test {
 
         impl AccumulatorHash for CustomHash {
             fn empty() -> Self {
-                CustomHash([0; 32])
+                Self([0; 32])
             }
             fn is_empty(&self) -> bool {
                 self.0.iter().all(|&x| x == 0)
@@ -422,7 +422,7 @@ mod test {
                 for i in 0..32 {
                     hash[i] = left.0[i] ^ right.0[i];
                 }
-                CustomHash(hash)
+                Self(hash)
             }
             fn read<R: Read>(reader: &mut R) -> std::io::Result<Self> {
                 let mut hash = [0; 32];
@@ -430,7 +430,7 @@ mod test {
                     .read_exact(&mut hash)
                     .map_err(|e| e.to_string())
                     .unwrap();
-                Ok(CustomHash(hash))
+                Ok(Self(hash))
             }
             fn write<W: Write>(&self, writer: &mut W) -> std::io::Result<()> {
                 writer
@@ -443,7 +443,7 @@ mod test {
                 false
             }
             fn placeholder() -> Self {
-                CustomHash([0; 32])
+                Self([0; 32])
             }
         }
 
