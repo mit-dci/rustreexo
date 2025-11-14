@@ -13,7 +13,7 @@ build:
 check:
     cargo +nightly fmt --all --check
     cargo +nightly check --all-features --all-targets --tests --benches
-    cargo +nightly clippy --all-features --all-targets --tests --benches
+    cargo +nightly clippy --all-features --all-targets --tests --benches -- -D warnings
 
 # Format code
 fmt:
