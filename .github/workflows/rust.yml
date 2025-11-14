@@ -1,31 +1,33 @@
 name: Rust
 
-on:
-  push:
-    branches: ["main"]
-  pull_request:
-    branches: ["main"]
-
 env:
   CARGO_TERM_COLOR: always
 
+on:
+  push:
+    branches: ["main"]
+  pull_request: []
+
 jobs:
-  linting:
+  check:
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install latest nightly
+      - name: Install latest nightly Rust toolchain
         uses: dtolnay/rust-toolchain@nightly
         with:
-          components: rustfmt, clippy
+          components: clippy, rustfmt
 
-      - name: Run cargo fmt
-        run: cargo +nightly fmt --all --check
+      - name: Setup just
+        uses: extractions/setup-just@v3
 
-      - name: Run cargo clippy
-        run: cargo +nightly clippy --all-targets
+      - name: Run just fmt
+        run: just fmt
+
+      - name: Run just check
+        run: just check
 
   cross-testing:
     strategy:
@@ -42,4 +44,4 @@ jobs:
           components: rustfmt, clippy
 
       - name: Run Tests
-        run: cargo +${{ matrix.toolchain }} test --all
+        run: cargo +${{ matrix.toolchain }} test --all-features
