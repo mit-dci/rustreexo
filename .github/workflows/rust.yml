@@ -3,10 +3,7 @@ name: Rust
 env:
   CARGO_TERM_COLOR: always
 
-on:
-  push:
-    branches: ["main"]
-  pull_request: []
+on: [push, pull_request]
 
 jobs:
   check:
