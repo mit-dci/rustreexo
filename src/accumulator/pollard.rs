@@ -82,7 +82,7 @@ struct PollardNode<Hash: AccumulatorHash> {
     /// If a node is a root, this value is `None`, as it doesn't have an aunt. If this node's
     /// parent is a root, then it actually points to its parent, as the parent is a root, and
     /// there's no aunt.
-    aunt: RefCell<Option<Weak<PollardNode<Hash>>>>,
+    aunt: RefCell<Option<Weak<Self>>>,
     /// This node's left niece
     ///
     /// The left niece is the left child of this node's sibling. We use an actual [Rc] here, to
@@ -90,7 +90,7 @@ struct PollardNode<Hash: AccumulatorHash> {
     /// function's scope, as it may create cycles in the tree. This is a [RefCell] because we may
     /// need to either prune the nieces, or swap them if this node is a root. If this node is a
     /// leaf, this value is `None`, as it doesn't have any descendants.
-    left_niece: RefCell<Option<Rc<PollardNode<Hash>>>>,
+    left_niece: RefCell<Option<Rc<Self>>>,
     /// This node's right niece
     ///
     /// The right niece is the right child of this node's sibling. We use an actual [Rc] here, to
@@ -98,7 +98,7 @@ struct PollardNode<Hash: AccumulatorHash> {
     /// function's scope, as it may create cycles in the tree. This is a [RefCell] because we may
     /// need to either prune the nieces, or swap them if this node is a root. If this node is a
     /// leaf, this value is `None`, as it doesn't have any descendants.
-    right_niece: RefCell<Option<Rc<PollardNode<Hash>>>>,
+    right_niece: RefCell<Option<Rc<Self>>>,
 }
 
 pub enum PollardError<Hash: AccumulatorHash> {
@@ -165,7 +165,7 @@ pub enum PollardError<Hash: AccumulatorHash> {
 
 impl<Hash: AccumulatorHash> From<std::io::Error> for PollardError<Hash> {
     fn from(err: std::io::Error) -> Self {
-        PollardError::IO(err)
+        Self::IO(err)
     }
 }
 
@@ -179,20 +179,20 @@ impl<Hash: AccumulatorHash> PartialEq for PollardError<Hash> {
 impl<Hash: AccumulatorHash> Debug for PollardError<Hash> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            PollardError::NodeNotFound(hash) => write!(f, "Node not found: {hash}"),
-            PollardError::PositionNotFound(pos) => write!(f, "Position not found: {pos}"),
-            PollardError::InvalidProof => write!(f, "Invalid proof"),
-            PollardError::IO(err) => write!(f, "IO error: {err}"),
-            PollardError::CouldNotUpgradeNode => {
+            Self::NodeNotFound(hash) => write!(f, "Node not found: {hash}"),
+            Self::PositionNotFound(pos) => write!(f, "Position not found: {pos}"),
+            Self::InvalidProof => write!(f, "Invalid proof"),
+            Self::IO(err) => write!(f, "IO error: {err}"),
+            Self::CouldNotUpgradeNode => {
                 write!(f, "Could not upgrade node, this is probably a bug")
             }
-            PollardError::CouldNotFindChildren => {
+            Self::CouldNotFindChildren => {
                 write!(f, "BUG: Could not find children in a case where it should")
             }
-            PollardError::AuntNotFound => write!(f, "Could not find the aunt of a node in a case where it probably should, this might be a bug"),
-            PollardError::SiblingNotFound => write!(f, "Could not find the sibling of a node in a case where it probably should, this might be a bug"),
-            PollardError::NieceNotFound => write!(f, "Could not find the niece of a node in a case where it probably should, this might be a bug"),
-            PollardError::RootNotFound => write!(f, "Could not find the root for a given subtree. Your proof is probably invalid"),
+            Self::AuntNotFound => write!(f, "Could not find the aunt of a node in a case where it probably should, this might be a bug"),
+            Self::SiblingNotFound => write!(f, "Could not find the sibling of a node in a case where it probably should, this might be a bug"),
+            Self::NieceNotFound => write!(f, "Could not find the niece of a node in a case where it probably should, this might be a bug"),
+            Self::RootNotFound => write!(f, "Could not find the root for a given subtree. Your proof is probably invalid"),
         }
     }
 }
@@ -220,8 +220,8 @@ impl<Hash: AccumulatorHash> Eq for PollardNode<Hash> {}
 
 impl<Hash: AccumulatorHash> PollardNode<Hash> {
     /// Creates a new PollardNode with the given hash and remember value
-    fn new(hash: Hash, remember: bool) -> Rc<PollardNode<Hash>> {
-        Rc::new(PollardNode {
+    fn new(hash: Hash, remember: bool) -> Rc<Self> {
+        Rc::new(Self {
             remember,
             hash: Cell::new(hash),
             aunt: RefCell::new(None),
@@ -252,9 +252,9 @@ impl<Hash: AccumulatorHash> PollardNode<Hash> {
 
     fn deserialize<R: std::io::Read>(
         reader: &mut R,
-        ancestor: Option<Weak<PollardNode<Hash>>>,
-        leaf_map: &mut HashMap<Hash, Weak<PollardNode<Hash>>>,
-    ) -> Result<Rc<PollardNode<Hash>>, PollardError<Hash>> {
+        ancestor: Option<Weak<Self>>,
+        leaf_map: &mut HashMap<Hash, Weak<Self>>,
+    ) -> Result<Rc<Self>, PollardError<Hash>> {
         let mut is_leaf = [0u8; 1];
         reader.read_exact(&mut is_leaf)?;
 
@@ -263,7 +263,7 @@ impl<Hash: AccumulatorHash> PollardNode<Hash> {
         let hash = Hash::read(reader)?;
 
         if is_leaf == 1 {
-            let node = Rc::new(PollardNode {
+            let node = Rc::new(Self {
                 remember: true,
                 hash: Cell::new(hash),
                 aunt: RefCell::new(ancestor),
@@ -275,7 +275,7 @@ impl<Hash: AccumulatorHash> PollardNode<Hash> {
             return Ok(node);
         }
 
-        let node = Rc::new(PollardNode {
+        let node = Rc::new(Self {
             remember: true,
             hash: Cell::new(hash),
             aunt: RefCell::new(ancestor),
@@ -285,8 +285,8 @@ impl<Hash: AccumulatorHash> PollardNode<Hash> {
 
         let node_weak = Rc::downgrade(&node);
 
-        let left = PollardNode::<Hash>::deserialize(reader, Some(node_weak.clone()), leaf_map)?;
-        let right = PollardNode::<Hash>::deserialize(reader, Some(node_weak), leaf_map)?;
+        let left = Self::deserialize(reader, Some(node_weak.clone()), leaf_map)?;
+        let right = Self::deserialize(reader, Some(node_weak), leaf_map)?;
 
         node.left_niece.replace(Some(left));
         node.right_niece.replace(Some(right));
@@ -294,7 +294,7 @@ impl<Hash: AccumulatorHash> PollardNode<Hash> {
         Ok(node)
     }
 
-    fn parent(&self) -> Option<Rc<PollardNode<Hash>>> {
+    fn parent(&self) -> Option<Rc<Self>> {
         let granparent = self.grandparent();
         if granparent.is_none() {
             return self.aunt();
@@ -339,7 +339,7 @@ impl<Hash: AccumulatorHash> PollardNode<Hash> {
     ///
     /// This function should return an [Rc] containing the sibling of this node. If this node is a
     /// root, it should return `None`, as roots don't have siblings.
-    fn sibling(&self) -> Option<Rc<PollardNode<Hash>>> {
+    fn sibling(&self) -> Option<Rc<Self>> {
         let aunt = self.aunt()?;
         if aunt.left_niece()?.hash() == self.hash() {
             aunt.right_niece()
@@ -352,7 +352,7 @@ impl<Hash: AccumulatorHash> PollardNode<Hash> {
     ///
     /// This function should return an [Rc] containing the aunt of this node. If this node is a
     /// root, it should return `None`, as roots don't have aunts.
-    fn aunt(&self) -> Option<Rc<PollardNode<Hash>>> {
+    fn aunt(&self) -> Option<Rc<Self>> {
         self.aunt.borrow().as_ref()?.upgrade()
     }
 
@@ -361,7 +361,7 @@ impl<Hash: AccumulatorHash> PollardNode<Hash> {
     /// This function should return an [Rc] containing the grandparent of this node (i.e. the
     /// parent of this node's parent). If this node is a root, it should return `None`, as roots
     /// don't have grandparents.
-    fn grandparent(&self) -> Option<Rc<PollardNode<Hash>>> {
+    fn grandparent(&self) -> Option<Rc<Self>> {
         self.aunt()?.aunt()
     }
 
@@ -471,13 +471,13 @@ impl<Hash: AccumulatorHash> PollardNode<Hash> {
     }
 
     /// Sets the nieces of this nodes to the provided values
-    fn set_niece(&self, left: Option<Rc<PollardNode<Hash>>>, right: Option<Rc<PollardNode<Hash>>>) {
+    fn set_niece(&self, left: Option<Rc<Self>>, right: Option<Rc<Self>>) {
         *self.left_niece.borrow_mut() = left;
         *self.right_niece.borrow_mut() = right;
     }
 
     /// Sets the aunt of this node to the provided value
-    fn set_aunt(&self, aunt: Weak<PollardNode<Hash>>) {
+    fn set_aunt(&self, aunt: Weak<Self>) {
         *self.aunt.borrow_mut() = Some(aunt);
     }
 
@@ -492,7 +492,7 @@ impl<Hash: AccumulatorHash> PollardNode<Hash> {
     /// children, but when we add another node on top of that root, it now should point to the new
     /// node's children. This function swaps the nieces of this node with the nieces of the provided
     /// node.
-    fn swap_nieces(&self, other: &PollardNode<Hash>) {
+    fn swap_nieces(&self, other: &Self) {
         std::mem::swap(
             &mut *self.left_niece.borrow_mut(),
             &mut *other.left_niece.borrow_mut(),
@@ -506,14 +506,14 @@ impl<Hash: AccumulatorHash> PollardNode<Hash> {
     /// Returns the left niece of this node
     ///
     /// If this node is a leaf, this function should return `None`, as leaves don't have nieces.
-    fn left_niece(&self) -> Option<Rc<PollardNode<Hash>>> {
+    fn left_niece(&self) -> Option<Rc<Self>> {
         self.left_niece.borrow().clone()
     }
 
     /// Returns the right niece of this node
     ///
     /// If this node is a leaf, this function should return `None`, as leaves don't have nieces.
-    fn right_niece(&self) -> Option<Rc<PollardNode<Hash>>> {
+    fn right_niece(&self) -> Option<Rc<Self>> {
         self.right_niece.borrow().clone()
     }
 }
@@ -760,9 +760,9 @@ impl<Hash: AccumulatorHash> Pollard<Hash> {
     }
 
     /// Creates a new empty [Pollard]
-    pub fn new() -> Pollard<Hash> {
+    pub fn new() -> Self {
         let roots: [Option<Rc<PollardNode<Hash>>>; 64] = std::array::from_fn(|_| None);
-        Pollard::<Hash> {
+        Self {
             roots,
             leaves: 0,
             leaf_map: HashMap::new(),
@@ -775,8 +775,8 @@ impl<Hash: AccumulatorHash> Pollard<Hash> {
     /// keep track of a subset of the whole tree. Instead of remputing the pollard from genesis for
     /// every flavor of accumulator you have, you can sync-up using the [Stump] and then use its
     /// roots to create a up-to-date pollard.
-    pub fn from_roots(roots: Vec<Hash>, leaves: u64) -> Pollard<Hash> {
-        let mut pollard = Pollard::<Hash>::new();
+    pub fn from_roots(roots: Vec<Hash>, leaves: u64) -> Self {
+        let mut pollard = Self::new();
         pollard.leaves = leaves;
 
         let roots = (0..=63)
@@ -790,7 +790,7 @@ impl<Hash: AccumulatorHash> Pollard<Hash> {
             .try_into()
             .unwrap();
 
-        Pollard {
+        Self {
             roots,
             leaves,
             leaf_map: HashMap::new(),
@@ -828,14 +828,12 @@ impl<Hash: AccumulatorHash> Pollard<Hash> {
     ///
     /// This function deserializes a [Pollard] from a stream that implements [std::io::Read]. This stream
     /// should contain a [Pollard] serialized with the [serialize] function.
-    pub fn deserialize<R: std::io::Read>(
-        reader: &mut R,
-    ) -> Result<Pollard<Hash>, PollardError<Hash>> {
+    pub fn deserialize<R: std::io::Read>(reader: &mut R) -> Result<Self, PollardError<Hash>> {
         let mut leaves = [0u8; 8];
         reader.read_exact(&mut leaves)?;
         let leaves = u64::from_be_bytes(leaves);
 
-        let mut pollard = Pollard::<Hash>::new();
+        let mut pollard = Self::new();
         pollard.leaves = leaves;
 
         for root in pollard.roots.iter_mut() {
@@ -1260,7 +1258,7 @@ impl<Hash: AccumulatorHash> Pollard<Hash> {
 
 impl<Hash: AccumulatorHash> From<Stump<Hash>> for Pollard<Hash> {
     fn from(stump: Stump<Hash>) -> Self {
-        Pollard::<Hash>::from_roots(stump.roots, stump.leaves)
+        Self::from_roots(stump.roots, stump.leaves)
     }
 }
 
