@@ -62,7 +62,7 @@ pub enum StumpError {
     EmptyProof,
 
     /// An IO error occurred, this is usually due to a failure in reading or writing
-    /// the Stump to a reader/writer. This error will be returned during [de]serialization.
+    /// the Stump to a reader/writer. This error will be returned during (de)serialization.
     Io(std::io::ErrorKind),
 
     /// The provided proof is invalid. This will happen during proof verification and stump

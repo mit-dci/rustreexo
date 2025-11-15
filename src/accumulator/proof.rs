@@ -80,7 +80,7 @@ use super::util::tree_rows;
 pub struct Proof<Hash: AccumulatorHash = BitcoinNodeHash> {
     /// Targets are the i'th of leaf locations to delete and they are the bottommost leaves.
     /// With the tree below, the Targets can only consist of one of these: 02, 03, 04.
-    ///```!
+    ///```text
     ///  // 06
     ///  // |-------\
     ///  // 04      05
@@ -93,7 +93,7 @@ pub struct Proof<Hash: AccumulatorHash = BitcoinNodeHash> {
     /// the tree. Here, the root is 06. If Targets are [00, 01], then Proof
     /// would be \[05\] as you need 04 and 05 to hash to 06. 04 can be calculated
     /// by hashing 00 and 01.
-    ///```!
+    ///```text
     /// // 06
     /// // |-------\
     /// // 04      05
@@ -132,7 +132,7 @@ impl Proof {
     /// `hashes` are of type `AccumulatorHash` and are all hashes we need for computing the roots.
     ///
     /// Assuming a tree with leaf values [0, 1, 2, 3, 4, 5, 6, 7], we should see something like this:
-    ///```!
+    ///```text
     /// // 14
     /// // |-----------------\
     /// // 12                13
@@ -174,7 +174,7 @@ impl<Hash: AccumulatorHash> Proof<Hash> {
     /// hash type, as long as it implements `AccumulatorHash`.
     ///
     /// Assuming a tree with leaf values [0, 1, 2, 3, 4, 5, 6, 7], we should see something like this:
-    ///```!
+    ///```text
     /// // 14
     /// // |-----------------\
     /// // 12                13
@@ -302,7 +302,7 @@ impl<Hash: AccumulatorHash> Proof<Hash> {
     /// 8 leaves, if we cache `[0, 2, 6, 7]`, and we need to prove `[2, 7]` only, we have to remove
     /// elements for 0 and 7. The original proof is `[1, 3, 10]`, and we can compute `[8, 9, 11, 12, 13, 14]`.
     /// But for `[2, 7]` we need `[3, 6, 8, 10]`, and compute `[9, 11, 12, 13, 14]`
-    ///```!
+    ///```text
     /// // 14
     /// // |---------------\
     /// // 12              13

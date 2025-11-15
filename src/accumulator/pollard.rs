@@ -803,7 +803,7 @@ impl<Hash: AccumulatorHash> Pollard<Hash> {
     /// serialized in a compact binary format, so it can be stored in a file or sent over the
     /// network. This function will return an error if it fails to write to the sync.
     ///
-    /// To deserialize the [Pollard] back, you can use the [deserialize] function.
+    /// To deserialize the [Pollard] back, you can use the `deserialize` function.
     pub fn serialize<W: std::io::Write>(&self, writer: &mut W) -> Result<(), PollardError<Hash>> {
         writer.write_all(&self.leaves.to_be_bytes())?;
 
@@ -827,7 +827,7 @@ impl<Hash: AccumulatorHash> Pollard<Hash> {
     /// Deserializes a [Pollard] from a stream
     ///
     /// This function deserializes a [Pollard] from a stream that implements [std::io::Read]. This stream
-    /// should contain a [Pollard] serialized with the [serialize] function.
+    /// should contain a [Pollard] serialized with the `serialize` function.
     pub fn deserialize<R: std::io::Read>(reader: &mut R) -> Result<Self, PollardError<Hash>> {
         let mut leaves = [0u8; 8];
         reader.read_exact(&mut leaves)?;
