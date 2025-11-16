@@ -48,18 +48,18 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v4
         with:
           fetch-depth: 0 # Full history for baseline comparison
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@0f44b27771c32bda9f458f75a1e241b09791b331 # 1.91.1
         with:
           toolchain: ${{ matrix.rust }}
           components: clippy, rustfmt
 
       - name: Configure Rust cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@f13886b937689c021905a6b90929199931d60db1 # v2.8.1
         with:
           key: ${{ matrix.os }}-benchmark-${{ matrix.rust }}
           cache-on-failure: true
