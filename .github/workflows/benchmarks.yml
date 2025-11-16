@@ -27,6 +27,9 @@ on:
         default: "none"
         type: string
 
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
@@ -35,6 +38,8 @@ jobs:
   benchmark:
     name: Run Performance Benchmarks
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -51,6 +56,7 @@ jobs:
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v4
         with:
           fetch-depth: 0 # Full history for baseline comparison
+          persist-credentials: false
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@0f44b27771c32bda9f458f75a1e241b09791b331 # 1.91.1
@@ -141,29 +147,34 @@ jobs:
           echo "✅ Full benchmark suite with HTML reports completed successfully"
 
       - name: Generate performance summary
+        env:
+          BRANCH_NAME: ${{ github.ref_name }}
+          RUNNER_NAME: ${{ runner.name }}
+          BENCHMARK_SUITE: ${{ github.event.inputs.benchmark_suite || 'all' }}
+          BASELINE: ${{ github.event.inputs.baseline || 'none' }}
         run: |
           echo "Generating performance summary..."
           mkdir -p benchmark-results
 
           # Create a summary file
-          cat > benchmark-results/summary.md << 'EOF'
+          cat > benchmark-results/summary.md << EOF
           # Benchmark Results Summary
 
           **Date:** $(date -u +"%Y-%m-%d %H:%M:%S UTC")
           **OS:** ${{ matrix.os }}
           **Rust:** ${{ matrix.rust }}
           **Commit:** ${{ github.sha }}
-          **Branch:** ${{ github.ref_name }}
+          **Branch:** ${BRANCH_NAME}
 
           ## Environment
           - **CPU Cores:** $(nproc 2>/dev/null || sysctl -n hw.ncpu)
-          - **Runner:** ${{ runner.name }}
+          - **Runner:** ${RUNNER_NAME}
           - **Architecture:** ${{ matrix.target }}
 
           ## Benchmark Execution
           - **Trigger:** ${{ github.event_name }}
-          - **Suite:** ${{ github.event.inputs.benchmark_suite || 'all' }}
-          - **Baseline:** ${{ github.event.inputs.baseline || 'none' }}
+          - **Suite:** ${BENCHMARK_SUITE}
+          - **Baseline:** ${BASELINE}
 
           ## Results
           Detailed results are available in the artifacts and HTML reports.
@@ -175,6 +186,9 @@ jobs:
           EOF
 
       - name: Collect benchmark artifacts
+        env:
+          BRANCH_NAME: ${{ github.ref_name }}
+          WORKFLOW_NAME: ${{ github.workflow }}
         run: |
           echo "Collecting benchmark artifacts..."
 
@@ -195,8 +209,8 @@ jobs:
           # Create archive info
           echo "Archive created: $(date)" > artifacts/archive-info.txt
           echo "Commit: ${{ github.sha }}" >> artifacts/archive-info.txt
-          echo "Branch: ${{ github.ref_name }}" >> artifacts/archive-info.txt
-          echo "Workflow: ${{ github.workflow }}" >> artifacts/archive-info.txt
+          echo "Branch: ${BRANCH_NAME}" >> artifacts/archive-info.txt
+          echo "Workflow: ${WORKFLOW_NAME}" >> artifacts/archive-info.txt
           echo "Run number: ${{ github.run_number }}" >> artifacts/archive-info.txt
 
       - name: Upload benchmark results
@@ -221,6 +235,8 @@ jobs:
     runs-on: ubuntu-latest
     if: always()
     needs: [benchmark]
+    permissions:
+      contents: read
 
     steps:
       - name: Reset environment
