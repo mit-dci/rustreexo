@@ -30,6 +30,26 @@ jobs:
       - name: Run just check
         run: just check
 
+  test-msrv:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v4
+        with:
+          persist-credentials: false
+          
+      - name: Install MSRV Rust toolchain
+        uses: dtolnay/rust-toolchain@0f44b27771c32bda9f458f75a1e241b09791b331
+        with:
+          toolchain: "1.63.0"
+        
+      - name: Setup just
+        uses: extractions/setup-just@e33e0265a09d6d736e2ee1e0eb685ef1de4669ff # v3
+        
+      - name: Run MSRV tests
+        run: just test-msrv
+
   cross-testing:
     strategy:
       matrix:
