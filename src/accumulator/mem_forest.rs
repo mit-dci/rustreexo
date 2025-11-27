@@ -73,11 +73,11 @@ pub struct Node<Hash: AccumulatorHash = BitcoinNodeHash> {
     /// The hash of the stored in this node.
     data: Cell<Hash>,
     /// The parent of this node, if any.
-    parent: Parent<Node<Hash>>,
+    parent: Parent<Self>,
     /// The left and right children of this node, if any.
-    left: Children<Node<Hash>>,
+    left: Children<Self>,
     /// The left and right children of this node, if any.
-    right: Children<Node<Hash>>,
+    right: Children<Self>,
 }
 
 impl<Hash: AccumulatorHash> Node<Hash> {
@@ -126,7 +126,7 @@ impl<Hash: AccumulatorHash> Node<Hash> {
     #[allow(clippy::type_complexity)]
     pub fn read_one<R: std::io::Read>(
         reader: &mut R,
-    ) -> std::io::Result<(Rc<Node<Hash>>, HashMap<Hash, Weak<Node<Hash>>>)> {
+    ) -> std::io::Result<(Rc<Self>, HashMap<Hash, Weak<Self>>)> {
         fn _read_one<Hash: AccumulatorHash, R: std::io::Read>(
             ancestor: Option<Rc<Node<Hash>>>,
             reader: &mut R,
@@ -212,8 +212,8 @@ impl MemForest {
     /// use rustreexo::accumulator::mem_forest::MemForest;
     /// let mut mem_forest = MemForest::new();
     /// ```
-    pub fn new() -> MemForest {
-        MemForest {
+    pub fn new() -> Self {
+        Self {
             map: HashMap::new(),
             roots: Vec::new(),
             leaves: 0,
@@ -229,8 +229,8 @@ impl<Hash: AccumulatorHash> MemForest<Hash> {
     /// use rustreexo::accumulator::node_hash::BitcoinNodeHash;
     /// let mut MemForest = MemForest::<BitcoinNodeHash>::new();
     /// ```
-    pub fn new_with_hash() -> MemForest<Hash> {
-        MemForest {
+    pub fn new_with_hash() -> Self {
+        Self {
             map: HashMap::new(),
             roots: Vec::new(),
             leaves: 0,
@@ -276,7 +276,7 @@ impl<Hash: AccumulatorHash> MemForest<Hash> {
     /// assert_eq!(MemForest.leaves, 0);
     /// assert_eq!(MemForest.get_roots().len(), 0);
     /// ```
-    pub fn deserialize<R: Read>(mut reader: R) -> std::io::Result<MemForest<Hash>> {
+    pub fn deserialize<R: Read>(mut reader: R) -> std::io::Result<Self> {
         fn read_u64<R: Read>(reader: &mut R) -> std::io::Result<u64> {
             let mut buf = [0u8; 8];
             reader.read_exact(&mut buf)?;
@@ -291,7 +291,7 @@ impl<Hash: AccumulatorHash> MemForest<Hash> {
             map.extend(_map);
             roots.push(root);
         }
-        Ok(MemForest { roots, leaves, map })
+        Ok(Self { roots, leaves, map })
     }
 
     /// Returns the hash of a given position in the tree.

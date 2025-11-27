@@ -104,7 +104,7 @@ impl Deref for BitcoinNodeHash {
 
     fn deref(&self) -> &Self::Target {
         match self {
-            BitcoinNodeHash::Some(ref inner) => inner,
+            Self::Some(ref inner) => inner,
             _ => &[0; 32],
         }
     }
@@ -112,7 +112,7 @@ impl Deref for BitcoinNodeHash {
 
 impl Display for BitcoinNodeHash {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
-        if let BitcoinNodeHash::Some(ref inner) = self {
+        if let Self::Some(ref inner) = self {
             let mut s = String::new();
             for byte in inner.iter() {
                 s.push_str(&format!("{byte:02x}"));
@@ -127,9 +127,9 @@ impl Display for BitcoinNodeHash {
 impl Debug for BitcoinNodeHash {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
         match self {
-            BitcoinNodeHash::Empty => write!(f, "empty"),
-            BitcoinNodeHash::Placeholder => write!(f, "placeholder"),
-            BitcoinNodeHash::Some(ref inner) => {
+            Self::Empty => write!(f, "empty"),
+            Self::Placeholder => write!(f, "placeholder"),
+            Self::Some(ref inner) => {
                 let mut s = String::new();
                 for byte in inner.iter() {
                     s.push_str(&format!("{byte:02x}"));
@@ -142,19 +142,19 @@ impl Debug for BitcoinNodeHash {
 
 impl From<sha512_256::Hash> for BitcoinNodeHash {
     fn from(hash: sha512_256::Hash) -> Self {
-        BitcoinNodeHash::Some(hash.to_byte_array())
+        Self::Some(hash.to_byte_array())
     }
 }
 
 impl From<[u8; 32]> for BitcoinNodeHash {
     fn from(hash: [u8; 32]) -> Self {
-        BitcoinNodeHash::Some(hash)
+        Self::Some(hash)
     }
 }
 
 impl From<&[u8; 32]> for BitcoinNodeHash {
     fn from(hash: &[u8; 32]) -> Self {
-        BitcoinNodeHash::Some(*hash)
+        Self::Some(*hash)
     }
 }
 
@@ -166,11 +166,11 @@ impl TryFrom<&str> for BitcoinNodeHash {
         // from the string of 64 zeros. Without this, it would be impossible to express this
         // hash in the test vectors.
         if hash == "0000000000000000000000000000000000000000000000000000000000000000" {
-            return Ok(BitcoinNodeHash::Empty);
+            return Ok(Self::Empty);
         }
 
         let hash = hex::FromHex::from_hex(hash)?;
-        Ok(BitcoinNodeHash::Some(hash))
+        Ok(Self::Some(hash))
     }
 }
 
@@ -179,7 +179,7 @@ impl TryFrom<&str> for BitcoinNodeHash {
     type Error = hex::HexToArrayError;
     fn try_from(hash: &str) -> Result<Self, Self::Error> {
         let inner = hex::FromHex::from_hex(hash)?;
-        Ok(BitcoinNodeHash::Some(inner))
+        Ok(Self::Some(inner))
     }
 }
 
@@ -187,19 +187,19 @@ impl From<&[u8]> for BitcoinNodeHash {
     fn from(hash: &[u8]) -> Self {
         let mut inner = [0; 32];
         inner.copy_from_slice(hash);
-        BitcoinNodeHash::Some(inner)
+        Self::Some(inner)
     }
 }
 
 impl From<sha256::Hash> for BitcoinNodeHash {
     fn from(hash: sha256::Hash) -> Self {
-        BitcoinNodeHash::Some(hash.to_byte_array())
+        Self::Some(hash.to_byte_array())
     }
 }
 
 impl FromStr for BitcoinNodeHash {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        BitcoinNodeHash::try_from(s)
+        Self::try_from(s)
     }
 
     type Err = hex::HexToArrayError;
@@ -217,7 +217,7 @@ impl BitcoinNodeHash {
     /// );
     /// ```
     pub fn new(inner: [u8; 32]) -> Self {
-        BitcoinNodeHash::Some(inner)
+        Self::Some(inner)
     }
 }
 
@@ -225,7 +225,7 @@ impl AccumulatorHash for BitcoinNodeHash {
     /// Tells whether this hash is empty. We use empty hashes throughout the code to represent
     /// leaves we want to delete.
     fn is_empty(&self) -> bool {
-        matches!(self, BitcoinNodeHash::Empty)
+        matches!(self, Self::Empty)
     }
 
     /// Creates an empty hash. This is used to represent leaves we want to delete.
@@ -237,7 +237,7 @@ impl AccumulatorHash for BitcoinNodeHash {
     /// assert!(hash.is_empty());
     /// ```
     fn empty() -> Self {
-        BitcoinNodeHash::Empty
+        Self::Empty
     }
 
     /// parent_hash return the merkle parent of the two passed in nodes.
@@ -264,13 +264,13 @@ impl AccumulatorHash for BitcoinNodeHash {
     }
 
     fn is_placeholder(&self) -> bool {
-        matches!(self, BitcoinNodeHash::Placeholder)
+        matches!(self, Self::Placeholder)
     }
 
     /// Returns a arbitrary placeholder hash that is unlikely to collide with any other hash.
     /// We use this while computing roots to destroy. Don't confuse this with an empty hash.
     fn placeholder() -> Self {
-        BitcoinNodeHash::Placeholder
+        Self::Placeholder
     }
 
     /// write to buffer
