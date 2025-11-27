@@ -12,7 +12,7 @@ rust-version = "1.63.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [dependencies]
-bitcoin_hashes = "0.16.0"
+bitcoin_hashes = "0.17.0"
 serde = { version = "1.0", features = ["derive"], optional = true }
 
 [dev-dependencies]
