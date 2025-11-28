@@ -51,10 +51,11 @@ use std::fmt::Display;
 use std::ops::Deref;
 use std::str::FromStr;
 
-use bitcoin_hashes::hex;
 use bitcoin_hashes::sha256;
 use bitcoin_hashes::sha512_256;
 use bitcoin_hashes::HashEngine;
+use hex_conservative::decode_to_array;
+use hex_conservative::DecodeFixedLengthBytesError;
 #[cfg(feature = "with-serde")]
 use serde::Deserialize;
 #[cfg(feature = "with-serde")]
@@ -160,25 +161,28 @@ impl From<&[u8; 32]> for BitcoinNodeHash {
 
 #[cfg(test)]
 impl TryFrom<&str> for BitcoinNodeHash {
-    type Error = hex::HexToArrayError;
+    type Error = DecodeFixedLengthBytesError;
+
     fn try_from(hash: &str) -> Result<Self, Self::Error> {
         // This implementation is useful for testing, as it allows to create empty hashes
         // from the string of 64 zeros. Without this, it would be impossible to express this
         // hash in the test vectors.
+
         if hash == "0000000000000000000000000000000000000000000000000000000000000000" {
             return Ok(Self::Empty);
         }
 
-        let hash = hex::FromHex::from_hex(hash)?;
+        let hash = decode_to_array(hash)?;
         Ok(Self::Some(hash))
     }
 }
 
 #[cfg(not(test))]
 impl TryFrom<&str> for BitcoinNodeHash {
-    type Error = hex::HexToArrayError;
+    type Error = DecodeFixedLengthBytesError;
+
     fn try_from(hash: &str) -> Result<Self, Self::Error> {
-        let inner = hex::FromHex::from_hex(hash)?;
+        let inner = decode_to_array(hash)?;
         Ok(Self::Some(inner))
     }
 }
@@ -202,7 +206,7 @@ impl FromStr for BitcoinNodeHash {
         Self::try_from(s)
     }
 
-    type Err = hex::HexToArrayError;
+    type Err = DecodeFixedLengthBytesError;
 }
 
 impl BitcoinNodeHash {
