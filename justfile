@@ -40,6 +40,6 @@ test-msrv:
     cargo update -p syn --precise 2.0.32
     cargo update -p quote --precise 1.0.33
     
-    cargo +1.63.0 test --all-features
+    cargo +1.74.0 test --all-features
     rm Cargo.lock
 
