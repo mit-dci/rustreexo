@@ -23,7 +23,7 @@
 //! // that modify is a pure function that doesn't modify the old Stump.
 //! let s = s.modify(&utxos, &stxos, &Proof::<BitcoinNodeHash>::default());
 //! assert!(s.is_ok());
-//! assert_eq!(s.unwrap().0.roots, utxos);
+//! assert_eq!(s.unwrap().roots, utxos);
 //! ```
 
 use std::collections::BTreeSet;
@@ -38,9 +38,9 @@ use serde::Serialize;
 
 use super::node_hash::AccumulatorHash;
 use super::node_hash::BitcoinNodeHash;
-use super::proof::NodesAndRootsOldNew;
 use super::proof::Proof;
 use super::util;
+use crate::accumulator::proof::RootsOldNew;
 
 #[derive(Debug, Clone, Default)]
 pub struct UpdateData<Hash: AccumulatorHash> {
@@ -113,7 +113,7 @@ impl Stump {
     ///     .iter()
     ///     .map(|&el| BitcoinNodeHash::from([el; 32]))
     ///     .collect::<Vec<_>>();
-    /// let (stump, _) = Stump::new()
+    /// let stump = Stump::new()
     ///     .modify(&hashes, &[], &Proof::default())
     ///     .unwrap();
     /// let mut writer = Vec::new();
@@ -151,9 +151,9 @@ impl Stump {
     /// let s_old = Stump::new();
     /// let mut s_new = Stump::new();
     ///
-    /// let s_old = s_old.modify(&vec![], &vec![], &Proof::default()).unwrap().0;
+    /// let s_old = s_old.modify(&vec![], &vec![], &Proof::default()).unwrap();
     /// s_new = s_old.clone();
-    /// s_new = s_new.modify(&vec![], &vec![], &Proof::default()).unwrap().0;
+    /// s_new = s_new.modify(&vec![], &vec![], &Proof::default()).unwrap();
     ///
     /// // A reorg happened
     /// s_new.undo(s_old);
@@ -207,15 +207,15 @@ impl<Hash: AccumulatorHash> Stump<Hash> {
     /// let stxos = vec![];
     /// let s = s.modify(&utxos, &stxos, &Proof::default());
     /// assert!(s.is_ok());
-    /// assert_eq!(s.unwrap().0.roots, utxos);
+    /// assert_eq!(s.unwrap().roots, utxos);
     /// ```
     pub fn modify(
         &self,
         utxos: &[Hash],
         del_hashes: &[Hash],
         proof: &Proof<Hash>,
-    ) -> Result<(Self, UpdateData<Hash>), StumpError> {
-        let (intermediate, mut computed_roots) = self.remove(del_hashes, proof)?;
+    ) -> Result<Self, StumpError> {
+        let mut computed_roots = self.remove(del_hashes, proof)?;
         let mut new_roots = vec![];
 
         for root in self.roots.iter() {
@@ -236,12 +236,41 @@ impl<Hash: AccumulatorHash> Stump<Hash> {
             return Err(StumpError::EmptyProof);
         }
 
-        let (roots, updated, destroyed) = Self::add(new_roots, utxos, self.leaves);
+        let roots = Self::add(new_roots, utxos, self.leaves);
 
         let new_stump = Self {
             leaves: self.leaves + utxos.len() as u64,
             roots,
         };
+
+        Ok(new_stump)
+    }
+
+    pub fn get_update_data(
+        &self,
+        utxos: &[Hash],
+        del_hashes: &[Hash],
+        proof: &Proof<Hash>,
+    ) -> Result<UpdateData<Hash>, StumpError> {
+        let zeroed_del_hashes = del_hashes.iter().map(|_| Hash::empty()).collect::<Vec<_>>();
+        let (intermediate, _) = proof
+            .calculate_hashes(&zeroed_del_hashes, self.leaves)
+            .map_err(StumpError::InvalidProof)?;
+        let mut computed_roots = self.remove(del_hashes, proof)?;
+        let mut new_roots = vec![];
+
+        for root in self.roots.iter() {
+            if let Some(pos) = computed_roots.iter().position(|(old, _new)| old == root) {
+                let (old_root, new_root) = computed_roots.remove(pos);
+                if old_root == *root {
+                    new_roots.push(new_root);
+                    continue;
+                }
+            }
+
+            new_roots.push(*root);
+        }
+        let (_, updated, destroyed) = Self::compute_update_data_add(new_roots, utxos, self.leaves);
 
         let update_data = UpdateData {
             new_add: updated,
@@ -250,7 +279,7 @@ impl<Hash: AccumulatorHash> Stump<Hash> {
             new_del: intermediate,
         };
 
-        Ok((new_stump, update_data))
+        Ok(update_data)
     }
 
     /// Deserialize the Stump from a Reader
@@ -269,7 +298,7 @@ impl<Hash: AccumulatorHash> Stump<Hash> {
     ///     .iter()
     ///     .map(|&el| BitcoinNodeHash::from([el; 32]))
     ///     .collect::<Vec<_>>();
-    /// let (stump, _) = Stump::new()
+    /// let stump = Stump::new()
     ///     .modify(&hashes, &[], &Proof::default())
     ///     .unwrap();
     /// assert_eq!(
@@ -294,12 +323,9 @@ impl<Hash: AccumulatorHash> Stump<Hash> {
         &self,
         del_hashes: &[Hash],
         proof: &Proof<Hash>,
-    ) -> Result<NodesAndRootsOldNew<Hash>, StumpError> {
+    ) -> Result<RootsOldNew<Hash>, StumpError> {
         if del_hashes.is_empty() {
-            return Ok((
-                vec![],
-                self.roots.iter().map(|root| (*root, *root)).collect(),
-            ));
+            return Ok(self.roots.iter().map(|root| (*root, *root)).collect());
         }
 
         let del_hashes = del_hashes
@@ -312,8 +338,32 @@ impl<Hash: AccumulatorHash> Stump<Hash> {
             .map_err(StumpError::InvalidProof)
     }
 
+    fn add(mut roots: Vec<Hash>, utxos: &[Hash], mut leaves: u64) -> Vec<Hash> {
+        for add in utxos.iter() {
+            let pos = leaves;
+            let mut h = 0;
+            let mut to_add = *add;
+            while (pos >> h) & 1 == 1 {
+                let root = roots.pop().unwrap();
+
+                to_add = match (root.is_empty(), to_add.is_empty()) {
+                    (true, true) => Hash::empty(),
+                    (true, false) => to_add,
+                    (false, true) => root,
+                    (false, false) => AccumulatorHash::parent_hash(&root, &to_add),
+                };
+
+                h += 1;
+            }
+            roots.push(to_add);
+            leaves += 1;
+        }
+
+        roots
+    }
+
     /// Adds new leaves into the root
-    fn add(
+    fn compute_update_data_add(
         mut roots: Vec<Hash>,
         utxos: &[Hash],
         mut leaves: u64,
@@ -456,7 +506,7 @@ mod test {
             .map(|&el| CustomHash([el; 32]))
             .collect::<Vec<_>>();
 
-        let (stump, _) = s
+        let stump = s
             .modify(
                 &hashes,
                 &[],
@@ -504,6 +554,7 @@ mod test {
                 .iter()
                 .map(|hash| BitcoinNodeHash::from_str(hash).unwrap())
                 .collect();
+
             let stump = Stump {
                 leaves: data.leaves,
                 roots,
@@ -525,7 +576,9 @@ mod test {
                 .map(|hash| BitcoinNodeHash::from_str(hash).unwrap())
                 .collect::<Vec<_>>();
             let proof = Proof::new(data.proof_targets, proof_hashes);
-            let (_, updated) = stump.modify(&utxos, &del_hashes, &proof).unwrap();
+            let updated = stump
+                .get_update_data(&utxos, &del_hashes, &proof)
+                .expect("Update data should be computed correctly");
             // Positions returned after addition
             let new_add_hash: Vec<_> = data
                 .new_add_hash
@@ -563,8 +616,8 @@ mod test {
         let preimages = vec![0, 1, 2, 3];
         let hashes = preimages.into_iter().map(hash_from_u8).collect::<Vec<_>>();
 
-        let (_, updated) = Stump::new()
-            .modify(&hashes, &[], &Proof::default())
+        let updated = Stump::new()
+            .get_update_data(&hashes, &[], &Proof::default())
             .unwrap();
 
         let positions = vec![0, 1, 2, 3, 4, 5, 6];
@@ -592,8 +645,7 @@ mod test {
     fn test_serde_rtt() {
         let stump = Stump::new()
             .modify(&[hash_from_u8(0), hash_from_u8(1)], &[], &Proof::default())
-            .unwrap()
-            .0;
+            .unwrap();
         let serialized = serde_json::to_string(&stump).expect("Serialization failed");
         let deserialized: Stump =
             serde_json::from_str(&serialized).expect("Deserialization failed");
@@ -601,6 +653,27 @@ mod test {
     }
 
     fn run_case_with_deletion(case: TestCase) {
+        // If you happen to know whether a leaf will be deleted in the future, you can
+        // pretend you've added it, but already account for its deletion. This way, you
+        // won't have to call modify twice (once for addition, once for deletion), but
+        // the final accumulator will be the same.
+        //
+        // This is useful for swift sync style clients, where you have a bitmap telling
+        // whether a txout is unspent or not. Using this, you don't need to download
+        // block proofs and perform fewer hashing, due to not calling `delete` at all.
+        let leaf_hashes_without_deletions = case
+            .leaf_preimages
+            .iter()
+            .map(|preimage| {
+                let targets = case.target_values.as_ref().unwrap();
+                if targets.contains(&(*preimage as u64)) {
+                    BitcoinNodeHash::empty()
+                } else {
+                    hash_from_u8(*preimage)
+                }
+            })
+            .collect::<Vec<_>>();
+
         let leaf_hashes = case
             .leaf_preimages
             .into_iter()
@@ -634,11 +707,16 @@ mod test {
             })
             .collect::<Vec<BitcoinNodeHash>>();
 
-        let (stump, _) = Stump::new()
+        let stump = Stump::new()
             .modify(&leaf_hashes, &[], &Proof::default())
             .expect("This stump is valid");
-        let (stump, _) = stump.modify(&[], &target_hashes, &proof).unwrap();
+        let stump = stump.modify(&[], &target_hashes, &proof).unwrap();
+        let stump_no_deletion = Stump::new()
+            .modify(&leaf_hashes_without_deletions, &[], &Proof::default())
+            .expect("This stump is valid");
+
         assert_eq!(stump.roots, roots);
+        assert_eq!(stump.roots, stump_no_deletion.roots);
     }
 
     fn run_single_addition_case(case: TestCase) {
@@ -651,7 +729,7 @@ mod test {
             .map(|value| hash_from_u8(*value))
             .collect::<Vec<_>>();
 
-        let (s, _) = s
+        let s = s
             .modify(&hashes, &[], &Proof::default())
             .expect("Stump from test cases are valid");
 
@@ -673,8 +751,7 @@ mod test {
         let s_old = Stump::new();
         let s_old = s_old
             .modify(&hashes, &[], &Proof::default())
-            .expect("Stump from test cases are valid")
-            .0;
+            .expect("Stump from test cases are valid");
 
         let mut s_new = s_old.clone();
 
@@ -700,7 +777,7 @@ mod test {
             .iter()
             .map(|&el| BitcoinNodeHash::from([el; 32]))
             .collect::<Vec<_>>();
-        let (stump, _) = Stump::new()
+        let stump = Stump::new()
             .modify(&hashes, &[], &Proof::default())
             .unwrap();
         let mut writer = Vec::new();
@@ -731,6 +808,36 @@ mod test {
         for i in tests.deletion_tests {
             run_case_with_deletion(i);
         }
+    }
+
+    #[test]
+    fn test_update_no_deletion() {
+        let leaf_preimages = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
+        let target_values = [0, 4, 5, 6, 7, 8];
+        let leaves = leaf_preimages
+            .iter()
+            .map(|preimage| {
+                if target_values.contains(preimage) {
+                    BitcoinNodeHash::empty()
+                } else {
+                    hash_from_u8(*preimage)
+                }
+            })
+            .collect::<Vec<_>>();
+
+        let acc = Stump::new()
+            .modify(&leaves, &[], &Proof::default())
+            .unwrap();
+
+        let expected_roots = [
+            "2b77298feac78ab51bc5079099a074c6d789bd350442f5079fcba2b3402694e5",
+            "84915b5adf9243dd83d67bb7d25b7a0c595ea1c37b97412e21e480c1a46f93bf",
+        ]
+        .iter()
+        .map(|&hash| BitcoinNodeHash::from_str(hash).unwrap())
+        .collect::<Vec<_>>();
+
+        assert_eq!(acc.roots, expected_roots);
     }
 }
 
@@ -788,8 +895,7 @@ mod bench {
         .collect::<Vec<_>>();
         let acc = Stump::new()
             .modify(&leaves, &vec![], &Proof::default())
-            .unwrap()
-            .0;
+            .unwrap();
         let proof = Proof::new(target_values.to_vec(), proofhashes);
         bencher.iter(move || acc.modify(&leaves, &target_hashes, &proof));
     }

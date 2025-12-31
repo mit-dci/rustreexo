@@ -50,7 +50,7 @@ fn stump_verify(c: &mut Criterion) {
     let test_size = 1000;
     let hashes = generate_test_hashes(test_size, 42);
     let stump = Stump::new();
-    let (stump, _) = stump.modify(&hashes, &[], &Proof::default()).unwrap();
+    let stump = stump.modify(&hashes, &[], &Proof::default()).unwrap();
 
     for proof_size in [1, 10, 100].iter() {
         let del_hashes = hashes[..*proof_size].to_vec();
