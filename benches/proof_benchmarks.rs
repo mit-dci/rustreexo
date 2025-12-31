@@ -55,7 +55,7 @@ fn proof_verification(c: &mut Criterion) {
     let accumulator_size = 100;
     let hashes = generate_test_hashes(accumulator_size, 42);
     let stump = Stump::new();
-    let (stump, _) = stump.modify(&hashes, &[], &Proof::default()).unwrap();
+    let stump = stump.modify(&hashes, &[], &Proof::default()).unwrap();
 
     for target_count in [1, 10].iter() {
         let del_hashes = hashes[..*target_count].to_vec();
