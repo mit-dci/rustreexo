@@ -20,7 +20,7 @@ jobs:
           persist-credentials: false
 
       - name: Install latest nightly Rust toolchain
-        uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e # nightly
+        uses: dtolnay/rust-toolchain@f7ccc83f9ed1e5b9c81d8a67d7ad1a747e22a561 # nightly
         with:
           components: clippy, rustfmt
           toolchain: nightly
@@ -41,7 +41,7 @@ jobs:
           persist-credentials: false
 
       - name: Install MSRV Rust toolchain
-        uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
+        uses: dtolnay/rust-toolchain@f7ccc83f9ed1e5b9c81d8a67d7ad1a747e22a561
         with:
           toolchain: "1.74.0"
 
@@ -65,7 +65,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e # 1.91.1
+      - uses: dtolnay/rust-toolchain@f7ccc83f9ed1e5b9c81d8a67d7ad1a747e22a561 # 1.91.1
         with:
           toolchain: ${{ matrix.toolchain }}
           components: rustfmt, clippy
