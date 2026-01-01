@@ -214,7 +214,7 @@ jobs:
           echo "Run number: ${{ github.run_number }}" >> artifacts/archive-info.txt
 
       - name: Upload benchmark results
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: benchmark-results-${{ matrix.os }}-${{ github.run_number }}
           path: artifacts/
@@ -222,7 +222,7 @@ jobs:
           compression-level: 6
 
       - name: Upload HTML reports
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         if: always()
         with:
           name: benchmark-html-reports-${{ matrix.os }}-${{ github.run_number }}
