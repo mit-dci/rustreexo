@@ -70,6 +70,8 @@ use super::util;
 use super::util::get_proof_positions;
 use super::util::read_u64;
 use super::util::tree_rows;
+#[cfg(doc)]
+use crate::accumulator::stump::Stump;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(feature = "with-serde", derive(Serialize, Deserialize))]
@@ -120,9 +122,9 @@ impl Default for Proof<BitcoinNodeHash> {
 /// This alias is used when we need to return the nodes and roots for a proof
 /// if we are not concerned with deleting those elements.
 pub(crate) type NodesAndRootsCurrent<Hash> = (Vec<(u64, Hash)>, Vec<Hash>);
-/// This is used when we need to return the nodes and roots for a proof
-/// if we are concerned with deleting those elements. The difference is that
-/// we need to retun the old and updatated roots in the accumulator.
+
+/// This pairs old and new values for roots. We use this when computing deletions,
+/// as we need to return both the old root (before deletion) and the new root (after deletion).
 pub(crate) type RootsOldNew<Hash> = Vec<(Hash, Hash)>;
 
 impl Proof {
@@ -426,10 +428,10 @@ impl<Hash: AccumulatorHash> Proof<Hash> {
     /// It will compute all roots that contains elements in the proof, by hasing the nodes
     /// in the path to the root. This function returns the calculated roots and the hashes
     /// that were calculated in the process.
+    ///
     /// This function is used for updating the accumulator **and** verifying proofs. It returns
     /// the roots computed from the proof (that should be equal to some roots in the present
-    /// accumulator) and the hashes for a accumulator where the proof elements are removed.
-    /// If at least one returned element doesn't exist in the accumulator, the proof is invalid.
+    /// accumulator). If at least one returned element doesn't exist in the accumulator, the proof is invalid.
     pub(crate) fn calculate_hashes_delete(
         &self,
         del_hashes: &[(Hash, Hash)],
@@ -505,7 +507,9 @@ impl<Hash: AccumulatorHash> Proof<Hash> {
     /// hashes that were calculated in the process.
     /// This differs from `calculate_hashes_delelte` as this one is only used for verifying
     /// proofs, it doesn't compute the roots after the deletion, only the roots that are
-    /// needed for verification (i.e. the current accumulator).
+    /// needed for verification (i.e. the current accumulator). `calculate_hashes_delete` also
+    /// won't return the hashes that were calculated, we won't need them for updating the
+    /// accumulator.
     pub(crate) fn calculate_hashes(
         &self,
         del_hashes: &[Hash],
@@ -607,10 +611,64 @@ impl<Hash: AccumulatorHash> Proof<Hash> {
         }
     }
 
-    /// Uses the data passed in to update a proof, creating a valid proof for a given
-    /// set of targets, after an update. This is useful for caching UTXOs. You grab a proof
-    /// for it once and then keep updating it every block, yielding an always valid proof
-    /// over those UTXOs.
+    /// Utreexo is a dynamic accumulator, meaning that leaves can be added and removed.
+    /// This causes the proof to also change over time, if you have a proof for a given
+    /// block height, it may not be valid for block height + 1, the elements in this proof
+    /// may change position, or even be deleted.
+    ///
+    /// If you have a proof that's valid, but is for a block a few heights behind, you can use
+    /// [`Proof::update`] to update the proof to be valid for the current [`Stump`].
+    ///
+    /// Before calling this method, you will need to use [`Stump::get_update_data`] to
+    /// get the changes that happened in the accumulator for that block. This includes the nodes
+    /// added and deleted in that block, as well as the previous number of leaves.
+    ///
+    /// After computing this, you can use [`Proof::update`] to update your proof to be valid for
+    /// the next accumulator. Call these for all blocks between your proof's height and the current
+    /// height, and you'll have a valid proof for the current [`Stump`].
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use std::str::FromStr;
+    ///
+    /// use rustreexo::accumulator::node_hash::BitcoinNodeHash;
+    /// use rustreexo::accumulator::proof::Proof;
+    /// use rustreexo::accumulator::stump::Stump;
+    ///
+    /// let s = Stump::new();
+    /// let utxos = vec![BitcoinNodeHash::from_str(
+    ///     "b151a956139bb821d4effa34ea95c17560e0135d1e4661fc23cedc3af49dac42",
+    /// )
+    /// .unwrap()];
+    /// let del_hashes = vec![];
+    /// let proof = Proof::default();
+    /// let final_stump = s.modify(&utxos, &del_hashes, &proof).unwrap();
+    ///
+    /// // The update data, computed from the block changes
+    /// let update_data = s.get_update_data(&utxos, &del_hashes, &proof).unwrap();
+    ///
+    /// // These are the hashes for all the targets currently in the proof. For us, since
+    /// // the proof is empty, this is also empty.
+    /// let cached_hashes = vec![];
+    ///
+    /// // This tells `update` which UTXOs created on this block we should cache. After
+    /// // using this, our proof will now contain those UTXOs. It is an index, in the same order
+    /// // as they appear in `utxos`.
+    /// let cache_new_utxos = vec![0];
+    ///
+    /// // The target for UTXOs being deleted in this block. You will usually find this along
+    /// // with this block's proof
+    /// let targets = vec![];
+    ///
+    /// // Call update to get the new proof and the hashes for the utxos being cached
+    /// let (proof_updated, cached_hashes) = proof
+    ///     .update(cached_hashes, utxos, targets, cache_new_utxos, update_data)
+    ///     .unwrap();
+    ///
+    /// // Now we can verify this proof with the UTXO added in this block
+    /// assert!(final_stump.verify(&proof_updated, &cached_hashes).unwrap());
+    /// ```
     pub fn update(
         self,
         cached_hashes: Vec<Hash>,
