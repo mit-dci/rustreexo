@@ -1,6 +1,6 @@
 //! A [Stump] is a basic data structure used in Utreexo. It only holds the roots and the number of leaves
-//! in the accumulator. This is useful to create lightweight nodes, the still validates, but is more compact,
-//! perfect to clients running on low-power devices.
+//! in the accumulator. This is useful to create lightweight nodes, the still validates, but is more compact.
+//! This is useful for clients running is super constrained environments, such as mobile devices.
 //!
 //! ## Example
 //! ```
@@ -191,7 +191,20 @@ impl<Hash: AccumulatorHash> Stump<Hash> {
     /// matters, you can only modify, providing a list of utxos to be added,
     /// and txos to be removed, along with it's proof. Either may be
     /// empty.
+    ///
+    /// ## Adding stoxs to the stump
+    ///
+    /// If you know that an element will be deleted in the future, you can
+    /// pass an empty hash as the utxo to be added. There's a possible
+    /// optimization here, where you can apply the changes caused by deletion
+    /// during addition. If you do so, you don't need to call `modify` when
+    /// this leaf gets deleted. This will save you some hashing, as well as
+    /// you won't need proofs anymore for those leaves, thus saving you
+    /// bandwidth.
+    ///
     ///# Example
+    /// Using the normal addition
+    ///
     /// ```
     /// use std::str::FromStr;
     ///
@@ -208,6 +221,30 @@ impl<Hash: AccumulatorHash> Stump<Hash> {
     /// let s = s.modify(&utxos, &stxos, &Proof::default());
     /// assert!(s.is_ok());
     /// assert_eq!(s.unwrap().roots, utxos);
+    /// ```
+    ///
+    /// Using addition with implicit deletion
+    ///
+    /// ```
+    /// use std::str::FromStr;
+    ///
+    /// use rustreexo::accumulator::node_hash::AccumulatorHash;
+    /// use rustreexo::accumulator::node_hash::BitcoinNodeHash;
+    /// use rustreexo::accumulator::proof::Proof;
+    /// use rustreexo::accumulator::stump::Stump;
+    ///
+    /// let s = Stump::new();
+    /// let utxos = vec![
+    ///     BitcoinNodeHash::from_str(
+    ///         "b151a956139bb821d4effa34ea95c17560e0135d1e4661fc23cedc3af49dac42",
+    ///     )
+    ///     .unwrap(),
+    ///     BitcoinNodeHash::empty(), // This UTXO is going to be deleted in the future
+    /// ];
+    /// let stxos = vec![];
+    /// let s = s.modify(&utxos, &stxos, &Proof::default()).unwrap();
+    /// assert!(s.roots.contains(&utxos[0]));
+    /// assert!(!s.roots.contains(&utxos[1])); // The empty hash won't be in the roots
     /// ```
     pub fn modify(
         &self,
@@ -246,6 +283,66 @@ impl<Hash: AccumulatorHash> Stump<Hash> {
         Ok(new_stump)
     }
 
+    /// Utreexo is a dynamic accumulator, meaning that leaves can be added and removed.
+    /// This causes the proof to also change over time, if you have a proof for a given
+    /// block height, it may not be valid for block height + 1, the elements in this proof
+    /// may change position, or even be deleted.
+    ///
+    /// If you have a proof that's valid, but is for a block a few heights behind, you can use
+    /// [`Proof::update`] to update the proof to be valid for the current [`Stump`]. However, to
+    /// update a proof, you need to know everything that changed in the accumulator since the proof
+    /// was created. This function will give you everything you need.
+    ///
+    /// To use it, you must know what was added -- this is computed by looking at the block. You
+    /// also need the block's [`Proof`] and the hashes that were deleted in that block. For this
+    /// one, you either store them on disk, or request them from the network.
+    ///
+    /// After computing this, you can use [`Proof::update`] to update your proof to be valid for
+    /// the next accumulator. Call these for all blocks between your proof's height and the current
+    /// height, and you'll have a valid proof for the current [`Stump`].
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use std::str::FromStr;
+    ///
+    /// use rustreexo::accumulator::node_hash::BitcoinNodeHash;
+    /// use rustreexo::accumulator::proof::Proof;
+    /// use rustreexo::accumulator::stump::Stump;
+    ///
+    /// let s = Stump::new();
+    /// let utxos = vec![BitcoinNodeHash::from_str(
+    ///     "b151a956139bb821d4effa34ea95c17560e0135d1e4661fc23cedc3af49dac42",
+    /// )
+    /// .unwrap()];
+    /// let del_hashes = vec![];
+    /// let proof = Proof::default();
+    /// let final_stump = s.modify(&utxos, &del_hashes, &proof).unwrap();
+    ///
+    /// // The update data, computed from the block changes
+    /// let update_data = s.get_update_data(&utxos, &del_hashes, &proof).unwrap();
+    ///
+    /// // These are the hashes for all the targets currently in the proof. For us, since
+    /// // the proof is empty, this is also empty.
+    /// let cached_hashes = vec![];
+    ///
+    /// // This tells `update` which UTXOs created on this block we should cache. After
+    /// // using this, our proof will now contain those UTXOs. It is an index, in the same order
+    /// // as they appear in `utxos`.
+    /// let cache_new_utxos = vec![0];
+    ///
+    /// // The target for UTXOs being deleted in this block. You will usually find this along
+    /// // with this block's proof
+    /// let targets = vec![];
+    ///
+    /// // Call update to get the new proof and the hashes for the utxos being cached
+    /// let (proof_updated, cached_hashes) = proof
+    ///     .update(cached_hashes, utxos, targets, cache_new_utxos, update_data)
+    ///     .unwrap();
+    ///
+    /// // Now we can verify this proof with the UTXO added in this block
+    /// assert!(final_stump.verify(&proof_updated, &cached_hashes).unwrap());
+    /// ```
     pub fn get_update_data(
         &self,
         utxos: &[Hash],
@@ -811,7 +908,7 @@ mod test {
     }
 
     #[test]
-    fn test_update_no_deletion() {
+    fn test_update_no_explicit_deletion() {
         let leaf_preimages = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
         let target_values = [0, 4, 5, 6, 7, 8];
         let leaves = leaf_preimages
