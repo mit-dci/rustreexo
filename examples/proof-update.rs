@@ -18,13 +18,20 @@ use rustreexo::accumulator::stump::Stump;
 
 fn main() {
     let s = Stump::new();
+
     // Get the hashes of the UTXOs we want to insert
     let utxos = get_utxo_hashes1();
-    // Add the UTXOs to the accumulator. update_data is the data we need to update the proof
-    // after the accumulator is updated.
-    let (s, update_data) = s.modify(&utxos, &[], &Proof::default()).unwrap();
+
+    // Compute the update data for this block. Notice that we called this before updating the
+    // accumulator, as the accumulator state is required to compute this data.
+    let update_data = s.get_update_data(&utxos, &[], &Proof::default()).unwrap();
+
+    // Now, update the accumulator with these UTXOs, no STXOs are being spent in this example.
+    let s = s.modify(&utxos, &[], &Proof::default()).unwrap();
+
     // Create an empty proof, we'll update it to hold our UTXOs
     let p = Proof::default();
+
     // Update the proof with the UTXOs we added to the accumulator. This proof was initially empty,
     // but we can instruct this function to remember some UTXOs, given their positions in the list of
     // UTXOs we added to the accumulator. In this example, we ask it to cache 0 and 1.
@@ -35,6 +42,7 @@ fn main() {
     let (p, cached_hashes) = p
         .update(vec![], utxos.clone(), vec![], vec![0, 1], update_data)
         .unwrap();
+
     // This should be a valid proof over 0 and 1.
     assert_eq!(p.n_targets(), 2);
     assert_eq!(s.verify(&p, &cached_hashes), Ok(true));
@@ -42,14 +50,18 @@ fn main() {
     // Get a subset of the proof, for the first UTXO only
     let p1 = p.get_proof_subset(&cached_hashes, &[0], s.leaves).unwrap();
 
+    // Should still be valid
     assert_eq!(s.verify(&p1, &cached_hashes), Ok(true));
 
     // Assume we have a block that (beyond coinbase) spends our UTXO `0` and creates 7 new UTXOs
     // We'll remove `0` as it got spent, and add 1..7 to our cache.
     let new_utxos = get_utxo_hashes2();
+
     // First, update the accumulator
-    let (stump, update_data) = s.modify(&new_utxos, &[utxos[0]], &p1).unwrap();
+    let stump = s.modify(&new_utxos, &[utxos[0]], &p1).unwrap();
+
     // and the proof
+    let update_data = s.get_update_data(&utxos, &[], &Proof::default()).unwrap();
     let (p2, cached_hashes) = p
         .update(
             cached_hashes,

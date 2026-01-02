@@ -27,10 +27,7 @@ fn main() {
     // Create a new Stump, and add the utxos to it. Notice how we don't use the full return here,
     // but only the Stump. To understand what is the second return value, see the documentation
     // for `Stump::modify`, or the proof-update example.
-    let s = Stump::new()
-        .modify(&utxos, &[], &Proof::default())
-        .unwrap()
-        .0;
+    let s = Stump::new().modify(&utxos, &[], &Proof::default()).unwrap();
     // Create a proof that the first utxo is in the Stump.
     let proof = Proof::new(vec![0], vec![utxos[1]]);
     assert_eq!(s.verify(&proof, &[utxos[0]]), Ok(true));
@@ -42,7 +39,7 @@ fn main() {
         "d3bd63d53c5a70050a28612a2f4b2019f40951a653ae70736d93745efb1124fa",
     )
     .unwrap();
-    let s = s.modify(&[new_utxo], &[utxos[0]], &proof).unwrap().0;
+    let s = s.modify(&[new_utxo], &[utxos[0]], &proof).unwrap();
     // Now we can verify that the new utxo is in the Stump, and the old one is not.
     let new_proof = Proof::new(vec![2], vec![new_utxo]);
     assert_eq!(s.verify(&new_proof, &[new_utxo]), Ok(true));
