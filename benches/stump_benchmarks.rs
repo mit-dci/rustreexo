@@ -1,5 +1,7 @@
 use std::hint::black_box;
 
+use bitcoin::hashes::Hash;
+use bitcoin::BlockHash;
 use criterion::criterion_group;
 use criterion::criterion_main;
 use criterion::BenchmarkId;
@@ -34,8 +36,13 @@ fn stump_modify_add_only(c: &mut Criterion) {
 
             b.iter(|| {
                 let stump = Stump::new();
-                let result =
-                    stump.modify(black_box(&hashes), black_box(&[]), black_box(&empty_proof));
+                let result = stump.modify(
+                    0,
+                    BlockHash::all_zeros(),
+                    black_box(&hashes),
+                    black_box(&[]),
+                    black_box(&empty_proof),
+                );
                 black_box(result.unwrap())
             });
         });
@@ -50,7 +57,9 @@ fn stump_verify(c: &mut Criterion) {
     let test_size = 1000;
     let hashes = generate_test_hashes(test_size, 42);
     let stump = Stump::new();
-    let (stump, _) = stump.modify(&hashes, &[], &Proof::default()).unwrap();
+    let (stump, _) = stump
+        .modify(0, BlockHash::all_zeros(), &hashes, &[], &Proof::default())
+        .unwrap();
 
     for proof_size in [1, 10, 100].iter() {
         let del_hashes = hashes[..*proof_size].to_vec();

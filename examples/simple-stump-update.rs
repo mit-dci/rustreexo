@@ -5,6 +5,8 @@
 use std::str::FromStr;
 use std::vec;
 
+use bitcoin::hashes::Hash;
+use bitcoin::BlockHash;
 use rustreexo::accumulator::node_hash::BitcoinNodeHash;
 use rustreexo::accumulator::proof::Proof;
 use rustreexo::accumulator::stump::Stump;
@@ -28,7 +30,7 @@ fn main() {
     // but only the Stump. To understand what is the second return value, see the documentation
     // for `Stump::modify`, or the proof-update example.
     let s = Stump::new()
-        .modify(&utxos, &[], &Proof::default())
+        .modify(0, BlockHash::all_zeros(), &utxos, &[], &Proof::default())
         .unwrap()
         .0;
     // Create a proof that the first utxo is in the Stump.
@@ -42,7 +44,10 @@ fn main() {
         "d3bd63d53c5a70050a28612a2f4b2019f40951a653ae70736d93745efb1124fa",
     )
     .unwrap();
-    let s = s.modify(&[new_utxo], &[utxos[0]], &proof).unwrap().0;
+    let s = s
+        .modify(0, BlockHash::all_zeros(), &[new_utxo], &[utxos[0]], &proof)
+        .unwrap()
+        .0;
     // Now we can verify that the new utxo is in the Stump, and the old one is not.
     let new_proof = Proof::new(vec![2], vec![new_utxo]);
     assert_eq!(s.verify(&new_proof, &[new_utxo]), Ok(true));

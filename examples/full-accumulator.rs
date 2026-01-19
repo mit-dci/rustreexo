@@ -4,6 +4,8 @@
 
 use std::str::FromStr;
 
+use bitcoin::hashes::Hash;
+use bitcoin::BlockHash;
 use rustreexo::accumulator::mem_forest::MemForest;
 use rustreexo::accumulator::node_hash::BitcoinNodeHash;
 use rustreexo::accumulator::proof::Proof;
@@ -28,7 +30,7 @@ fn main() {
     let proof = p.prove(&[elements[0]]).unwrap();
     // Verify the proof. Notice how we use the del_hashes returned by `prove` here.
     let s = Stump::new()
-        .modify(&elements, &[], &Proof::default())
+        .modify(0, BlockHash::all_zeros(), &elements, &[], &Proof::default())
         .unwrap()
         .0;
     assert_eq!(s.verify(&proof, &[elements[0]]), Ok(true));

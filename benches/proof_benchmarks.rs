@@ -1,5 +1,7 @@
 use std::hint::black_box;
 
+use bitcoin::hashes::Hash;
+use bitcoin::BlockHash;
 use criterion::criterion_group;
 use criterion::criterion_main;
 use criterion::BenchmarkId;
@@ -55,7 +57,9 @@ fn proof_verification(c: &mut Criterion) {
     let accumulator_size = 100;
     let hashes = generate_test_hashes(accumulator_size, 42);
     let stump = Stump::new();
-    let (stump, _) = stump.modify(&hashes, &[], &Proof::default()).unwrap();
+    let (stump, _) = stump
+        .modify(0, BlockHash::all_zeros(), &hashes, &[], &Proof::default())
+        .unwrap();
 
     for target_count in [1, 10].iter() {
         let del_hashes = hashes[..*target_count].to_vec();

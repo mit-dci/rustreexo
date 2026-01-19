@@ -12,6 +12,8 @@
 
 use std::str::FromStr;
 
+use bitcoin::hashes::Hash;
+use bitcoin::BlockHash;
 use rustreexo::accumulator::node_hash::BitcoinNodeHash;
 use rustreexo::accumulator::proof::Proof;
 use rustreexo::accumulator::stump::Stump;
@@ -22,7 +24,9 @@ fn main() {
     let utxos = get_utxo_hashes1();
     // Add the UTXOs to the accumulator. update_data is the data we need to update the proof
     // after the accumulator is updated.
-    let (s, update_data) = s.modify(&utxos, &[], &Proof::default()).unwrap();
+    let (s, update_data) = s
+        .modify(0, BlockHash::all_zeros(), &utxos, &[], &Proof::default())
+        .unwrap();
     // Create an empty proof, we'll update it to hold our UTXOs
     let p = Proof::default();
     // Update the proof with the UTXOs we added to the accumulator. This proof was initially empty,
@@ -48,7 +52,9 @@ fn main() {
     // We'll remove `0` as it got spent, and add 1..7 to our cache.
     let new_utxos = get_utxo_hashes2();
     // First, update the accumulator
-    let (stump, update_data) = s.modify(&new_utxos, &[utxos[0]], &p1).unwrap();
+    let (stump, update_data) = s
+        .modify(0, BlockHash::all_zeros(), &new_utxos, &[utxos[0]], &p1)
+        .unwrap();
     // and the proof
     let (p2, cached_hashes) = p
         .update(

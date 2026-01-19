@@ -890,6 +890,8 @@ impl<Hash: AccumulatorHash> Proof<Hash> {
 mod tests {
     use std::str::FromStr;
 
+    use bitcoin::hashes::Hash;
+    use bitcoin::BlockHash;
     use serde::Deserialize;
 
     use super::Proof;
@@ -980,6 +982,8 @@ mod tests {
                 .collect();
 
             let stump = Stump {
+                block_height: 0,
+                block_hash: BlockHash::all_zeros(),
                 leaves: case_values.initial_leaves,
                 roots,
             };
@@ -1006,7 +1010,9 @@ mod tests {
 
             let block_proof =
                 Proof::new(case_values.update.proof.targets.clone(), block_proof_hashes);
-            let (stump, updated) = stump.modify(&utxos, &del_hashes, &block_proof).unwrap();
+            let (stump, updated) = stump
+                .modify(0, BlockHash::all_zeros(), &utxos, &del_hashes, &block_proof)
+                .unwrap();
             let (cached_proof, cached_hashes) = cached_proof
                 .update(
                     cached_hashes.clone(),
@@ -1193,7 +1199,7 @@ mod tests {
         let preimages = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
         let hashes = preimages.into_iter().map(hash_from_u8).collect::<Vec<_>>();
         let (stump, _) = Stump::new()
-            .modify(&hashes, &[], &Proof::default())
+            .modify(0, BlockHash::all_zeros(), &hashes, &[], &Proof::default())
             .unwrap();
 
         let proof_hashes = vec![
@@ -1222,6 +1228,8 @@ mod tests {
 
         let (stump, modified) = stump
             .modify(
+                0,
+                BlockHash::all_zeros(),
                 &[],
                 &[hash_from_u8(1), hash_from_u8(2), hash_from_u8(6)],
                 &proof,
@@ -1248,7 +1256,7 @@ mod tests {
         let hashes = preimages.into_iter().map(hash_from_u8).collect::<Vec<_>>();
         // Create a new stump with 8 leaves and 1 root
         let s = Stump::new()
-            .modify(&hashes, &[], &Proof::default())
+            .modify(0, BlockHash::all_zeros(), &hashes, &[], &Proof::default())
             .expect("This stump is valid")
             .0;
 
@@ -1391,7 +1399,7 @@ mod tests {
         let hashes = preimages.into_iter().map(hash_from_u8).collect::<Vec<_>>();
         // Create a new stump with 8 leaves and 1 root
         let s = Stump::new()
-            .modify(&hashes, &[], &Proof::default())
+            .modify(0, BlockHash::all_zeros(), &hashes, &[], &Proof::default())
             .expect("This stump is valid")
             .0;
 
@@ -1436,6 +1444,8 @@ mod tests {
             .collect();
 
         let s = Stump {
+            block_height: 0,
+            block_hash: BlockHash::all_zeros(),
             leaves: case.numleaves as u64,
             roots,
         };

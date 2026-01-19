@@ -31,6 +31,8 @@ use std::io::Read;
 use std::io::Write;
 use std::vec;
 
+use bitcoin::hashes::Hash;
+use bitcoin::BlockHash;
 #[cfg(feature = "with-serde")]
 use serde::Deserialize;
 #[cfg(feature = "with-serde")]
@@ -79,6 +81,8 @@ impl From<std::io::Error> for StumpError {
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "with-serde", derive(Serialize, Deserialize))]
 pub struct Stump<Hash: AccumulatorHash = BitcoinNodeHash> {
+    pub block_height: u32,
+    pub block_hash: BlockHash,
     pub leaves: u64,
     pub roots: Vec<Hash>,
 }
@@ -98,6 +102,8 @@ impl Stump {
     /// ```
     pub fn new() -> Self {
         Self {
+            block_height: 0,
+            block_hash: BlockHash::all_zeros(),
             leaves: 0,
             roots: Vec::new(),
         }
@@ -182,6 +188,8 @@ impl<Hash: AccumulatorHash> Stump<Hash> {
     /// to create a new Stump with the default hash type.
     pub fn new_with_hash() -> Self {
         Self {
+            block_height: 0,
+            block_hash: BlockHash::all_zeros(),
             leaves: 0,
             roots: Vec::new(),
         }
@@ -211,6 +219,8 @@ impl<Hash: AccumulatorHash> Stump<Hash> {
     /// ```
     pub fn modify(
         &self,
+        block_height: u32,
+        block_hash: BlockHash,
         utxos: &[Hash],
         del_hashes: &[Hash],
         proof: &Proof<Hash>,
@@ -239,6 +249,8 @@ impl<Hash: AccumulatorHash> Stump<Hash> {
         let (roots, updated, destroyed) = Self::add(new_roots, utxos, self.leaves);
 
         let new_stump = Self {
+            block_height,
+            block_hash,
             leaves: self.leaves + utxos.len() as u64,
             roots,
         };
@@ -278,6 +290,8 @@ impl<Hash: AccumulatorHash> Stump<Hash> {
     /// );
     /// ```
     pub fn deserialize<Source: Read>(mut data: Source) -> Result<Self, StumpError> {
+        let block_height = util::read_u32(&mut data)?;
+        let block_hash = util::read_block_hash(&mut data)?;
         let leaves = util::read_u64(&mut data)?;
         let roots_len = util::read_u64(&mut data)?;
         let mut roots = vec![];
@@ -287,7 +301,12 @@ impl<Hash: AccumulatorHash> Stump<Hash> {
             roots.push(root);
         }
 
-        Ok(Self { leaves, roots })
+        Ok(Self {
+            block_height,
+            block_hash,
+            leaves,
+            roots,
+        })
     }
 
     fn remove(
@@ -374,6 +393,8 @@ mod test {
     use std::str::FromStr;
     use std::vec;
 
+    use bitcoin::hashes::Hash;
+    use bitcoin::BlockHash;
     use serde::Deserialize;
 
     use super::Stump;
@@ -458,6 +479,8 @@ mod test {
 
         let (stump, _) = s
             .modify(
+                0,
+                BlockHash::all_zeros(),
                 &hashes,
                 &[],
                 &Proof::<CustomHash>::new_with_hash(Vec::new(), Vec::new()),
@@ -505,6 +528,8 @@ mod test {
                 .map(|hash| BitcoinNodeHash::from_str(hash).unwrap())
                 .collect();
             let stump = Stump {
+                block_height: 0,
+                block_hash: BlockHash::all_zeros(),
                 leaves: data.leaves,
                 roots,
             };
@@ -525,7 +550,9 @@ mod test {
                 .map(|hash| BitcoinNodeHash::from_str(hash).unwrap())
                 .collect::<Vec<_>>();
             let proof = Proof::new(data.proof_targets, proof_hashes);
-            let (_, updated) = stump.modify(&utxos, &del_hashes, &proof).unwrap();
+            let (_, updated) = stump
+                .modify(0, BlockHash::all_zeros(), &utxos, &del_hashes, &proof)
+                .unwrap();
             // Positions returned after addition
             let new_add_hash: Vec<_> = data
                 .new_add_hash
@@ -564,7 +591,7 @@ mod test {
         let hashes = preimages.into_iter().map(hash_from_u8).collect::<Vec<_>>();
 
         let (_, updated) = Stump::new()
-            .modify(&hashes, &[], &Proof::default())
+            .modify(0, BlockHash::all_zeros(), &hashes, &[], &Proof::default())
             .unwrap();
 
         let positions = vec![0, 1, 2, 3, 4, 5, 6];
@@ -591,7 +618,13 @@ mod test {
     #[cfg(feature = "with-serde")]
     fn test_serde_rtt() {
         let stump = Stump::new()
-            .modify(&[hash_from_u8(0), hash_from_u8(1)], &[], &Proof::default())
+            .modify(
+                0,
+                BlockHash::all_zeros(),
+                &[hash_from_u8(0), hash_from_u8(1)],
+                &[],
+                &Proof::default(),
+            )
             .unwrap()
             .0;
         let serialized = serde_json::to_string(&stump).expect("Serialization failed");
@@ -635,9 +668,17 @@ mod test {
             .collect::<Vec<BitcoinNodeHash>>();
 
         let (stump, _) = Stump::new()
-            .modify(&leaf_hashes, &[], &Proof::default())
+            .modify(
+                0,
+                BlockHash::all_zeros(),
+                &leaf_hashes,
+                &[],
+                &Proof::default(),
+            )
             .expect("This stump is valid");
-        let (stump, _) = stump.modify(&[], &target_hashes, &proof).unwrap();
+        let (stump, _) = stump
+            .modify(0, BlockHash::all_zeros(), &[], &target_hashes, &proof)
+            .unwrap();
         assert_eq!(stump.roots, roots);
     }
 
@@ -652,7 +693,7 @@ mod test {
             .collect::<Vec<_>>();
 
         let (s, _) = s
-            .modify(&hashes, &[], &Proof::default())
+            .modify(0, BlockHash::all_zeros(), &hashes, &[], &Proof::default())
             .expect("Stump from test cases are valid");
 
         assert_eq!(s.leaves, hashes.len() as u64);
@@ -672,7 +713,7 @@ mod test {
 
         let s_old = Stump::new();
         let s_old = s_old
-            .modify(&hashes, &[], &Proof::default())
+            .modify(0, BlockHash::all_zeros(), &hashes, &[], &Proof::default())
             .expect("Stump from test cases are valid")
             .0;
 
@@ -684,7 +725,7 @@ mod test {
         }
 
         s_new
-            .modify(&hashes, &[], &Proof::default())
+            .modify(0, BlockHash::all_zeros(), &hashes, &[], &Proof::default())
             .expect("Stump from test cases are valid");
         let s_old_copy = s_old.clone();
 
@@ -701,7 +742,7 @@ mod test {
             .map(|&el| BitcoinNodeHash::from([el; 32]))
             .collect::<Vec<_>>();
         let (stump, _) = Stump::new()
-            .modify(&hashes, &[], &Proof::default())
+            .modify(0, BlockHash::all_zeros(), &hashes, &[], &Proof::default())
             .unwrap();
         let mut writer = Vec::new();
         stump.serialize(&mut writer).unwrap();

@@ -2,6 +2,9 @@ use std::collections::BTreeSet;
 use std::collections::HashSet;
 use std::io::Read;
 
+use bitcoin::hashes::Hash;
+use bitcoin::BlockHash;
+
 // Rustreexo
 use super::node_hash::AccumulatorHash;
 
@@ -223,10 +226,22 @@ pub fn parent(pos: u64, forest_rows: u8) -> u64 {
     (pos >> 1) | (1 << forest_rows)
 }
 
+pub fn read_u32<Source: Read>(buf: &mut Source) -> Result<u32, std::io::Error> {
+    let mut bytes = [0u8; 4];
+    buf.read_exact(&mut bytes)?;
+    Ok(u32::from_le_bytes(bytes))
+}
+
 pub fn read_u64<Source: Read>(buf: &mut Source) -> Result<u64, std::io::Error> {
     let mut bytes = [0u8; 8];
     buf.read_exact(&mut bytes)?;
     Ok(u64::from_le_bytes(bytes))
+}
+
+pub fn read_block_hash<Source: Read>(buf: &mut Source) -> Result<BlockHash, std::io::Error> {
+    let mut bytes = [0u8; 32];
+    buf.read_exact(&mut bytes)?;
+    Ok(BlockHash::from_byte_array(bytes))
 }
 
 // tree_rows returns the number of rows given n leaves

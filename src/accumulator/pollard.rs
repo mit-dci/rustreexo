@@ -399,11 +399,11 @@ impl<Hash: AccumulatorHash> PollardNode<Hash> {
     /// The deletion algorithm for utreexo works like this: let's say we have the following tree:
     ///
     /// ```!
-    /// 06                                                 
-    /// |---------\             
-    /// 04        05                   
+    /// 06
+    /// |---------\
+    /// 04        05
     /// |-----\   |-----\
-    /// 00    01  02   03      
+    /// 00    01  02   03
     /// ```
     ///
     /// to delete `03`, we simply move `02` up to `09`'s position, so now we have:
@@ -1266,6 +1266,8 @@ impl<Hash: AccumulatorHash> From<Stump<Hash>> for Pollard<Hash> {
 mod tests {
     use std::str::FromStr;
 
+    use bitcoin::hashes::Hash;
+    use bitcoin::BlockHash;
     use serde::Deserialize;
 
     use super::*;
@@ -1377,7 +1379,12 @@ mod tests {
         ];
         let leaves = 15;
 
-        let stump = Stump { roots, leaves };
+        let stump = Stump {
+            block_height: 0,
+            block_hash: BlockHash::all_zeros(),
+            roots,
+            leaves,
+        };
         let p: Pollard<BitcoinNodeHash> = stump.clone().into();
 
         assert_eq!(stump.roots, p.roots());
