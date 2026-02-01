@@ -426,7 +426,7 @@ impl<Hash: AccumulatorHash> MemForest<Hash> {
             nodes.push((pos, node.get_data()));
         }
 
-        nodes.sort_by(|a, b| a.0.cmp(&b.0));
+        nodes.sort_by_key(|a| a.0);
 
         for (_, target) in nodes {
             match self.map.remove(&target) {
