@@ -1,0 +1,28 @@
+[package]
+name = "rustreexo-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2018"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.rustreexo]
+path = ".."
+
+[[bin]]
+name = "pollard_operations"
+path = "fuzz_targets/pollard_operations.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "pollard_serialization"
+path = "fuzz_targets/pollard_ser.rs"
+test = false
+doc = false
+bench = false
