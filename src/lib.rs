@@ -14,4 +14,36 @@
 //! For more information, check each module's documentation.
 
 #![cfg_attr(any(bench), feature(test))]
+#![cfg_attr(not(feature = "std"), no_std)]
+
+extern crate alloc;
+
+#[cfg(not(feature = "std"))]
+/// Re-exports `alloc` basics plus HashMap/HashSet and IO traits.
+pub mod prelude {
+    pub use alloc::borrow::ToOwned;
+    pub use alloc::format;
+    pub use alloc::string::String;
+    pub use alloc::string::ToString;
+    pub use alloc::vec; // brings `vec!` into scope
+    pub use alloc::vec::Vec;
+
+    pub use bitcoin_io as io;
+    pub use bitcoin_io::Read;
+    pub use bitcoin_io::Write;
+    pub use hashbrown::HashMap;
+    pub use hashbrown::HashSet;
+}
+
+#[cfg(feature = "std")]
+/// Re-exports `std` basics plus HashMap/HashSet and IO traits.
+pub mod prelude {
+    extern crate std;
+    pub use std::collections::HashMap;
+    pub use std::collections::HashSet;
+    pub use std::io;
+    pub use std::io::Read;
+    pub use std::io::Write;
+}
+
 pub mod accumulator;

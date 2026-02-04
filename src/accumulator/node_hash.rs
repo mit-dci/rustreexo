@@ -45,11 +45,14 @@
 //! .unwrap();
 //! assert_eq!(parent, expected_parent);
 //! ```
-use std::convert::TryFrom;
-use std::fmt::Debug;
-use std::fmt::Display;
-use std::ops::Deref;
-use std::str::FromStr;
+
+use core::convert::TryFrom;
+use core::fmt;
+use core::fmt::Debug;
+use core::fmt::Display;
+use core::hash::Hash;
+use core::ops::Deref;
+use core::str::FromStr;
 
 use bitcoin_hashes::sha256;
 use bitcoin_hashes::sha512_256;
@@ -61,20 +64,20 @@ use serde::Deserialize;
 #[cfg(feature = "with-serde")]
 use serde::Serialize;
 
-pub trait AccumulatorHash:
-    Copy + Clone + Ord + Debug + Display + std::hash::Hash + Default + 'static
-{
+use crate::prelude::*;
+
+pub trait AccumulatorHash: Copy + Clone + Ord + Debug + Display + Hash + Default + 'static {
     fn is_empty(&self) -> bool;
     fn empty() -> Self;
     fn is_placeholder(&self) -> bool;
     fn placeholder() -> Self;
     fn parent_hash(left: &Self, right: &Self) -> Self;
-    fn write<W>(&self, writer: &mut W) -> std::io::Result<()>
+    fn write<W>(&self, writer: &mut W) -> io::Result<()>
     where
-        W: std::io::Write;
-    fn read<R>(reader: &mut R) -> std::io::Result<Self>
+        W: Write;
+    fn read<R>(reader: &mut R) -> io::Result<Self>
     where
-        R: std::io::Read;
+        R: Read;
 }
 
 #[derive(Eq, PartialEq, Copy, Clone, Hash, PartialOrd, Ord)]
@@ -112,7 +115,7 @@ impl Deref for BitcoinNodeHash {
 }
 
 impl Display for BitcoinNodeHash {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         if let Self::Some(ref inner) = self {
             let mut s = String::new();
             for byte in inner.iter() {
@@ -126,7 +129,7 @@ impl Display for BitcoinNodeHash {
 }
 
 impl Debug for BitcoinNodeHash {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
             Self::Empty => write!(f, "empty"),
             Self::Placeholder => write!(f, "placeholder"),
@@ -278,9 +281,9 @@ impl AccumulatorHash for BitcoinNodeHash {
     }
 
     /// write to buffer
-    fn write<W>(&self, writer: &mut W) -> std::io::Result<()>
+    fn write<W>(&self, writer: &mut W) -> io::Result<()>
     where
-        W: std::io::Write,
+        W: Write,
     {
         match self {
             Self::Empty => writer.write_all(&[0]),
@@ -293,9 +296,9 @@ impl AccumulatorHash for BitcoinNodeHash {
     }
 
     /// Read from buffer
-    fn read<R>(reader: &mut R) -> std::io::Result<Self>
+    fn read<R>(reader: &mut R) -> io::Result<Self>
     where
-        R: std::io::Read,
+        R: Read,
     {
         let mut tag = [0];
         reader.read_exact(&mut tag)?;
@@ -308,8 +311,8 @@ impl AccumulatorHash for BitcoinNodeHash {
                 Ok(Self::Some(hash))
             }
             [_] => {
-                let err = std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
+                let err = io::Error::new(
+                    io::ErrorKind::InvalidData,
                     "unexpected tag for AccumulatorHash",
                 );
                 Err(err)
@@ -320,7 +323,8 @@ impl AccumulatorHash for BitcoinNodeHash {
 
 #[cfg(test)]
 mod test {
-    use std::str::FromStr;
+    use alloc::string::ToString;
+    use core::str::FromStr;
 
     use super::AccumulatorHash;
     use crate::accumulator::node_hash::BitcoinNodeHash;

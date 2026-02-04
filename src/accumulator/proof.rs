@@ -54,9 +54,10 @@
 //! // Verify the proof
 //! assert!(s.verify(&p, &vec![hashes[0]]).expect("This proof is valid"));
 //! ```
-use std::collections::HashMap;
-use std::io::Read;
-use std::io::Write;
+
+use alloc::vec::IntoIter;
+use core::fmt::Debug;
+use core::iter::Peekable;
 
 #[cfg(feature = "with-serde")]
 use serde::Deserialize;
@@ -70,6 +71,7 @@ use super::util;
 use super::util::get_proof_positions;
 use super::util::read_u64;
 use super::util::tree_rows;
+use crate::prelude::*;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(feature = "with-serde", derive(Serialize, Deserialize))]
@@ -274,7 +276,7 @@ impl<Hash: AccumulatorHash> Proof<Hash> {
             return Ok(true);
         }
 
-        let mut calculated_roots: std::iter::Peekable<std::vec::IntoIter<Hash>> = self
+        let mut calculated_roots: Peekable<IntoIter<Hash>> = self
             .calculate_hashes(del_hashes, num_leaves)?
             .1
             .into_iter()
@@ -368,7 +370,7 @@ impl<Hash: AccumulatorHash> Proof<Hash> {
     ///     serialized_proof
     /// );
     /// ```
-    pub fn serialize<W: Write>(&self, mut writer: W) -> std::io::Result<usize> {
+    pub fn serialize<W: Write>(&self, mut writer: W) -> io::Result<usize> {
         let mut len = 16;
         writer.write_all(&(self.targets.len() as u64).to_le_bytes())?;
         for target in &self.targets {
@@ -386,11 +388,10 @@ impl<Hash: AccumulatorHash> Proof<Hash> {
     /// Deserializes a proof from a byte array.
     /// # Example
     /// ```
-    /// use std::io::Cursor;
-    ///
     /// use rustreexo::accumulator::node_hash::BitcoinNodeHash;
     /// use rustreexo::accumulator::proof::Proof;
     /// use rustreexo::accumulator::stump::Stump;
+    /// use rustreexo::prelude::io::Cursor;
     /// let proof = Cursor::new(vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
     /// let deserialized_proof = Proof::<BitcoinNodeHash>::deserialize(proof).unwrap();
     /// // An empty proof is only 16 bytes of zeros, meaning no targets and no hashes
@@ -888,11 +889,11 @@ impl<Hash: AccumulatorHash> Proof<Hash> {
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
+    use core::str::FromStr;
 
     use serde::Deserialize;
 
-    use super::Proof;
+    use super::*;
     use crate::accumulator::node_hash::AccumulatorHash;
     use crate::accumulator::node_hash::BitcoinNodeHash;
     use crate::accumulator::stump::Stump;
@@ -954,11 +955,10 @@ mod tests {
             /// After we update the proof, the cached hashes should be this
             expected_cached_hashes: Vec<String>,
         }
-        let contents = std::fs::read_to_string("test_values/cached_proof_tests.json")
-            .expect("Something went wrong reading the file");
+        let contents = include_str!("../../test_values/cached_proof_tests.json");
 
         let values: Vec<TestData> =
-            serde_json::from_str(contents.as_str()).expect("JSON deserialization error");
+            serde_json::from_str(contents).expect("JSON deserialization error");
         for case_values in values {
             let proof_hashes = case_values
                 .cached_proof
@@ -1473,11 +1473,10 @@ mod tests {
 
     #[test]
     fn test_proof_verify() {
-        let contents = std::fs::read_to_string("test_values/test_cases.json")
-            .expect("Something went wrong reading the file");
+        let contents = include_str!("../../test_values/test_cases.json");
 
         let values: serde_json::Value =
-            serde_json::from_str(contents.as_str()).expect("JSON deserialization error");
+            serde_json::from_str(contents).expect("JSON deserialization error");
         let tests = values["proof_tests"].as_array().unwrap();
         for test in tests {
             run_single_case(test);

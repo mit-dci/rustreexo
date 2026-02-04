@@ -1,9 +1,8 @@
-use std::collections::BTreeSet;
-use std::collections::HashSet;
-use std::io::Read;
+use alloc::collections::BTreeSet;
 
 // Rustreexo
 use super::node_hash::AccumulatorHash;
+use crate::prelude::*;
 
 // isRootPosition checks if the current position is a root given the number of
 // leaves and the entire rows of the forest.
@@ -223,7 +222,7 @@ pub fn parent(pos: u64, forest_rows: u8) -> u64 {
     (pos >> 1) | (1 << forest_rows)
 }
 
-pub fn read_u64<Source: Read>(buf: &mut Source) -> Result<u64, std::io::Error> {
+pub fn read_u64<Source: Read>(buf: &mut Source) -> Result<u64, io::Error> {
     let mut bytes = [0u8; 8];
     buf.read_exact(&mut bytes)?;
     Ok(u64::from_le_bytes(bytes))
@@ -351,8 +350,9 @@ pub fn hash_from_u8(value: u8) -> super::node_hash::BitcoinNodeHash {
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
-    use std::vec;
+    use alloc::vec;
+    use alloc::vec::Vec;
+    use core::str::FromStr;
 
     use super::roots_to_destroy;
     use crate::accumulator::node_hash::BitcoinNodeHash;

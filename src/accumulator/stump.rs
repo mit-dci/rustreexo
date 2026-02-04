@@ -26,10 +26,7 @@
 //! assert_eq!(s.unwrap().0.roots, utxos);
 //! ```
 
-use std::collections::BTreeSet;
-use std::io::Read;
-use std::io::Write;
-use std::vec;
+use alloc::collections::BTreeSet;
 
 #[cfg(feature = "with-serde")]
 use serde::Deserialize;
@@ -41,6 +38,7 @@ use super::node_hash::BitcoinNodeHash;
 use super::proof::NodesAndRootsOldNew;
 use super::proof::Proof;
 use super::util;
+use crate::prelude::*;
 
 #[derive(Debug, Clone, Default)]
 pub struct UpdateData<Hash: AccumulatorHash> {
@@ -63,15 +61,15 @@ pub enum StumpError {
 
     /// An IO error occurred, this is usually due to a failure in reading or writing
     /// the Stump to a reader/writer. This error will be returned during (de)serialization.
-    Io(std::io::ErrorKind),
+    Io(io::ErrorKind),
 
     /// The provided proof is invalid. This will happen during proof verification and stump
     /// modification.
     InvalidProof(String),
 }
 
-impl From<std::io::Error> for StumpError {
-    fn from(err: std::io::Error) -> Self {
+impl From<io::Error> for StumpError {
+    fn from(err: io::Error) -> Self {
         Self::Io(err.kind())
     }
 }
@@ -259,12 +257,13 @@ impl<Hash: AccumulatorHash> Stump<Hash> {
     /// use rustreexo::accumulator::node_hash::BitcoinNodeHash;
     /// use rustreexo::accumulator::proof::Proof;
     /// use rustreexo::accumulator::stump::Stump;
+    /// use rustreexo::prelude::io::Cursor;
     /// let buffer = vec![
     ///     8, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 2, 150, 124, 244, 241, 98, 69, 217, 222,
     ///     235, 97, 61, 137, 135, 76, 197, 134, 232, 173, 253, 8, 28, 17, 124, 123, 16, 4, 66, 30, 63,
     ///     113, 246, 74,
     /// ];
-    /// let mut buffer = std::io::Cursor::new(buffer);
+    /// let mut buffer = Cursor::new(buffer);
     /// let hashes = [0, 1, 2, 3, 4, 5, 6, 7]
     ///     .iter()
     ///     .map(|&el| BitcoinNodeHash::from([el; 32]))
@@ -368,15 +367,15 @@ impl<Hash: AccumulatorHash> Stump<Hash> {
 
 #[cfg(test)]
 mod test {
-    use std::fmt::Display;
-    use std::io::Read;
-    use std::io::Write;
-    use std::str::FromStr;
-    use std::vec;
+    use core::fmt;
+    use core::fmt::Display;
+    use core::str::FromStr;
 
+    use io::Cursor;
     use serde::Deserialize;
 
     use super::Stump;
+    use super::*;
     use crate::accumulator::node_hash::AccumulatorHash;
     use crate::accumulator::node_hash::BitcoinNodeHash;
     use crate::accumulator::proof::Proof;
@@ -404,7 +403,7 @@ mod test {
         struct CustomHash([u8; 32]);
 
         impl Display for CustomHash {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 write!(f, "{:?}", self.0)
             }
         }
@@ -424,7 +423,7 @@ mod test {
                 }
                 Self(hash)
             }
-            fn read<R: Read>(reader: &mut R) -> std::io::Result<Self> {
+            fn read<R: Read>(reader: &mut R) -> io::Result<Self> {
                 let mut hash = [0; 32];
                 reader
                     .read_exact(&mut hash)
@@ -432,7 +431,7 @@ mod test {
                     .unwrap();
                 Ok(Self(hash))
             }
-            fn write<W: Write>(&self, writer: &mut W) -> std::io::Result<()> {
+            fn write<W: Write>(&self, writer: &mut W) -> io::Result<()> {
                 writer
                     .write_all(&self.0)
                     .map_err(|e| e.to_string())
@@ -492,11 +491,10 @@ mod test {
             new_del_hashes: Vec<String>,
             to_destroy: Vec<u64>,
         }
-        let contents = std::fs::read_to_string("test_values/update_data_tests.json")
-            .expect("Something went wrong reading the file");
+        let contents = include_str!("../../test_values/update_data_tests.json");
 
-        let tests = serde_json::from_str::<Vec<TestData>>(contents.as_str())
-            .expect("JSON deserialization error");
+        let tests =
+            serde_json::from_str::<Vec<TestData>>(contents).expect("JSON deserialization error");
 
         for data in tests {
             let roots = data
@@ -706,7 +704,7 @@ mod test {
         let mut writer = Vec::new();
         stump.serialize(&mut writer).unwrap();
 
-        let mut reader = std::io::Cursor::new(writer);
+        let mut reader = Cursor::new(writer);
         let stump2 = Stump::deserialize(&mut reader).unwrap();
         assert_eq!(stump, stump2);
     }
@@ -719,11 +717,10 @@ mod test {
             deletion_tests: Vec<TestCase>,
         }
 
-        let contents = std::fs::read_to_string("test_values/test_cases.json")
-            .expect("Something went wrong reading the file");
+        let contents = include_str!("../../test_values/test_cases.json");
 
-        let tests = serde_json::from_str::<TestsJSON>(contents.as_str())
-            .expect("JSON deserialization error");
+        let tests =
+            serde_json::from_str::<TestsJSON>(contents).expect("JSON deserialization error");
 
         for i in tests.insertion_tests {
             run_single_addition_case(i);
