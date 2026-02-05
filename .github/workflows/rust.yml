@@ -70,8 +70,11 @@ jobs:
           toolchain: ${{ matrix.toolchain }}
           components: rustfmt, clippy
 
+      - name: Setup just
+        uses: extractions/setup-just@e33e0265a09d6d736e2ee1e0eb685ef1de4669ff # v3
+
       - name: Run Tests
-        run: cargo +${{ matrix.toolchain }} test --all-features
+        run: just test-${{ matrix.toolchain }}
 
   no-std:
     runs-on: ubuntu-latest
