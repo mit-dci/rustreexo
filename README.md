@@ -29,6 +29,16 @@ assert!(stump.verify(utxo_proof).unwrap());
 
 for a complete example, see `examples/`.
 
+## Minimum Supported Rust Version (MSRV)
+
+This library should compile with any combination of features on Rust **1.74.0**.
+
+## No-std support
+
+The `std` cargo feature is enabled by default. To build this project without the Rust standard
+library, use the `--no-default-features` flag or set `default-features = false` in your dependency
+declaration when adding it to your project.
+
 ## Testing
 
 This library contains an exhaustive test suite that covers all the algorithms implemented.
