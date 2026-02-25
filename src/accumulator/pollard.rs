@@ -1,47 +1,50 @@
-/// Pollard is an efficient implementation of the accumulator for keeping track of a subset of the
-/// whole tree. Instead of storing a proof for some leaves, it is more efficient to hold them in a
-/// tree structure, and add/remove elements as needed. The main use-case for a Pollard is to keep
-/// track of unconfirmed transactions' proof, in the mempool. As you get new transactions through
-/// the p2p network, you check the proofs and add them to the Pollard. When a block is mined, we
-/// can remove the confirmed transactions from the Pollard, and keep the unconfirmed ones. We can
-/// also serve proofs for specific transactions as requested, allowing efficient transaction relay.
-///
-/// This implementation is close to the one in `MemForest`, but it is specialized in keeping track
-/// of subsets of the whole tree, allowing you to cache and uncache elements as needed. While the
-/// MemForest keeps everything in the accumulator, and may take a lot of memory.
-///
-/// Nodes are kept in memory, and they hold their hashes, a reference to their **aunt** (not
-/// parent!), and their nieces (not children!). We do this to allow for proof generation, while
-/// prunning as much as possible. In a merkle proof, we only need the sibling of the path to the
-/// root, the parent is always computed on the fly as we walk up the tree. Some there's no need to
-/// keep the parent. But we need the aunt (the sibling of the parent) to generate the proof.
-///
-/// Every node is owned by exactly one other node, the ancestor - With the only exception being the
-/// roots, which are owned by the Pollard itself. This almost garantees that we can't have a memory
-/// leak, as deleting one node will delete all of its descendants. The only way to have a memory
-/// leak is if we have a cycle in the tree, which we avoid by only allowing Weak references everywhere,
-/// except for the owner of the node. Things are kept in a [Rc] to allow for multiple references to
-/// the same node, as we may need to operate on it, and also to allow the nieces to have a reference
-/// to their aunt. It could be done with pointers, but it would be more complex and error-prone. The
-/// [Rc]s live inside a [RefCell], to allow for interior mutability, as we may need to change the
-/// values inside a node. Make sure to avoid leaking a reference to the inner [RefCell] to the outside
-/// world, as it may cause race conditions and panics. Every time we use a reference to the inner
-/// [RefCell], we make sure to drop it as soon as possible, and that we are the only ones operating
-/// on it at that time. For this reason, a [Pollard] is not [Sync], and you'll need to use a [Mutex]
-/// or something similar to share it between threads. But it is [Send], as it is safe to send it to
-/// another thread - everything is owned by the Pollard and lives on the heap.
-///
-/// ## Usage
-///
-/// //TODO: Add usage examples
-use std::cell::Cell;
-use std::cell::RefCell;
-use std::collections::HashMap;
-use std::convert::TryInto;
-use std::fmt::Debug;
-use std::fmt::Display;
-use std::rc::Rc;
-use std::rc::Weak;
+//! Pollard is an efficient implementation of the accumulator for keeping track of a subset of the
+//! whole tree. Instead of storing a proof for some leaves, it is more efficient to hold them in a
+//! tree structure, and add/remove elements as needed. The main use-case for a Pollard is to keep
+//! track of unconfirmed transactions' proof, in the mempool. As you get new transactions through
+//! the p2p network, you check the proofs and add them to the Pollard. When a block is mined, we
+//! can remove the confirmed transactions from the Pollard, and keep the unconfirmed ones. We can
+//! also serve proofs for specific transactions as requested, allowing efficient transaction relay.
+//!
+//! This implementation is close to the one in `MemForest`, but it is specialized in keeping track
+//! of subsets of the whole tree, allowing you to cache and uncache elements as needed. While the
+//! MemForest keeps everything in the accumulator, and may take a lot of memory.
+//!
+//! Nodes are kept in memory, and they hold their hashes, a reference to their **aunt** (not
+//! parent!), and their nieces (not children!). We do this to allow for proof generation, while
+//! prunning as much as possible. In a merkle proof, we only need the sibling of the path to the
+//! root, the parent is always computed on the fly as we walk up the tree. So, there's no need to
+//! keep the parent. But we need the aunt (the sibling of the parent) to generate the proof.
+//!
+//! Every node is owned by exactly one other node, the ancestor - With the only exception being the
+//! roots, which are owned by the Pollard itself. This almost garantees that we can't have a memory
+//! leak, as deleting one node will delete all of its descendants. The only way to have a memory
+//! leak is if we have a cycle in the tree, which we avoid by only allowing Weak references everywhere,
+//! except for the owner of the node. Things are kept in a [Rc] to allow for multiple references to
+//! the same node, as we may need to operate on it, and also to allow the nieces to have a reference
+//! to their aunt. It could be done with pointers, but it would be more complex and error-prone. The
+//! [Rc]s live inside a [RefCell], to allow for interior mutability, as we may need to change the
+//! values inside a node. Make sure to avoid leaking a reference to the inner [RefCell] to the outside
+//! world, as it may cause race conditions and panics. Every time we use a reference to the inner
+//! [RefCell], we make sure to drop it as soon as possible, and that we are the only ones operating
+//! on it at that time. For this reason, a [Pollard] is not [Sync], and you'll need to use a `Mutex`
+//! or something similar to share it between threads. But it is [Send], as it is safe to send it to
+//! another thread - everything is owned by the Pollard and lives on the heap.
+//!
+//! ## Usage
+//!
+//! //TODO: Add usage examples
+
+use alloc::rc::Rc;
+use alloc::rc::Weak;
+use core::array;
+use core::cell::Cell;
+use core::cell::RefCell;
+use core::convert::TryInto;
+use core::fmt;
+use core::fmt::Debug;
+use core::fmt::Display;
+use core::mem;
 
 use super::node_hash::AccumulatorHash;
 use super::proof::Proof;
@@ -57,6 +60,7 @@ use super::util::parent;
 use super::util::right_child;
 use super::util::root_position;
 use super::util::tree_rows;
+use crate::prelude::*;
 
 #[derive(Default, Clone)]
 /// A node in the Pollard tree
@@ -125,7 +129,7 @@ pub enum PollardError<Hash: AccumulatorHash> {
     InvalidProof,
 
     /// We've had some I/O error while serializing or deserializing the forest
-    IO(std::io::Error),
+    IO(io::Error),
 
     /// We couldn't upgrade a node to a root
     ///
@@ -163,8 +167,8 @@ pub enum PollardError<Hash: AccumulatorHash> {
     RootNotFound,
 }
 
-impl<Hash: AccumulatorHash> From<std::io::Error> for PollardError<Hash> {
-    fn from(err: std::io::Error) -> Self {
+impl<Hash: AccumulatorHash> From<io::Error> for PollardError<Hash> {
+    fn from(err: io::Error) -> Self {
         Self::IO(err)
     }
 }
@@ -177,7 +181,7 @@ impl<Hash: AccumulatorHash> PartialEq for PollardError<Hash> {
 }
 
 impl<Hash: AccumulatorHash> Debug for PollardError<Hash> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::NodeNotFound(hash) => write!(f, "Node not found: {hash}"),
             Self::PositionNotFound(pos) => write!(f, "Position not found: {pos}"),
@@ -197,14 +201,14 @@ impl<Hash: AccumulatorHash> Debug for PollardError<Hash> {
     }
 }
 
-impl<Hash: AccumulatorHash> std::fmt::Display for PollardError<Hash> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl<Hash: AccumulatorHash> fmt::Display for PollardError<Hash> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{self:?}")
     }
 }
 
 impl<Hash: AccumulatorHash> Debug for PollardNode<Hash> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.hash().to_string())
     }
 }
@@ -230,7 +234,7 @@ impl<Hash: AccumulatorHash> PollardNode<Hash> {
         })
     }
 
-    fn serialize<W: std::io::Write>(&self, writer: &mut W) -> Result<(), PollardError<Hash>> {
+    fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), PollardError<Hash>> {
         let is_leaf = self.left_niece().is_none() as u8;
         writer.write_all(&is_leaf.to_be_bytes())?;
 
@@ -250,7 +254,7 @@ impl<Hash: AccumulatorHash> PollardNode<Hash> {
         Ok(())
     }
 
-    fn deserialize<R: std::io::Read>(
+    fn deserialize<R: Read>(
         reader: &mut R,
         ancestor: Option<Weak<Self>>,
         leaf_map: &mut HashMap<Hash, Weak<Self>>,
@@ -493,11 +497,11 @@ impl<Hash: AccumulatorHash> PollardNode<Hash> {
     /// node's children. This function swaps the nieces of this node with the nieces of the provided
     /// node.
     fn swap_nieces(&self, other: &Self) {
-        std::mem::swap(
+        mem::swap(
             &mut *self.left_niece.borrow_mut(),
             &mut *other.left_niece.borrow_mut(),
         );
-        std::mem::swap(
+        mem::swap(
             &mut *self.right_niece.borrow_mut(),
             &mut *other.right_niece.borrow_mut(),
         );
@@ -568,13 +572,13 @@ impl<Hash: AccumulatorHash> PartialEq for Pollard<Hash> {
 impl<Hash: AccumulatorHash> Eq for Pollard<Hash> {}
 
 impl<Hash: AccumulatorHash> Debug for Pollard<Hash> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.string())
     }
 }
 
 impl<Hash: AccumulatorHash> Display for Pollard<Hash> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.string())
     }
 }
@@ -761,7 +765,7 @@ impl<Hash: AccumulatorHash> Pollard<Hash> {
 
     /// Creates a new empty [Pollard]
     pub fn new() -> Self {
-        let roots: [Option<Rc<PollardNode<Hash>>>; 64] = std::array::from_fn(|_| None);
+        let roots: [Option<Rc<PollardNode<Hash>>>; 64] = array::from_fn(|_| None);
         Self {
             roots,
             leaves: 0,
@@ -799,12 +803,12 @@ impl<Hash: AccumulatorHash> Pollard<Hash> {
 
     /// Serializes the [Pollard] into a sync
     ///
-    /// This function serializes the [Pollard] into a sync that implements [std::io::Write]. This will be
+    /// This function serializes the [Pollard] into a sync that implements [Write]. This will be
     /// serialized in a compact binary format, so it can be stored in a file or sent over the
     /// network. This function will return an error if it fails to write to the sync.
     ///
     /// To deserialize the [Pollard] back, you can use the `deserialize` function.
-    pub fn serialize<W: std::io::Write>(&self, writer: &mut W) -> Result<(), PollardError<Hash>> {
+    pub fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), PollardError<Hash>> {
         writer.write_all(&self.leaves.to_be_bytes())?;
 
         for root in self.roots.iter() {
@@ -826,9 +830,9 @@ impl<Hash: AccumulatorHash> Pollard<Hash> {
 
     /// Deserializes a [Pollard] from a stream
     ///
-    /// This function deserializes a [Pollard] from a stream that implements [std::io::Read]. This stream
+    /// This function deserializes a [Pollard] from a stream that implements [Read]. This stream
     /// should contain a [Pollard] serialized with the `serialize` function.
-    pub fn deserialize<R: std::io::Read>(reader: &mut R) -> Result<Self, PollardError<Hash>> {
+    pub fn deserialize<R: Read>(reader: &mut R) -> Result<Self, PollardError<Hash>> {
         let mut leaves = [0u8; 8];
         reader.read_exact(&mut leaves)?;
         let leaves = u64::from_be_bytes(leaves);
@@ -1095,7 +1099,7 @@ impl<Hash: AccumulatorHash> Pollard<Hash> {
         let mut roots_to_destroy = Vec::new();
 
         while self.leaves >> row & 1 == 1 {
-            let old_root = std::mem::take(&mut self.roots[row as usize]).expect("Root not found");
+            let old_root = mem::take(&mut self.roots[row as usize]).expect("Root not found");
             let pos = root_position(self.leaves(), row, tree_rows(self.leaves()));
 
             add_positions.push((pos, old_root.hash()));
@@ -1264,7 +1268,7 @@ impl<Hash: AccumulatorHash> From<Stump<Hash>> for Pollard<Hash> {
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
+    use core::str::FromStr;
 
     use serde::Deserialize;
 
@@ -1435,11 +1439,10 @@ mod tests {
             deletion_tests: Vec<TestCase>,
         }
 
-        let contents = std::fs::read_to_string("test_values/test_cases.json")
-            .expect("Something went wrong reading the file");
+        let contents = include_str!("../../test_values/test_cases.json");
 
-        let tests = serde_json::from_str::<TestsJSON>(contents.as_str())
-            .expect("JSON deserialization error");
+        let tests =
+            serde_json::from_str::<TestsJSON>(contents).expect("JSON deserialization error");
 
         for i in tests.insertion_tests {
             run_single_addition_case(i);

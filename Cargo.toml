@@ -12,9 +12,11 @@ rust-version = "1.74.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [dependencies]
-bitcoin_hashes = "0.19"
-hex-conservative = "1.0.0"
+bitcoin_hashes = { version = "0.19", default-features = false }
+hex-conservative = { version = "1.0.0", default-features = false }
 serde = { version = "1.0", features = ["derive"], optional = true }
+hashbrown = "0.16.1"
+bitcoin-io = { version = "0.3.0", default-features = false, features = ["alloc"] }
 
 [dev-dependencies]
 serde = { version = "1.0", features = ["derive"] }
@@ -23,8 +25,9 @@ criterion = { version = ">=0.5.1", features = ["html_reports"] }
 rand = "0.9.2"
 
 [features]
+default = ["std"]
+std = ["bitcoin_hashes/std", "hex-conservative/std"]
 with-serde = ["serde"]
-default = []
 
 [lints.clippy]
 use_self = "warn"
@@ -40,6 +43,8 @@ name = "proof-update"
 
 [[example]]
 name = "custom-hash-type"
+# Compile AccumulatorHash with the `std::io::{Read, Write}` trait bounds
+required-features = ["std"]
 
 [[bench]]
 name = "accumulator_benchmarks"

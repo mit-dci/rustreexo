@@ -25,16 +25,14 @@
 //! assert_eq!(p.get_roots()[0].get_data(), BitcoinNodeHash::default());
 //! ```
 
-use std::cell::Cell;
-use std::cell::RefCell;
-use std::collections::HashMap;
-use std::fmt::Debug;
-use std::fmt::Display;
-use std::fmt::Formatter;
-use std::io::Read;
-use std::io::Write;
-use std::rc::Rc;
-use std::rc::Weak;
+use alloc::rc::Rc;
+use alloc::rc::Weak;
+use core::cell::Cell;
+use core::cell::RefCell;
+use core::fmt;
+use core::fmt::Debug;
+use core::fmt::Display;
+use core::fmt::Formatter;
 
 use super::node_hash::AccumulatorHash;
 use super::node_hash::BitcoinNodeHash;
@@ -48,6 +46,7 @@ use super::util::max_position_at_row;
 use super::util::right_child;
 use super::util::root_position;
 use super::util::tree_rows;
+use crate::prelude::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum NodeType {
@@ -84,7 +83,7 @@ impl<Hash: AccumulatorHash> Node<Hash> {
     /// Writes one node to the writer, this method will recursively write all children.
     /// The primary use of this method is to serialize the accumulator. In this case,
     /// you should call this method on each root in the forest.
-    pub fn write_one<W: Write>(&self, writer: &mut W) -> std::io::Result<()> {
+    pub fn write_one<W: Write>(&self, writer: &mut W) -> io::Result<()> {
         match self.ty {
             NodeType::Branch => writer.write_all(&0_u64.to_le_bytes())?,
             NodeType::Leaf => writer.write_all(&1_u64.to_le_bytes())?,
@@ -124,14 +123,12 @@ impl<Hash: AccumulatorHash> Node<Hash> {
     /// you should call this method on each root in the forest, assuming you know how
     /// many roots there are.
     #[allow(clippy::type_complexity)]
-    pub fn read_one<R: std::io::Read>(
-        reader: &mut R,
-    ) -> std::io::Result<(Rc<Self>, HashMap<Hash, Weak<Self>>)> {
-        fn _read_one<Hash: AccumulatorHash, R: std::io::Read>(
+    pub fn read_one<R: Read>(reader: &mut R) -> io::Result<(Rc<Self>, HashMap<Hash, Weak<Self>>)> {
+        fn _read_one<Hash: AccumulatorHash, R: Read>(
             ancestor: Option<Rc<Node<Hash>>>,
             reader: &mut R,
             index: &mut HashMap<Hash, Weak<Node<Hash>>>,
-        ) -> std::io::Result<Rc<Node<Hash>>> {
+        ) -> io::Result<Rc<Node<Hash>>> {
             let mut ty = [0u8; 8];
             reader.read_exact(&mut ty)?;
             let data = Hash::read(reader)?;
@@ -253,7 +250,7 @@ impl<Hash: AccumulatorHash> MemForest<Hash> {
     ///     vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
     /// );
     /// ```
-    pub fn serialize<W: Write>(&self, mut writer: W) -> std::io::Result<()> {
+    pub fn serialize<W: Write>(&self, mut writer: W) -> io::Result<()> {
         writer.write_all(&self.leaves.to_le_bytes())?;
         writer.write_all(&(self.roots.len() as u64).to_le_bytes())?;
 
@@ -267,17 +264,16 @@ impl<Hash: AccumulatorHash> MemForest<Hash> {
     /// Deserializes a MemForest from a reader.
     /// # Example
     /// ```
-    /// use std::io::Cursor;
-    ///
     /// use rustreexo::accumulator::mem_forest::MemForest;
     /// use rustreexo::accumulator::node_hash::BitcoinNodeHash;
+    /// use rustreexo::prelude::io::Cursor;
     /// let mut serialized = Cursor::new(vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
     /// let MemForest = MemForest::<BitcoinNodeHash>::deserialize(&mut serialized).unwrap();
     /// assert_eq!(MemForest.leaves, 0);
     /// assert_eq!(MemForest.get_roots().len(), 0);
     /// ```
-    pub fn deserialize<R: Read>(mut reader: R) -> std::io::Result<Self> {
-        fn read_u64<R: Read>(reader: &mut R) -> std::io::Result<u64> {
+    pub fn deserialize<R: Read>(mut reader: R) -> io::Result<Self> {
+        fn read_u64<R: Read>(reader: &mut R) -> io::Result<u64> {
             let mut buf = [0u8; 8];
             reader.read_exact(&mut buf)?;
             Ok(u64::from_le_bytes(buf))
@@ -675,29 +671,29 @@ impl<Hash: AccumulatorHash> MemForest<Hash> {
 }
 
 impl Debug for MemForest {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "{}", self.string())
     }
 }
 
 impl Display for MemForest {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "{}", self.string())
     }
 }
 
 #[cfg(test)]
 mod test {
-    use std::convert::TryFrom;
-    use std::rc::Rc;
-    use std::str::FromStr;
-    use std::vec;
+    use core::convert::TryFrom;
+    use core::str::FromStr;
 
     use bitcoin_hashes::sha256::Hash as Data;
     use bitcoin_hashes::HashEngine;
+    use io::Cursor;
     use serde::Deserialize;
 
     use super::MemForest;
+    use super::*;
     use crate::accumulator::mem_forest::Node;
     use crate::accumulator::node_hash::AccumulatorHash;
     use crate::accumulator::node_hash::BitcoinNodeHash;
@@ -926,11 +922,10 @@ mod test {
             deletion_tests: Vec<TestCase>,
         }
 
-        let contents = std::fs::read_to_string("test_values/test_cases.json")
-            .expect("Something went wrong reading the file");
+        let contents = include_str!("../../test_values/test_cases.json");
 
-        let tests = serde_json::from_str::<TestsJSON>(contents.as_str())
-            .expect("JSON deserialization error");
+        let tests =
+            serde_json::from_str::<TestsJSON>(contents).expect("JSON deserialization error");
 
         for i in tests.insertion_tests {
             run_single_addition_case(i);
@@ -999,11 +994,10 @@ mod test {
         let mut p = MemForest::new();
         p.modify(&hashes, &[]).expect("Test mem_forests are valid");
         p.modify(&[], &[hashes[0]]).expect("can remove 0");
-        let mut writer = std::io::Cursor::new(Vec::new());
+        let mut writer = Vec::new();
         p.get_roots()[0].write_one(&mut writer).unwrap();
         let (deserialized, _) =
-            Node::<BitcoinNodeHash>::read_one(&mut std::io::Cursor::new(writer.into_inner()))
-                .unwrap();
+            Node::<BitcoinNodeHash>::read_one(&mut Cursor::new(writer)).unwrap();
         assert_eq!(deserialized.get_data(), p.get_roots()[0].get_data());
     }
 
@@ -1013,12 +1007,10 @@ mod test {
         let mut p = MemForest::new();
         p.modify(&hashes, &[]).expect("Test mem_forests are valid");
         p.modify(&[], &[hashes[0]]).expect("can remove 0");
-        let mut writer = std::io::Cursor::new(Vec::new());
+        let mut writer = Vec::new();
         p.serialize(&mut writer).unwrap();
-        let deserialized = MemForest::<BitcoinNodeHash>::deserialize(&mut std::io::Cursor::new(
-            writer.into_inner(),
-        ))
-        .unwrap();
+        let deserialized =
+            MemForest::<BitcoinNodeHash>::deserialize(&mut Cursor::new(writer)).unwrap();
         assert_eq!(
             deserialized.get_roots()[0].get_data(),
             p.get_roots()[0].get_data()
