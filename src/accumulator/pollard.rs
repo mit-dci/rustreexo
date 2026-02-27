@@ -403,11 +403,11 @@ impl<Hash: AccumulatorHash> PollardNode<Hash> {
     /// The deletion algorithm for utreexo works like this: let's say we have the following tree:
     ///
     /// ```!
-    /// 06                                                 
-    /// |---------\             
-    /// 04        05                   
+    /// 06
+    /// |---------\
+    /// 04        05
     /// |-----\   |-----\
-    /// 00    01  02   03      
+    /// 00    01  02   03
     /// ```
     ///
     /// to delete `03`, we simply move `02` up to `09`'s position, so now we have:
