@@ -181,7 +181,7 @@ jobs:
 
           Key performance metrics:
           - Stump operations: See stump_results.json
-          - Proof operations: See proof_results.json  
+          - Proof operations: See proof_results.json
           - Accumulator comparisons: See accumulator_results.json
           EOF
 
@@ -193,7 +193,7 @@ jobs:
           echo "Collecting benchmark artifacts..."
 
           # Use the benchmark collection script
-          ./collect_benchmark_results.sh benchmark-results
+          bash contrib/collect_benchmark_results.sh benchmark-results
 
           mkdir -p artifacts
 
