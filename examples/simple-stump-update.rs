@@ -5,9 +5,9 @@
 use std::str::FromStr;
 use std::vec;
 
-use rustreexo::accumulator::node_hash::BitcoinNodeHash;
-use rustreexo::accumulator::proof::Proof;
-use rustreexo::accumulator::stump::Stump;
+use rustreexo::node_hash::BitcoinNodeHash;
+use rustreexo::proof::Proof;
+use rustreexo::stump::Stump;
 
 fn main() {
     // These are the utxos that we want to add to the Stump, in Bitcoin, these would be the

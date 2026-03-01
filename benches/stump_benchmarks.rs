@@ -8,9 +8,9 @@ use criterion::Throughput;
 use rand::rngs::StdRng;
 use rand::Rng;
 use rand::SeedableRng;
-use rustreexo::accumulator::node_hash::BitcoinNodeHash;
-use rustreexo::accumulator::proof::Proof;
-use rustreexo::accumulator::stump::Stump;
+use rustreexo::node_hash::BitcoinNodeHash;
+use rustreexo::proof::Proof;
+use rustreexo::stump::Stump;
 
 fn generate_test_hashes(count: usize, seed: u64) -> Vec<BitcoinNodeHash> {
     let mut rng = StdRng::seed_from_u64(seed);

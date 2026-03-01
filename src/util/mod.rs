@@ -355,9 +355,9 @@ mod tests {
     use core::str::FromStr;
 
     use super::roots_to_destroy;
-    use crate::accumulator::node_hash::BitcoinNodeHash;
-    use crate::accumulator::util::children;
-    use crate::accumulator::util::tree_rows;
+    use crate::node_hash::BitcoinNodeHash;
+    use crate::util::children;
+    use crate::util::tree_rows;
 
     #[test]
     fn test_proof_pos() {
