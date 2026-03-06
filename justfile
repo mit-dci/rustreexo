@@ -1,7 +1,16 @@
+alias b  := build
+alias c  := check
+alias f  := fmt
+alias t  := test
+alias ts := test-stable
+alias tm := test-msrv
+alias tn := test-nightly
+alias p  := pre-push
+
 _default:
     @just --list
 
-# Run benchmarks 
+# Run benchmarks
 bench:
     cargo bench
 
@@ -24,10 +33,11 @@ check:
 fmt:
     cargo +nightly fmt --all
 
-# Run all tests with stable and nightly toolchains
+# Run all tests with stable, nightly and MSRV (1.74.0) toolchains
 test:
     @just test-stable
     @just test-nightly
+    @just test-msrv
 
 # Run all tests with a stable toolchain
 test-stable:
@@ -52,3 +62,6 @@ test-msrv:
     cargo +1.74.0 test --no-default-features
     cargo +1.74.0 test --all-features
     rm Cargo.lock
+
+# Run pre-push suite: format, check, and test
+pre-push: fmt check test

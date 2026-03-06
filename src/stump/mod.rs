@@ -6,9 +6,9 @@
 //! ```
 //! use std::str::FromStr;
 //!
-//! use rustreexo::accumulator::node_hash::BitcoinNodeHash;
-//! use rustreexo::accumulator::proof::Proof;
-//! use rustreexo::accumulator::stump::Stump;
+//! use rustreexo::node_hash::BitcoinNodeHash;
+//! use rustreexo::proof::Proof;
+//! use rustreexo::stump::Stump;
 //! // Create a new empty Stump
 //! let s = Stump::new();
 //! // The newly create outputs
@@ -91,7 +91,7 @@ impl Stump {
     /// Creates an empty Stump
     ///# Example
     /// ```
-    /// use rustreexo::accumulator::stump::Stump;
+    /// use rustreexo::stump::Stump;
     /// let s = Stump::new();
     /// ```
     pub fn new() -> Self {
@@ -104,9 +104,9 @@ impl Stump {
     /// Serialize the Stump into a byte array
     /// # Example
     /// ```
-    /// use rustreexo::accumulator::node_hash::BitcoinNodeHash;
-    /// use rustreexo::accumulator::proof::Proof;
-    /// use rustreexo::accumulator::stump::Stump;
+    /// use rustreexo::node_hash::BitcoinNodeHash;
+    /// use rustreexo::proof::Proof;
+    /// use rustreexo::stump::Stump;
     /// let hashes = [0, 1, 2, 3, 4, 5, 6, 7]
     ///     .iter()
     ///     .map(|&el| BitcoinNodeHash::from([el; 32]))
@@ -142,9 +142,9 @@ impl Stump {
     /// Takes the ownership over `old_state`.
     ///# Example
     /// ```
-    /// use rustreexo::accumulator::node_hash::BitcoinNodeHash;
-    /// use rustreexo::accumulator::proof::Proof;
-    /// use rustreexo::accumulator::stump::Stump;
+    /// use rustreexo::node_hash::BitcoinNodeHash;
+    /// use rustreexo::proof::Proof;
+    /// use rustreexo::stump::Stump;
     ///
     /// let s_old = Stump::new();
     /// let mut s_new = Stump::new();
@@ -193,9 +193,9 @@ impl<Hash: AccumulatorHash> Stump<Hash> {
     /// ```
     /// use std::str::FromStr;
     ///
-    /// use rustreexo::accumulator::node_hash::BitcoinNodeHash;
-    /// use rustreexo::accumulator::proof::Proof;
-    /// use rustreexo::accumulator::stump::Stump;
+    /// use rustreexo::node_hash::BitcoinNodeHash;
+    /// use rustreexo::proof::Proof;
+    /// use rustreexo::stump::Stump;
     ///
     /// let s = Stump::new();
     /// let utxos = vec![BitcoinNodeHash::from_str(
@@ -254,10 +254,10 @@ impl<Hash: AccumulatorHash> Stump<Hash> {
     /// Deserialize the Stump from a Reader
     /// # Example
     /// ```
-    /// use rustreexo::accumulator::node_hash::BitcoinNodeHash;
-    /// use rustreexo::accumulator::proof::Proof;
-    /// use rustreexo::accumulator::stump::Stump;
+    /// use rustreexo::node_hash::BitcoinNodeHash;
     /// use rustreexo::prelude::io::Cursor;
+    /// use rustreexo::proof::Proof;
+    /// use rustreexo::stump::Stump;
     /// let buffer = vec![
     ///     8, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 2, 150, 124, 244, 241, 98, 69, 217, 222,
     ///     235, 97, 61, 137, 135, 76, 197, 134, 232, 173, 253, 8, 28, 17, 124, 123, 16, 4, 66, 30, 63,
@@ -376,10 +376,10 @@ mod test {
 
     use super::Stump;
     use super::*;
-    use crate::accumulator::node_hash::AccumulatorHash;
-    use crate::accumulator::node_hash::BitcoinNodeHash;
-    use crate::accumulator::proof::Proof;
-    use crate::accumulator::util::hash_from_u8;
+    use crate::node_hash::AccumulatorHash;
+    use crate::node_hash::BitcoinNodeHash;
+    use crate::proof::Proof;
+    use crate::util::hash_from_u8;
 
     #[derive(Debug, Deserialize)]
     struct TestCase {
@@ -530,22 +530,14 @@ mod test {
                 .iter()
                 .map(|hash| BitcoinNodeHash::from_str(hash).unwrap())
                 .collect();
-            let new_add: Vec<_> = data
-                .new_add_pos
-                .into_iter()
-                .zip(new_add_hash.into_iter())
-                .collect();
+            let new_add: Vec<_> = data.new_add_pos.into_iter().zip(new_add_hash).collect();
             // Positions returned after deletion
             let new_del_hash: Vec<_> = data
                 .new_del_hashes
                 .iter()
                 .map(|hash| BitcoinNodeHash::from_str(hash).unwrap())
                 .collect();
-            let new_del: Vec<_> = data
-                .new_del_pos
-                .into_iter()
-                .zip(new_del_hash.into_iter())
-                .collect();
+            let new_del: Vec<_> = data.new_del_pos.into_iter().zip(new_del_hash).collect();
 
             assert_eq!(updated.prev_num_leaves, data.leaves);
             assert_eq!(updated.to_destroy, data.to_destroy);

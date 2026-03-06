@@ -59,7 +59,7 @@ jobs:
           persist-credentials: false
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@f7ccc83f9ed1e5b9c81d8a67d7ad1a747e22a561 # 1.91.1
+        uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # v1.93.1
         with:
           toolchain: ${{ matrix.rust }}
           components: clippy, rustfmt
@@ -181,7 +181,7 @@ jobs:
 
           Key performance metrics:
           - Stump operations: See stump_results.json
-          - Proof operations: See proof_results.json  
+          - Proof operations: See proof_results.json
           - Accumulator comparisons: See accumulator_results.json
           EOF
 
@@ -193,7 +193,7 @@ jobs:
           echo "Collecting benchmark artifacts..."
 
           # Use the benchmark collection script
-          ./collect_benchmark_results.sh benchmark-results
+          bash contrib/collect_benchmark_results.sh benchmark-results
 
           mkdir -p artifacts
 

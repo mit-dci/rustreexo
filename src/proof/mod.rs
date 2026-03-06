@@ -9,9 +9,9 @@
 //! use bitcoin_hashes::sha256;
 //! use bitcoin_hashes::Hash;
 //! use bitcoin_hashes::HashEngine;
-//! use rustreexo::accumulator::node_hash::BitcoinNodeHash;
-//! use rustreexo::accumulator::proof::Proof;
-//! use rustreexo::accumulator::stump::Stump;
+//! use rustreexo::node_hash::BitcoinNodeHash;
+//! use rustreexo::proof::Proof;
+//! use rustreexo::stump::Stump;
 //! let s = Stump::new();
 //! // Creates a tree with those values as leaves
 //! let test_values: Vec<u8> = vec![0, 1, 2, 3, 4, 5, 6, 7];
@@ -152,7 +152,7 @@ impl Proof {
     /// ```
     /// use bitcoin_hashes::Hash;
     /// use bitcoin_hashes::HashEngine;
-    /// use rustreexo::accumulator::proof::Proof;
+    /// use rustreexo::proof::Proof;
     /// let targets = vec![0];
     ///
     /// let mut proof_hashes = Vec::new();
@@ -194,8 +194,8 @@ impl<Hash: AccumulatorHash> Proof<Hash> {
     /// ```
     /// use bitcoin_hashes::Hash;
     /// use bitcoin_hashes::HashEngine;
-    /// use rustreexo::accumulator::node_hash::BitcoinNodeHash;
-    /// use rustreexo::accumulator::proof::Proof;
+    /// use rustreexo::node_hash::BitcoinNodeHash;
+    /// use rustreexo::proof::Proof;
     /// let targets = vec![0];
     ///
     /// let mut proof_hashes = Vec::new();
@@ -218,9 +218,9 @@ impl<Hash: AccumulatorHash> Proof<Hash> {
     /// use bitcoin_hashes::sha256;
     /// use bitcoin_hashes::Hash;
     /// use bitcoin_hashes::HashEngine;
-    /// use rustreexo::accumulator::node_hash::BitcoinNodeHash;
-    /// use rustreexo::accumulator::proof::Proof;
-    /// use rustreexo::accumulator::stump::Stump;
+    /// use rustreexo::node_hash::BitcoinNodeHash;
+    /// use rustreexo::proof::Proof;
+    /// use rustreexo::stump::Stump;
     /// let s = Stump::new();
     /// // Creates a tree with those values as leaves
     /// let test_values: Vec<u8> = vec![0, 1, 2, 3, 4, 5, 6, 7];
@@ -357,9 +357,9 @@ impl<Hash: AccumulatorHash> Proof<Hash> {
     /// - hashes (32 bytes)
     /// # Example
     /// ```
-    /// use rustreexo::accumulator::node_hash::BitcoinNodeHash;
-    /// use rustreexo::accumulator::proof::Proof;
-    /// use rustreexo::accumulator::stump::Stump;
+    /// use rustreexo::node_hash::BitcoinNodeHash;
+    /// use rustreexo::proof::Proof;
+    /// use rustreexo::stump::Stump;
     ///
     /// let proof = Proof::default();
     /// let mut serialized_proof = vec![];
@@ -388,10 +388,10 @@ impl<Hash: AccumulatorHash> Proof<Hash> {
     /// Deserializes a proof from a byte array.
     /// # Example
     /// ```
-    /// use rustreexo::accumulator::node_hash::BitcoinNodeHash;
-    /// use rustreexo::accumulator::proof::Proof;
-    /// use rustreexo::accumulator::stump::Stump;
+    /// use rustreexo::node_hash::BitcoinNodeHash;
     /// use rustreexo::prelude::io::Cursor;
+    /// use rustreexo::proof::Proof;
+    /// use rustreexo::stump::Stump;
     /// let proof = Cursor::new(vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
     /// let deserialized_proof = Proof::<BitcoinNodeHash>::deserialize(proof).unwrap();
     /// // An empty proof is only 16 bytes of zeros, meaning no targets and no hashes
@@ -894,10 +894,10 @@ mod tests {
     use serde::Deserialize;
 
     use super::*;
-    use crate::accumulator::node_hash::AccumulatorHash;
-    use crate::accumulator::node_hash::BitcoinNodeHash;
-    use crate::accumulator::stump::Stump;
-    use crate::accumulator::util::hash_from_u8;
+    use crate::node_hash::AccumulatorHash;
+    use crate::node_hash::BitcoinNodeHash;
+    use crate::stump::Stump;
+    use crate::util::hash_from_u8;
 
     #[derive(Deserialize)]
     struct TestCase {

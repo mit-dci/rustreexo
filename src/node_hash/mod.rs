@@ -5,7 +5,7 @@
 //! ```
 //! use std::str::FromStr;
 //!
-//! use rustreexo::accumulator::node_hash::BitcoinNodeHash;
+//! use rustreexo::node_hash::BitcoinNodeHash;
 //! let hash = BitcoinNodeHash::from_str(
 //!     "0000000000000000000000000000000000000000000000000000000000000000",
 //! )
@@ -19,7 +19,7 @@
 //! ```
 //! use std::str::FromStr;
 //!
-//! use rustreexo::accumulator::node_hash::BitcoinNodeHash;
+//! use rustreexo::node_hash::BitcoinNodeHash;
 //! let hash1 = BitcoinNodeHash::new([0; 32]);
 //! // ... or ...
 //! let hash2 = BitcoinNodeHash::from([0; 32]);
@@ -34,8 +34,8 @@
 //! ```
 //! use std::str::FromStr;
 //!
-//! use rustreexo::accumulator::node_hash::AccumulatorHash;
-//! use rustreexo::accumulator::node_hash::BitcoinNodeHash;
+//! use rustreexo::node_hash::AccumulatorHash;
+//! use rustreexo::node_hash::BitcoinNodeHash;
 //! let left = BitcoinNodeHash::new([0; 32]);
 //! let right = BitcoinNodeHash::new([1; 32]);
 //! let parent = BitcoinNodeHash::parent_hash(&left, &right);
@@ -85,7 +85,7 @@ pub trait AccumulatorHash: Copy + Clone + Ord + Debug + Display + Hash + Default
 /// AccumulatorHash is a wrapper around a 32 byte array that represents a hash of a node in the tree.
 /// # Example
 /// ```
-/// use rustreexo::accumulator::node_hash::BitcoinNodeHash;
+/// use rustreexo::node_hash::BitcoinNodeHash;
 /// let hash = BitcoinNodeHash::new([0; 32]);
 /// assert_eq!(
 ///     hash.to_string().as_str(),
@@ -216,7 +216,7 @@ impl BitcoinNodeHash {
     /// Creates a new AccumulatorHash from a 32 byte array.
     /// # Example
     /// ```
-    /// use rustreexo::accumulator::node_hash::BitcoinNodeHash;
+    /// use rustreexo::node_hash::BitcoinNodeHash;
     /// let hash = BitcoinNodeHash::new([0; 32]);
     /// assert_eq!(
     ///     hash.to_string().as_str(),
@@ -238,8 +238,8 @@ impl AccumulatorHash for BitcoinNodeHash {
     /// Creates an empty hash. This is used to represent leaves we want to delete.
     /// # Example
     /// ```
-    /// use rustreexo::accumulator::node_hash::AccumulatorHash;
-    /// use rustreexo::accumulator::node_hash::BitcoinNodeHash;
+    /// use rustreexo::node_hash::AccumulatorHash;
+    /// use rustreexo::node_hash::BitcoinNodeHash;
     /// let hash = BitcoinNodeHash::empty();
     /// assert!(hash.is_empty());
     /// ```
@@ -252,8 +252,8 @@ impl AccumulatorHash for BitcoinNodeHash {
     /// ```
     /// use std::str::FromStr;
     ///
-    /// use rustreexo::accumulator::node_hash::AccumulatorHash;
-    /// use rustreexo::accumulator::node_hash::BitcoinNodeHash;
+    /// use rustreexo::node_hash::AccumulatorHash;
+    /// use rustreexo::node_hash::BitcoinNodeHash;
     /// let left = BitcoinNodeHash::new([0; 32]);
     /// let right = BitcoinNodeHash::new([1; 32]);
     /// let parent = BitcoinNodeHash::parent_hash(&left, &right);
@@ -327,8 +327,8 @@ mod test {
     use core::str::FromStr;
 
     use super::AccumulatorHash;
-    use crate::accumulator::node_hash::BitcoinNodeHash;
-    use crate::accumulator::util::hash_from_u8;
+    use crate::node_hash::BitcoinNodeHash;
+    use crate::util::hash_from_u8;
 
     #[test]
     fn test_parent_hash() {

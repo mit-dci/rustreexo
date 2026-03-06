@@ -14,8 +14,8 @@
 //! use your custom hashes, just tweak the implementation of
 //! [NodeHash](crate::accumulator::node_hash::NodeHash) for your hash type.
 
-use rustreexo::accumulator::mem_forest::MemForest;
-use rustreexo::accumulator::node_hash::AccumulatorHash;
+use rustreexo::mem_forest::MemForest;
+use rustreexo::node_hash::AccumulatorHash;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 /// We need a stateful wrapper around the actual hash, this is because we use those different

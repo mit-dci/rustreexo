@@ -4,10 +4,10 @@
 
 use std::str::FromStr;
 
-use rustreexo::accumulator::mem_forest::MemForest;
-use rustreexo::accumulator::node_hash::BitcoinNodeHash;
-use rustreexo::accumulator::proof::Proof;
-use rustreexo::accumulator::stump::Stump;
+use rustreexo::mem_forest::MemForest;
+use rustreexo::node_hash::BitcoinNodeHash;
+use rustreexo::proof::Proof;
+use rustreexo::stump::Stump;
 
 fn main() {
     let elements = vec![
