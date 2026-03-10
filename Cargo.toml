@@ -12,7 +12,7 @@ rust-version = "1.74.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [dependencies]
-bitcoin_hashes = { version = "0.19", default-features = false }
+bitcoin_hashes = { version = "0.20", default-features = false }
 hex-conservative = { version = "1.0.0", default-features = false }
 serde = { version = "1.0", features = ["derive"], optional = true }
 hashbrown = "0.16.1"
