@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 //! Pollard is an efficient implementation of the accumulator for keeping track of a subset of the
 //! whole tree. Instead of storing a proof for some leaves, it is more efficient to hold them in a
 //! tree structure, and add/remove elements as needed. The main use-case for a Pollard is to keep

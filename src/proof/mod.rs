@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 //! A proof is a data structure that proves that a given element is in the accumulator. It is used
 //! to validate a transaction. A proof is composed of a list of hashes and a list of integers. The
 //! hashes are the hashes need to calculate the root hash for validation. The integers are the position of the
