@@ -63,6 +63,8 @@ use super::util::right_child;
 use super::util::root_position;
 use super::util::tree_rows;
 use crate::prelude::*;
+use crate::util::translate;
+use crate::MAX_FOREST_ROWS;
 
 #[derive(Default, Clone)]
 /// A node in the Pollard tree
@@ -703,9 +705,15 @@ impl<Hash: AccumulatorHash> Pollard<Hash> {
             proof_hashes.push(hash);
         }
 
+        let tree_rows = tree_rows(self.leaves);
+        let translated_targets = target_positions
+            .into_iter()
+            .map(|pos| translate(pos, tree_rows, MAX_FOREST_ROWS))
+            .collect();
+
         Ok(Proof::<Hash> {
             hashes: proof_hashes,
-            targets: target_positions,
+            targets: translated_targets,
         })
     }
 
