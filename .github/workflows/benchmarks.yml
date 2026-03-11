@@ -44,7 +44,6 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
-        rust: [stable]
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
@@ -59,15 +58,12 @@ jobs:
           persist-credentials: false
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # v1.93.1
-        with:
-          toolchain: ${{ matrix.rust }}
-          components: clippy, rustfmt
+        run: rustup toolchain install stable --component clippy,rustfmt --no-self-update
 
       - name: Configure Rust cache
         uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
         with:
-          key: ${{ matrix.os }}-benchmark-${{ matrix.rust }}
+          key: ${{ matrix.os }}-benchmark-stable
           cache-on-failure: true
 
       - name: System information
@@ -75,7 +71,7 @@ jobs:
           echo "System Information:"
           echo "OS: ${{ matrix.os }}"
           echo "Target: ${{ matrix.target }}"
-          echo "Rust version: ${{ matrix.rust }}"
+          echo "Rust version: $(rustc --version)"
           echo "CPU cores: $(nproc 2>/dev/null || sysctl -n hw.ncpu)"
           echo "Memory: $(free -h 2>/dev/null || echo 'N/A on macOS')"
           echo "Disk space: $(df -h . | tail -1)"
@@ -162,7 +158,7 @@ jobs:
 
           **Date:** $(date -u +"%Y-%m-%d %H:%M:%S UTC")
           **OS:** ${{ matrix.os }}
-          **Rust:** ${{ matrix.rust }}
+          **Rust:** $(rustc --version)
           **Commit:** ${{ github.sha }}
           **Branch:** ${BRANCH_NAME}
 

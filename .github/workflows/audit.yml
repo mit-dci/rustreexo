@@ -17,9 +17,8 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # v1.93.1
-        with:
-            toolchain: 1.91.1
+      - name: Install Rust toolchain
+        run: rustup toolchain install stable --no-self-update
 
       - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
         with:
