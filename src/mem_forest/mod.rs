@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 //! A full MemForest accumulator implementation. This is a simple version of the forest,
 //! that keeps every node in memory. This is may require more memory, but is faster
 //! to update, prove and verify.

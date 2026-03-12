@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 //! A [Stump] is a basic data structure used in Utreexo. It only holds the roots and the number of leaves
 //! in the accumulator. This is useful to create lightweight nodes, the still validates, but is more compact,
 //! perfect to clients running on low-power devices.

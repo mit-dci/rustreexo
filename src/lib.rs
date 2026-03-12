@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 //! # Rustreexo
 //!
 //! Rustreexo is a Rust implementation of [Utreexo](https://eprint.iacr.org/2019/611),

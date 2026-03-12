@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 //! [AccumulatorHash] is an internal type for representing Hashes in an utreexo accumulator. It's
 //! just a wrapper around [[u8; 32]] but with some useful methods.
 //! # Examples
