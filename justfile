@@ -58,6 +58,8 @@ test-msrv:
     cargo update -p serde_json --precise 1.0.81
     cargo update -p serde --precise 1.0.160
     cargo update -p half --precise 2.4.1
+    cargo update -p clap --precise 4.5.61
+    cargo update -p clap_lex --precise 1.0.0
 
     cargo +1.74.0 test --no-default-features
     cargo +1.74.0 test --all-features
