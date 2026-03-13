@@ -28,6 +28,32 @@
 
 extern crate alloc;
 
+/// This is the maximum size the forest is ever allowed to have, this caps how big `num_leaves` can
+/// be (we use a [`u64`]) and is also used by the [`util::translate`] logic.
+///
+/// # Calculations
+///
+/// If you think: "but... is 63 enough space"? Well... assuming there's around 999,000 WUs
+/// available on each block (let's account for header and coinbase), a non-segwit transaction's
+/// size is:
+/// `4 (version) + 1 (vin count) + 41 (input) + 5 (vout for many outputs) + 10N + 4 (locktime)`
+///
+/// `N` is how many outputs we have (we are considering outputs with amount and a zero-sized
+/// script), for 999,000 WUs we can fit:
+/// - `55 + 10N <= 999,000`
+/// - `N ~= 90k` outputs (a little over)
+///
+/// Since `2^63 = 9,223,372,036,854,775,808`, if you divide this by 90,000 we get
+/// 102,481,911,520,608 blocks. It would take us 3,249,680 years to mine that many blocks.
+///
+/// For the poor soul in 3,249,682 A.D., who needs to fix this hard-fork, here's what you gotta do:
+/// - Change the `leaf_data` type to u128, or q128 if Quantum Bits are the fashionable standard.
+/// - Change `MAX_FOREST_ROWS` to 128 or higher in `lib.rs`
+/// - Modify [`start_position_at_row`] to avoid overflows.
+///
+/// That should save you the trouble.
+pub(crate) const MAX_FOREST_ROWS: u8 = 63;
+
 #[cfg(not(feature = "std"))]
 /// Re-exports `alloc` basics plus HashMap/HashSet and IO traits.
 pub mod prelude {

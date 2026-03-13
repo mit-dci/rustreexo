@@ -49,6 +49,8 @@ use super::util::right_child;
 use super::util::root_position;
 use super::util::tree_rows;
 use crate::prelude::*;
+use crate::util::translate;
+use crate::MAX_FOREST_ROWS;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum NodeType {
@@ -329,7 +331,13 @@ impl<Hash: AccumulatorHash> MemForest<Hash> {
             .map(|pos| self.get_hash(*pos).unwrap())
             .collect::<Vec<_>>();
 
-        Ok(Proof::new_with_hash(positions, proof))
+        let tree_rows = tree_rows(self.leaves);
+        let translated_targets = positions
+            .into_iter()
+            .map(|pos| translate(pos, tree_rows, MAX_FOREST_ROWS))
+            .collect();
+
+        Ok(Proof::new_with_hash(translated_targets, proof))
     }
 
     /// Returns a reference to the roots in this MemForest.

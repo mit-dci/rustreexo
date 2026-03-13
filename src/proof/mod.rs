@@ -74,6 +74,7 @@ use super::util::get_proof_positions;
 use super::util::read_u64;
 use super::util::tree_rows;
 use crate::prelude::*;
+use crate::util::translate;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(feature = "with-serde", derive(Serialize, Deserialize))]
@@ -446,11 +447,16 @@ impl<Hash: AccumulatorHash> Proof<Hash> {
             Vec::<(Hash, Hash)>::with_capacity(util::num_roots(num_leaves));
 
         // the positions that should be passed as a proof
-        let proof_positions = get_proof_positions(&self.targets, num_leaves, total_rows);
+        let translated: Vec<_> = self
+            .targets
+            .iter()
+            .copied()
+            .map(|pos| translate(pos, 63, total_rows))
+            .collect();
+        let proof_positions = get_proof_positions(&translated, num_leaves, total_rows);
 
         // As we calculate nodes upwards, it accumulates here
-        let mut nodes: Vec<_> = self
-            .targets
+        let mut nodes: Vec<_> = translated
             .iter()
             .copied()
             .zip(del_hashes.to_owned())
@@ -527,7 +533,13 @@ impl<Hash: AccumulatorHash> Proof<Hash> {
         let mut calculated_root_hashes = Vec::<Hash>::with_capacity(util::num_roots(num_leaves));
 
         // the positions that should be passed as a proof
-        let proof_positions = get_proof_positions(&self.targets, num_leaves, total_rows);
+        let translated: Vec<_> = self
+            .targets
+            .iter()
+            .copied()
+            .map(|pos| translate(pos, 63, total_rows))
+            .collect();
+        let proof_positions = get_proof_positions(&translated, num_leaves, total_rows);
 
         // As we calculate nodes upwards, it accumulates here
         let mut nodes: Vec<_> = self

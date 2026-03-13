@@ -30,6 +30,50 @@ pub fn remove_bit(val: u64, bit: u64) -> u64 {
 
     (upper >> 1) | lower
 }
+
+/// Translates targets from a forest with `from_rows` to a forest with `to_rows`.
+///
+/// When we compute the position of a node, any node not in row 0 has a position that depends
+/// on how many leaves there are. This happens because row 0 is allocated to the nearest power of
+/// two that can fit that many leaves. Therefore, in a forest with 6 leaves, the bottom row goes
+/// from 0 through 7, and row 1 goes from 8 through 11 (the size of  each row halves as you move
+/// up). If you add three extra UTXOs, growing the forest to 9 leaves, adding the 9th will require
+/// allocating 16 row-0 leaves; row 1 therefore goes from 16 through 23, and so on.
+///
+/// If leaves always stayed at the bottom, that's fine. Nothing at the bottom ever needs to care
+/// about this, because there is no row below it whose growth would shift its positions. However,
+/// leaves **do** move up during deletions. For that reason, whenever the forest grows, all targets
+/// that are not at the bottom need to be updated.
+///
+/// Now imagine that we want to keep a leaf map from `leaf_hash` to position within the forest:
+/// this works fine, and we know where a node must go when deleting by calling [`parent`] with its
+/// current position and `num_leaves`. But now imagine the forest has to grow: we need to go
+/// through the map and update all non-row-0 leaves. This could potentially involve going through
+/// millions of UTXOs and updating them one by one. Note that we can find the next position; it is
+/// not super efficient, but it works (see [`crate::proof::Proof::maybe_remap`] for more details).
+/// But doing this for every UTXO that is not at the bottom is too expensive. Even though it
+/// happens exponentially less frequently, when it does happen, it is going to take an absurd
+/// amount of time and could potentially stall the Utreexo network for hours.
+///
+/// For that reason, we communicate positions as if the forest was always filled with the maximum
+/// number of leaves we can possibly have, which is 63. Therefore, those positions never need to be
+/// remapped. Internally, we still use the dynamic size, and use this function to translate between
+/// the two.
+///
+/// # Implementation
+///
+/// This function simply computes how far away from the start of the row this leaf is, then uses
+/// that to offset the same amount in the new structure.
+pub fn translate(pos: u64, from_rows: u8, to_rows: u8) -> u64 {
+    let row = detect_row(pos, from_rows);
+    if row == 0 {
+        return pos;
+    }
+
+    let offset = pos - start_position_at_row(row, from_rows);
+    offset + start_position_at_row(row, to_rows)
+}
+
 pub fn calc_next_pos(position: u64, del_pos: u64, forest_rows: u8) -> Result<u64, String> {
     let del_row = detect_row(del_pos, forest_rows);
     let pos_row = detect_row(position, forest_rows);
@@ -93,7 +137,7 @@ pub fn start_position_at_row(row: u8, forest_rows: u8) -> u64 {
     // 2 << forest_rows is 2 more than the max position
     // to get the correct offset for a given row,
     // subtract (2 << `row complement of forest_rows`) from (2 << forest_rows)
-    (2 << forest_rows) - (2 << (forest_rows - row)) as u64
+    ((2_u128 << forest_rows) - (2_u128 << (forest_rows - row))) as u64
 }
 
 pub fn is_left_niece(position: u64) -> bool {
@@ -359,6 +403,7 @@ mod tests {
     use super::roots_to_destroy;
     use crate::node_hash::BitcoinNodeHash;
     use crate::util::children;
+    use crate::util::start_position_at_row;
     use crate::util::tree_rows;
 
     #[test]
@@ -500,5 +545,10 @@ mod tests {
 
         let res = super::calc_next_pos(1, 9, 3);
         assert_eq!(Ok(9), res);
+    }
+
+    #[test]
+    fn test_start_position_at_row() {
+        assert_eq!(start_position_at_row(1, 12), 4096);
     }
 }
