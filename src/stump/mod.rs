@@ -76,7 +76,7 @@ impl From<io::Error> for StumpError {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "with-serde", derive(Serialize, Deserialize))]
 pub struct Stump<Hash: AccumulatorHash = BitcoinNodeHash> {
     pub leaves: u64,
