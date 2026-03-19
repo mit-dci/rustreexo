@@ -29,8 +29,7 @@ fn main() {
     // Verify the proof. Notice how we use the del_hashes returned by `prove` here.
     let s = Stump::new()
         .modify(&elements, &[], &Proof::default())
-        .unwrap()
-        .0;
+        .unwrap();
     assert_eq!(s.verify(&proof, &[elements[0]]), Ok(true));
     // Now we want to update the MemForest, by removing the first utxo, and adding a new one.
     // This would be in case we received a new block with a transaction spending the first utxo,
