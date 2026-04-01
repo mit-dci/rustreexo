@@ -23,7 +23,7 @@ jobs:
         run: rustup toolchain install nightly --component clippy,rustfmt --no-self-update
 
       - name: Setup just
-        uses: extractions/setup-just@e33e0265a09d6d736e2ee1e0eb685ef1de4669ff # v3
+        uses: extractions/setup-just@f8a3cce218d9f83db3a2ecd90e41ac3de6cdfd9b # v3
 
       - name: Run just check
         run: just check
@@ -41,7 +41,7 @@ jobs:
         run: rustup toolchain install 1.74.0 --no-self-update
 
       - name: Setup just
-        uses: extractions/setup-just@e33e0265a09d6d736e2ee1e0eb685ef1de4669ff # v3
+        uses: extractions/setup-just@f8a3cce218d9f83db3a2ecd90e41ac3de6cdfd9b # v3
 
       - name: Run MSRV tests
         run: just test-msrv
@@ -67,7 +67,7 @@ jobs:
         run: rustc +${{ matrix.toolchain }} -Vv
 
       - name: Setup just
-        uses: extractions/setup-just@e33e0265a09d6d736e2ee1e0eb685ef1de4669ff # v3
+        uses: extractions/setup-just@f8a3cce218d9f83db3a2ecd90e41ac3de6cdfd9b # v3
 
       - name: Run Tests
         run: just test-${{ matrix.toolchain }}
