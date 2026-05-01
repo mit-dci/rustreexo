@@ -15,7 +15,7 @@ rust-version = "1.74.0"
 bitcoin_hashes = { version = "0.20", default-features = false }
 hex-conservative = { version = "1.0.0", default-features = false }
 serde = { version = "1.0", features = ["derive"], optional = true }
-hashbrown = "0.16.1"
+hashbrown = "0.17.0"
 bitcoin-io = { version = "0.5.0", default-features = false, features = ["alloc"] }
 
 [dev-dependencies]
