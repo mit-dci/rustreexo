@@ -15,14 +15,13 @@ _default:
 
 [doc: "Run benchmarks: accumulator, proof, stump"]
 bench BENCH="":
-    cargo bench {{ if BENCH != "" { "--bench " + BENCH } else { "" } }}
+    cargo rbmt bench {{ if BENCH != "" { "--bench " + BENCH } else { "" } }}
 
 [doc: "Check code formatting, compilation, and linting"]
 check:
     cargo rbmt fmt --check
     cargo rbmt lint
-    cargo rbmt docs
-    RUSTFLAGS="--cfg=bench" cargo +nightly check --benches
+    cargo rbmt docsrs
 
 [doc: "Checks whether all commits in this branch are signed"]
 check-sigs:
@@ -30,13 +29,11 @@ check-sigs:
 
 [doc: "Generate documentation"]
 doc:
-    cargo rbmt docs
-    cargo doc --no-deps
+    cargo rbmt docsrs
 
 [doc: "Generate and open documentation"]
 doc-open:
-    cargo rbmt docs
-    cargo doc --no-deps --open
+    cargo rbmt docsrs --open
 
 [doc: "Format code"]
 fmt:

@@ -50,16 +50,19 @@ To see complete usage examples, refer to the [`examples/`](./examples) folder.
 
 ## Developing
 
-This project uses [`cargo-rbmt`](https://github.com/rust-bitcoin/rust-bitcoin-maintainer-tools/tree/master/cargo-rbmt)
-to manage everything related to `cargo`, such as formatting, linting, testing and CI. To install it, run:
+This project uses [`just`](https://github.com/casey/just) for command running, and
+[`cargo-rbmt`](https://github.com/rust-bitcoin/rust-bitcoin-maintainer-tools/tree/master/cargo-rbmt)
+to manage everything related to `cargo`, such as formatting, linting, testing and CI. To install them, run:
 
-```console
+```shell
+~$ cargo install just
+
 ~$ cargo install cargo-rbmt
 ```
 
 A `justfile` is provided for convenience. Run `just` to see available commands:
 
-```console
+```shell
 ~$ just
 > rustreexo
 > A Rust implementation of Utreexo
