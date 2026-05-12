@@ -1,7 +1,7 @@
 //! All data structures in this library are generic over the hash type used, defaulting to
-//! [BitcoinNodeHash](crate::accumulator::node_hash::BitcoinNodeHash), the one used by Bitcoin
+//! [`BitcoinNodeHash`](rustreexo::node_hash::BitcoinNodeHash), the one used by Bitcoin
 //! as defined by the utreexo spec. However, if you need to use a different hash type, you can
-//! implement the [NodeHash](crate::accumulator::node_hash::NodeHash) trait for it, and use it
+//! implement the [`NodeHash`](rustreexo::node_hash::NodeHash) trait for it, and use it
 //! with the accumulator data structures.
 //!
 //! This example shows how to use a custom hash type based on the Poseidon hash function. The
@@ -9,10 +9,9 @@
 //! for zero-knowledge proofs, and is used in projects like ZCash and StarkNet.
 //! If you want to work with utreexo proofs in zero-knowledge you may want to use this instead
 //! of our usual sha512-256 that we use by default, since that will give you smaller circuits.
-//! This example shows how to use both the [MemForest](crate::accumulator::MemForest::MemForest) and
-//! proofs with a custom hash type. The code here should be pretty much all you need to do to
-//! use your custom hashes, just tweak the implementation of
-//! [NodeHash](crate::accumulator::node_hash::NodeHash) for your hash type.
+//! This example shows how to use both the [`MemForest`] and proofs with a custom hash type.
+//! The code here should be pretty much all you need to do to use your custom hashes, just tweak
+//! the implementation of [`NodeHash`](rustreexo::node_hash::NodeHash) for your hash type.
 
 use rustreexo::mem_forest::MemForest;
 use rustreexo::node_hash::AccumulatorHash;
