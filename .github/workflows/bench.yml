@@ -28,7 +28,7 @@ jobs:
               uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
 
             - name: Setup cargo-rbmt
-              uses: rust-bitcoin/rust-bitcoin-maintainer-tools/.github/actions/setup-rbmt@6560b728ae6a81af9d92713b630ba26772fbd970
+              uses: rust-bitcoin/rust-bitcoin-maintainer-tools/.github/actions/setup-rbmt@1778ab50a2a0cb23fc23c20a47532a6eceb637e1
 
             - name: Display system and commit information
               env:
