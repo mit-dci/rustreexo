@@ -61,8 +61,8 @@ use_self = "warn"
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(bench)'] }
 
 [package.metadata.rbmt.toolchains]
-stable = "1.94.0"
-nightly = "nightly-2026-03-18"
+stable = "1.95.0"
+nightly = "nightly-2026-05-12"
 
 [package.metadata.rbmt.test]
 # Examples to run with different feature configurations.
