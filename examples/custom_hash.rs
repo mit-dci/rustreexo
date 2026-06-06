@@ -108,7 +108,7 @@ impl AccumulatorHash for CustomHash {
         }
     }
 
-    // the main thing about the hash type, it returns the next node's hash, given it's children.
+    // the main thing about the hash type, it returns the next node's hash, given its children.
     // The implementation of this method is highly consensus critical, so everywhere should use the
     // exact same algorithm to calculate the next hash. Rustreexo won't call this method, unless
     // **both** children are not empty.
