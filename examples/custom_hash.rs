@@ -1,7 +1,7 @@
 //! All data structures in this library are generic over the hash type used, defaulting to
-//! [BitcoinNodeHash](crate::accumulator::node_hash::BitcoinNodeHash), the one used by Bitcoin
+//! [BitcoinNodeHash](rustreexo::node_hash::BitcoinNodeHash), the one used by Bitcoin
 //! as defined by the utreexo spec. However, if you need to use a different hash type, you can
-//! implement the [NodeHash](crate::accumulator::node_hash::NodeHash) trait for it, and use it
+//! implement the [AccumulatorHash] trait for it, and use it
 //! with the accumulator data structures.
 //!
 //! This example shows how to use a custom hash type based on the Poseidon hash function. The
@@ -9,10 +9,10 @@
 //! for zero-knowledge proofs, and is used in projects like ZCash and StarkNet.
 //! If you want to work with utreexo proofs in zero-knowledge you may want to use this instead
 //! of our usual sha512-256 that we use by default, since that will give you smaller circuits.
-//! This example shows how to use both the [MemForest](crate::accumulator::MemForest::MemForest) and
+//! This example shows how to use both the [MemForest] and
 //! proofs with a custom hash type. The code here should be pretty much all you need to do to
 //! use your custom hashes, just tweak the implementation of
-//! [NodeHash](crate::accumulator::node_hash::NodeHash) for your hash type.
+//! [AccumulatorHash] for your hash type.
 
 use rustreexo::mem_forest::MemForest;
 use rustreexo::node_hash::AccumulatorHash;
@@ -29,8 +29,8 @@ enum CustomHash {
     Hash([u8; 32]),
     /// Placeholder is a value that haven't been deleted, but we don't have the actual value.
     /// The only thing that matters about it is that it's not empty. You can implement this
-    /// the way you want, just make sure that [NodeHash::is_placeholder] and [NodeHash::placeholder]
-    /// returns sane values (that is, if we call [NodeHash::placeholder] calling [NodeHash::is_placeholder]
+    /// the way you want, just make sure that [AccumulatorHash::is_placeholder] and [AccumulatorHash::placeholder]
+    /// returns sane values (that is, if we call [AccumulatorHash::placeholder] calling [AccumulatorHash::is_placeholder]
     /// on the result should return true).
     Placeholder,
 
@@ -38,7 +38,7 @@ enum CustomHash {
     /// This is an empty value, it represents a node that was deleted from the accumulator.
     ///
     /// Same as the placeholder, you can implement this the way you want, just make sure that
-    /// [NodeHash::is_empty] and [NodeHash::empty] returns sane values.
+    /// [AccumulatorHash::is_empty] and [AccumulatorHash::empty] returns sane values.
     Empty,
 }
 
@@ -53,7 +53,7 @@ impl std::fmt::Display for CustomHash {
     }
 }
 
-// this is the implementation of the NodeHash trait for our custom hash type. And it's the only
+// this is the implementation of the AccumulatorHash trait for our custom hash type. And it's the only
 // thing you need to do to use your custom hash type with the accumulator data structures.
 impl AccumulatorHash for CustomHash {
     // returns a new placeholder type such that is_placeholder returns true
