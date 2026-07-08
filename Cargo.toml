@@ -8,7 +8,7 @@ authors = ["Calvin Kim <calvin@kcalvinalvin.info>", "Davidson Souza <contact@dls
 repository = "https://github.com/mit-dci/rustreexo"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
-edition = "2018"
+edition = "2021"
 rust-version = "1.74.0" # MSRV
 autobenches = false
 
@@ -16,6 +16,18 @@ autobenches = false
 default = ["std"]
 std = ["bitcoin_hashes/std", "hex-conservative/std", "hashbrown/default-hasher"]
 with-serde = ["serde"]
+
+[[bench]]
+name = "accumulator"
+harness = false
+
+[[bench]]
+name = "proof"
+harness = false
+
+[[bench]]
+name = "stump"
+harness = false
 
 [dependencies]
 bitcoin_hashes = { version = "1.0.0", default-features = false }
@@ -45,41 +57,17 @@ bumpalo = { version = "3.11.1" } # blame: criterion v0.5.1 (RUSTSEC-2022-0078)
 rayon = { version = "1.5.3" } # blame: criterion v0.5.1 (RUSTSEC-2022-0021, RUSTSEC-2023-0045)
 errno-dragonfly = { version = "0.1.2" } # blame: criterion v0.5.1 (RUSTSEC-2025-0121)
 
-[[bench]]
-name = "accumulator"
-harness = false
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
 
-[[bench]]
-name = "proof"
-harness = false
-
-[[bench]]
-name = "stump"
-harness = false
-
-[lints.clippy]
-use_self = "warn"
-
-[lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(bench)'] }
-
-[package.metadata.rbmt.toolchains]
-stable = "1.96.0"
-nightly = "nightly-2026-06-23"
+[package.metadata.rbmt]
+toolchains = { stable = "1.96.0", nightly = "nightly-2026-06-23" }
+tools = { cargo-audit = "=0.22.2", zizmor = "=1.30.1" }
+lint = { allowed_duplicates = ["bitcoin-consensus-encoding", "bitcoin-internals"] }
 
 [package.metadata.rbmt.test]
-# Test all possible auto-discovered feature combinations.
 sample_strategy = "all"
-
-# Features to exclude from auto-discovery.
-# Use for internal or alias features that should not be tested in isolation.
-exclude_features = ["default"]
-
-# Examples to run with different feature configurations.
-#
-# Supported formats:
-# * "name" - runs with no-default-features.
-# * "name:feature1 feature2" - runs with specific features.
 examples = [
     "stump_modify",
     "stump_modify:std",
@@ -95,9 +83,7 @@ examples = [
     "custom_hash:with-serde std",
 ]
 
-# Allow packages of different versions in the dependency tree.
-[package.metadata.rbmt.lint]
-allowed_duplicates = [
-    "bitcoin-consensus-encoding",
-    "bitcoin-internals"
-]
+[lints.rust]
+
+[lints.clippy]
+use_self = "warn"

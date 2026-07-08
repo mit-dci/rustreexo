@@ -76,8 +76,11 @@ Available recipes:
     fmt            # Format code [alias: f]
     lock           # Regenerate Cargo-recent.lock and Cargo-minimal.lock [alias: l]
     pre-push       # Run pre-push suite: lock, fmt, check, test, and test-no-std [alias: p]
+    shellcheck     # Run ShellCheck
     test           # Run tests across all toolchains and lockfiles [alias: t]
     test-no-std    # Run no_std build check with the MSRV toolchain (1.74.0) [alias: tns]
+    tools          # Install cargo-rbmt tools
+    zizmor         # Run Zizmor Static Analysis
 ```
 
 ## Minimum Supported Rust Version (MSRV)

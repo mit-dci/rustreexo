@@ -68,6 +68,19 @@ test-no-std:
     rustup target add thumbv7m-none-eabi --toolchain 1.74.0
     cargo rbmt test --toolchain msrv --lockfile minimal
 
+[doc: "Install cargo-rbmt tools"]
+tools:
+    RBMT_LOG_LEVEL=progress cargo rbmt tools
+
+[doc: "Run ShellCheck"]
+shellcheck:
+    @command -v shellcheck >/dev/null 2>&1 || { echo "shellcheck was not found on \$PATH" && exit 1; }
+    find . -name '*.sh' -print -exec shellcheck {} +
+
+[doc: "Run Zizmor Static Analysis"]
+zizmor:
+   zizmor .
+
 [doc: "Run pre-push suite: lock, fmt, check, test, and test-no-std"]
 pre-push:
     @just check-sigs
