@@ -354,7 +354,7 @@ fn is_sibling(a: u64, b: u64) -> bool {
 /// whose hashes will be calculated to reach a root
 pub fn get_proof_positions(targets: &[u64], num_leaves: u64, forest_rows: u8) -> Vec<u64> {
     let mut proof_positions = BTreeSet::new();
-    let mut map = HashSet::with_hasher(foldhash::quality::FixedState::default());
+    let mut map = new_hash_set();
 
     let mut computed_positions = targets.to_vec();
     computed_positions.reserve(targets.len() * 2);

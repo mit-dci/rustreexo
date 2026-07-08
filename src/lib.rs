@@ -82,10 +82,18 @@ pub mod prelude {
     pub type HashMap<K, V> = hashbrown::HashMap<K, V, FixedState>;
     pub type HashSet<T> = hashbrown::HashSet<T, FixedState>;
 
+    /// Create a new [`HashMap`].
+    ///
+    /// On `#[no_std]!` targets, we must be explicit regarding the undelying hasher that the [`HashMap`]
+    /// uses. In this case, `foldhash`'s [`FixedState`] hasher backs the `#![no_std]` [`HashMap`].
     pub fn new_hash_map<K, V>() -> HashMap<K, V> {
         HashMap::with_hasher(FixedState::default())
     }
 
+    /// Create a new [`HashSet`].
+    ///
+    /// On `#[no_std]!` targets, we must be explicit regarding the undelying hasher that the [`HashSet`]
+    /// uses. In this case, `foldhash`'s [`FixedState`] hasher backs the `#![no_std]` [`HashSet`].
     pub fn new_hash_set<T>() -> HashSet<T> {
         HashSet::with_hasher(FixedState::default())
     }
@@ -100,6 +108,16 @@ pub mod prelude {
     pub use std::io;
     pub use std::io::Read;
     pub use std::io::Write;
+
+    /// Create a new [`HashMap`].
+    pub fn new_hash_map<K, V>() -> HashMap<K, V> {
+        HashMap::new()
+    }
+
+    /// Create a new [`HashSet`].
+    pub fn new_hash_set<T>() -> HashSet<T> {
+        HashSet::new()
+    }
 }
 
 pub mod mem_forest;

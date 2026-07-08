@@ -186,7 +186,7 @@ impl<Hash: AccumulatorHash> Node<Hash> {
 
             Ok(node)
         }
-        let mut index = HashMap::with_hasher(Default::default());
+        let mut index = new_hash_map();
         let root = _read_one(None, reader, &mut index, 0)?;
         Ok((root, index))
     }
@@ -224,7 +224,7 @@ impl MemForest {
     /// ```
     pub fn new() -> Self {
         Self {
-            map: HashMap::with_hasher(Default::default()),
+            map: new_hash_map(),
             roots: Vec::new(),
             leaves: 0,
         }
@@ -241,7 +241,7 @@ impl<Hash: AccumulatorHash> MemForest<Hash> {
     /// ```
     pub fn new_with_hash() -> Self {
         Self {
-            map: HashMap::with_hasher(Default::default()),
+            map: new_hash_map(),
             roots: Vec::new(),
             leaves: 0,
         }
@@ -294,7 +294,7 @@ impl<Hash: AccumulatorHash> MemForest<Hash> {
         let leaves = read_u64(&mut reader)?;
         let roots_len = read_u64(&mut reader)?;
         let mut roots = Vec::new();
-        let mut map = HashMap::with_hasher(Default::default());
+        let mut map = new_hash_map();
         for _ in 0..roots_len {
             let (root, _map) = Node::read_one(&mut reader)?;
             map.extend(_map);
