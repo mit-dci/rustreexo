@@ -32,13 +32,13 @@ foldhash = { version = "0.2", default-features = false }
 
 [dev-dependencies]
 rand = { version = "0.9.3" }
-criterion = { version = "0.5.1", features = ["html_reports"] }
+criterion = { version = "0.8.2", features = ["html_reports"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = { version = "1.0.81" }
 # Transitive dependency pins:
 clap = { version = "4.5.61" } # blame: criterion v0.5.1
 clap_builder = { version = "4.5.61" } # blame: criterion v0.5.1
-clap_lex = { version = "=1.0.1" } # blame: criterion v0.5.1
+clap_lex = { version = "=1.1.0" } # blame: criterion v0.5.1
 crossbeam-epoch = { version = "0.9.20" } # blame: criterion v0.5.1 (RUSTSEC-2026-0204)
 regex = { version = "1.10.0" } # blame: criterion v0.5.1
 bumpalo = { version = "3.11.1" } # blame: criterion v0.5.1 (RUSTSEC-2022-0078)
