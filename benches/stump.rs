@@ -1,3 +1,7 @@
+//! # Stump Benchmarks
+//!
+//! Benchmarks for the [`Stump`] accumulator.
+
 use std::hint::black_box;
 
 use criterion::criterion_group;
@@ -26,7 +30,7 @@ fn generate_test_hashes(count: usize, seed: u64) -> Vec<BitcoinNodeHash> {
 fn stump_modify_add_only(c: &mut Criterion) {
     let mut group = c.benchmark_group("stump_modify_add_only");
 
-    for size in [10, 100].iter() {
+    for size in &[10, 100] {
         group.throughput(Throughput::Elements(*size as u64));
         group.bench_with_input(BenchmarkId::new("add_elements", size), size, |b, &size| {
             let hashes = generate_test_hashes(size, 42);
@@ -52,7 +56,7 @@ fn stump_verify(c: &mut Criterion) {
     let stump = Stump::new();
     let stump = stump.modify(&hashes, &[], &Proof::default()).unwrap();
 
-    for proof_size in [1, 10, 100].iter() {
+    for proof_size in &[1, 10, 100] {
         let del_hashes = hashes[..*proof_size].to_vec();
         let proof = Proof::new(
             (0..*proof_size as u64).collect(),

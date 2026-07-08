@@ -40,7 +40,7 @@ fn main() {
     // update_data is the data we got from the accumulator update, and contains multiple intermediate
     // data we'll need.
     let (p, cached_hashes) = p
-        .update(vec![], utxos.clone(), vec![], vec![0, 1], update_data)
+        .update(vec![], &utxos, &[], vec![0, 1], update_data)
         .unwrap();
 
     // This should be a valid proof over 0 and 1.
@@ -64,8 +64,8 @@ fn main() {
     let (p2, cached_hashes) = p
         .update(
             cached_hashes,
-            new_utxos,
-            vec![0],
+            &new_utxos,
+            &[0],
             vec![1, 2, 3, 4, 5, 6, 7],
             update_data,
         )

@@ -10,7 +10,7 @@
 //!
 //! This implementation is close to the one in `MemForest`, but it is specialized in keeping track
 //! of subsets of the whole tree, allowing you to cache and uncache elements as needed. While the
-//! MemForest keeps everything in the accumulator, and may take a lot of memory.
+//! [`MemForest`](crate::mem_forest::MemForest) keeps everything in the accumulator, and may take a lot of memory.
 //!
 //! Nodes are kept in memory, and they hold their hashes, a reference to their **aunt** (not
 //! parent!), and their nieces (not children!). We do this to allow for proof generation, while
@@ -25,12 +25,12 @@
 //! except for the owner of the node. Things are kept in a [Rc] to allow for multiple references to
 //! the same node, as we may need to operate on it, and also to allow the nieces to have a reference
 //! to their aunt. It could be done with pointers, but it would be more complex and error-prone. The
-//! [Rc]s live inside a [RefCell], to allow for interior mutability, as we may need to change the
-//! values inside a node. Make sure to avoid leaking a reference to the inner [RefCell] to the outside
+//! [`Rc`]s live inside a [`RefCell`], to allow for interior mutability, as we may need to change the
+//! values inside a node. Make sure to avoid leaking a reference to the inner [`RefCell`] to the outside
 //! world, as it may cause race conditions and panics. Every time we use a reference to the inner
-//! [RefCell], we make sure to drop it as soon as possible, and that we are the only ones operating
-//! on it at that time. For this reason, a [Pollard] is not [Sync], and you'll need to use a `Mutex`
-//! or something similar to share it between threads. But it is [Send], as it is safe to send it to
+//! [`RefCell`], we make sure to drop it as soon as possible, and that we are the only ones operating
+//! on it at that time. For this reason, a [`Pollard`] is not [`Sync`], and you'll need to use a `Mutex`
+//! or something similar to share it between threads. But it is [`Send`], as it is safe to send it to
 //! another thread - everything is owned by the Pollard and lives on the heap.
 //!
 //! ## Usage
@@ -80,30 +80,30 @@ struct PollardNode<Hash: AccumulatorHash> {
     ///
     /// This is the hash used in the merkle proof. For leaves, this is the hash of the value
     /// committed to. For internal nodes, this is the hash of the concatenation of the hashes of
-    /// the children. This value is stored in a [Cell] to allow for interior mutability, as we may
+    /// the children. This value is stored in a [`Cell`] to allow for interior mutability, as we may
     /// need to change it if some descendant is deleted.
     hash: Cell<Hash>,
     /// This node's aunt
     ///
     /// The aunt is the sibling of the parent. This is the only node that is not owned by this
-    /// node, as it is owned by some ancestor. This is a [Weak] reference to avoid cycles in the tree.
+    /// node, as it is owned by some ancestor. This is a [`Weak`] reference to avoid cycles in the tree.
     /// If a node is a root, this value is `None`, as it doesn't have an aunt. If this node's
     /// parent is a root, then it actually points to its parent, as the parent is a root, and
     /// there's no aunt.
     aunt: RefCell<Option<Weak<Self>>>,
     /// This node's left niece
     ///
-    /// The left niece is the left child of this node's sibling. We use an actual [Rc] here, to
-    /// make this node own the niece. This is the only place where an [Rc] can be stored past some
-    /// function's scope, as it may create cycles in the tree. This is a [RefCell] because we may
+    /// The left niece is the left child of this node's sibling. We use an actual [`Rc`] here, to
+    /// make this node own the niece. This is the only place where an [`Rc`] can be stored past some
+    /// function's scope, as it may create cycles in the tree. This is a [`RefCell`] because we may
     /// need to either prune the nieces, or swap them if this node is a root. If this node is a
     /// leaf, this value is `None`, as it doesn't have any descendants.
     left_niece: RefCell<Option<Rc<Self>>>,
     /// This node's right niece
     ///
-    /// The right niece is the right child of this node's sibling. We use an actual [Rc] here, to
-    /// make this node own the niece. This is the only place where an [Rc] can be stored past some
-    /// function's scope, as it may create cycles in the tree. This is a [RefCell] because we may
+    /// The right niece is the right child of this node's sibling. We use an actual [`Rc`] here, to
+    /// make this node own the niece. This is the only place where an [`Rc`] can be stored past some
+    /// function's scope, as it may create cycles in the tree. This is a [`RefCell`] because we may
     /// need to either prune the nieces, or swap them if this node is a root. If this node is a
     /// leaf, this value is `None`, as it doesn't have any descendants.
     right_niece: RefCell<Option<Rc<Self>>>,
@@ -205,7 +205,7 @@ impl<Hash: AccumulatorHash> Debug for PollardError<Hash> {
     }
 }
 
-impl<Hash: AccumulatorHash> fmt::Display for PollardError<Hash> {
+impl<Hash: AccumulatorHash> Display for PollardError<Hash> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{self:?}")
     }
@@ -227,7 +227,7 @@ impl<Hash: AccumulatorHash> PartialEq for PollardNode<Hash> {
 impl<Hash: AccumulatorHash> Eq for PollardNode<Hash> {}
 
 impl<Hash: AccumulatorHash> PollardNode<Hash> {
-    /// Creates a new PollardNode with the given hash and remember value
+    /// Creates a new `PollardNode` with the given hash and remember value
     fn new(hash: Hash, remember: bool) -> Rc<Self> {
         Rc::new(Self {
             remember,
@@ -239,7 +239,7 @@ impl<Hash: AccumulatorHash> PollardNode<Hash> {
     }
 
     fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), PollardError<Hash>> {
-        let is_leaf = self.left_niece().is_none() as u8;
+        let is_leaf = u8::from(self.left_niece().is_none());
         writer.write_all(&is_leaf.to_be_bytes())?;
 
         let self_hash = self.hash();
@@ -404,7 +404,7 @@ impl<Hash: AccumulatorHash> PollardNode<Hash> {
                 return parent.recompute_hashes();
             }
 
-            aunt.recompute_hashes()
+            aunt.recompute_hashes();
         }
     }
 
@@ -449,7 +449,7 @@ impl<Hash: AccumulatorHash> PollardNode<Hash> {
 
         let left_niece = aunt.left_niece().ok_or(PollardError::NieceNotFound)?;
 
-        let _self = if left_niece.hash() == self.hash() {
+        let this_node = if left_niece.hash() == self.hash() {
             aunt.left_niece().ok_or(PollardError::NieceNotFound)?
         } else {
             aunt.right_niece().ok_or(PollardError::NieceNotFound)?
@@ -463,12 +463,12 @@ impl<Hash: AccumulatorHash> PollardNode<Hash> {
             let left_niece = grandparent
                 .left_niece()
                 .ok_or(PollardError::NieceNotFound)?;
-            (left_niece, _self.clone())
+            (left_niece, this_node.clone())
         } else {
             let right_niece = grandparent
                 .right_niece()
                 .ok_or(PollardError::NieceNotFound)?;
-            (_self.clone(), right_niece)
+            (this_node.clone(), right_niece)
         };
 
         // place myself and my parent's sibling as my grandancestor's nieces
@@ -481,16 +481,16 @@ impl<Hash: AccumulatorHash> PollardNode<Hash> {
         // I'm now my aunt's sibling, so I should have their children.
         // Update my nieces's aunt to be me
         if let Some(x) = parent.left_niece() {
-            x.set_aunt(Rc::downgrade(&_self))
+            x.set_aunt(Rc::downgrade(&this_node));
         };
 
         if let Some(x) = parent.right_niece() {
-            x.set_aunt(Rc::downgrade(&_self))
+            x.set_aunt(Rc::downgrade(&this_node));
         }
 
         // take my parent's nieces, as they are still needed
         self.swap_nieces(&parent);
-        _self.recompute_hashes();
+        this_node.recompute_hashes();
         Ok(())
     }
 
@@ -626,7 +626,7 @@ impl<Hash: AccumulatorHash> Pollard<Hash> {
     /// error.
     pub fn ingest_proof(
         &mut self,
-        proof: Proof<Hash>,
+        proof: &Proof<Hash>,
         del_hashes: &[Hash],
         remembers: &[u64],
     ) -> Result<(), PollardError<Hash>> {
@@ -646,7 +646,7 @@ impl<Hash: AccumulatorHash> Pollard<Hash> {
 
     pub fn verify_and_ingest(
         &mut self,
-        proof: Proof<Hash>,
+        proof: &Proof<Hash>,
         del_hashes: &[Hash],
         remembers: &[u64],
     ) -> Result<(), PollardError<Hash>> {
@@ -711,7 +711,7 @@ impl<Hash: AccumulatorHash> Pollard<Hash> {
             get_proof_positions(&target_positions, self.leaves, tree_rows(self.leaves));
         let mut proof_hashes = Vec::new();
 
-        for pos in proof_positions.iter() {
+        for pos in &proof_positions {
             let hash = self
                 .grab_position(*pos)
                 .ok_or(PollardError::PositionNotFound(*pos))?
@@ -743,14 +743,14 @@ impl<Hash: AccumulatorHash> Pollard<Hash> {
         let hashes = self.prove_single_inner(pos)?;
         let targets = vec![pos];
 
-        Ok(Proof { hashes, targets })
+        Ok(Proof { targets, hashes })
     }
 
     /// Applies the changes to the [Pollard] for a new block
     ///
     /// Since the order of the operations is important, the API can't expose adding and deleting
     /// directly. Instead, the user should call this function with the additions and deletions they
-    /// want to make. You should pass in the additions as [PollardAddition]s, telling what should
+    /// want to make. You should pass in the additions as [`PollardAddition`]s, telling what should
     /// be added to the accumulator, and whether it should be remembered or not.
     /// The deletions should be passed as a list of target positions, telling which nodes should be
     /// deleted from the accumulator. Positions that are not cached will be ignored. You should check
@@ -760,7 +760,7 @@ impl<Hash: AccumulatorHash> Pollard<Hash> {
         &mut self,
         adds: &[PollardAddition<Hash>],
         del_hashes: &[Hash],
-        proof: Proof<Hash>,
+        proof: &Proof<Hash>,
     ) -> Result<(), PollardError<Hash>> {
         let targets = proof.targets.clone();
         self.ingest_proof(proof, del_hashes, &targets)?;
@@ -775,15 +775,15 @@ impl<Hash: AccumulatorHash> Pollard<Hash> {
             .collect::<Vec<_>>();
 
         for del in targets {
-            self.delete_single(del?.0)?
+            self.delete_single(&del?.0)?;
         }
 
         let mut add_nodes = Vec::new();
         let mut roots_destroyed = Vec::new();
         for node in adds {
-            let (_new_nodes, _roots_destroyed) = self.add_single(*node)?;
-            add_nodes.extend(_new_nodes);
-            roots_destroyed.extend(_roots_destroyed);
+            let (new_nodes, destroyed_roots) = self.add_single(*node);
+            add_nodes.extend(new_nodes);
+            roots_destroyed.extend(destroyed_roots);
         }
 
         Ok(())
@@ -805,7 +805,7 @@ impl<Hash: AccumulatorHash> Pollard<Hash> {
     /// keep track of a subset of the whole tree. Instead of remputing the pollard from genesis for
     /// every flavor of accumulator you have, you can sync-up using the [Stump] and then use its
     /// roots to create a up-to-date pollard.
-    pub fn from_roots(roots: Vec<Hash>, leaves: u64) -> Self {
+    pub fn from_roots(roots: &[Hash], leaves: u64) -> Self {
         let mut pollard = Self::new();
         pollard.leaves = leaves;
 
@@ -837,17 +837,14 @@ impl<Hash: AccumulatorHash> Pollard<Hash> {
     pub fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), PollardError<Hash>> {
         writer.write_all(&self.leaves.to_be_bytes())?;
 
-        for root in self.roots.iter() {
-            match root {
-                Some(root) => {
-                    let marker = 1u8;
-                    writer.write_all(&marker.to_be_bytes())?;
-                    root.serialize(writer)?
-                }
-                None => {
-                    let marker = 0u8;
-                    writer.write_all(&marker.to_be_bytes())?;
-                }
+        for root in &self.roots {
+            if let Some(root) = root {
+                let marker = 1u8;
+                writer.write_all(&marker.to_be_bytes())?;
+                root.serialize(writer)?;
+            } else {
+                let marker = 0u8;
+                writer.write_all(&marker.to_be_bytes())?;
             }
         }
 
@@ -866,7 +863,7 @@ impl<Hash: AccumulatorHash> Pollard<Hash> {
         let mut pollard = Self::new();
         pollard.leaves = leaves;
 
-        for root in pollard.roots.iter_mut() {
+        for root in &mut pollard.roots {
             let mut marker = [0u8; 1];
             reader.read_exact(&mut marker)?;
             let marker = marker[0];
@@ -886,7 +883,7 @@ impl<Hash: AccumulatorHash> Pollard<Hash> {
 
 // private methods
 
-/// The result from add_single
+/// The result from `add_single`
 type AddSingleResult<T> = (Vec<(u64, T)>, Vec<usize>);
 type ChildrenTuple<Hash> = (Rc<PollardNode<Hash>>, Rc<PollardNode<Hash>>);
 
@@ -969,7 +966,7 @@ impl<Hash: AccumulatorHash> Pollard<Hash> {
 
     fn do_ingest_proof(
         &mut self,
-        proof: Proof<Hash>,
+        proof: &Proof<Hash>,
         del_hashes: &[Hash],
         remembers: &[u64],
         recompute: bool,
@@ -981,7 +978,11 @@ impl<Hash: AccumulatorHash> Pollard<Hash> {
 
         let proof_positions = get_proof_positions(&proof.targets, self.leaves, forest_rows);
 
-        all_nodes.extend(proof_positions.into_iter().zip(proof.hashes.clone()));
+        all_nodes.extend(
+            proof_positions
+                .into_iter()
+                .zip(proof.hashes.iter().copied()),
+        );
         all_nodes.sort();
         let iter = all_nodes.into_iter().rev();
         self.ingest_positions(iter, remembers)?;
@@ -1028,7 +1029,7 @@ impl<Hash: AccumulatorHash> Pollard<Hash> {
         }
     }
 
-    /// to_string returns the full mem_forest in a string for all forests less than 6 rows.
+    /// `string` returns the full `mem_forest` in a string for all forests less than 6 rows.
     fn string(&self) -> String {
         if self.leaves == 0 {
             return "empty".to_owned();
@@ -1043,14 +1044,14 @@ impl<Hash: AccumulatorHash> Pollard<Hash> {
             });
         }
 
-        let mut output = vec!["".to_string(); (fh as usize * 2) + 1];
+        let mut output = vec![String::new(); (fh as usize * 2) + 1];
         let mut pos: u8 = 0;
         for h in 0..=fh {
             let row_len = 1 << (fh - h);
             for _ in 0..row_len {
                 let max = max_position_at_row(h, fh, self.leaves).unwrap();
-                if max >= pos as u64 {
-                    match self.get_hash(pos as u64) {
+                if max >= u64::from(pos) {
+                    match self.get_hash(u64::from(pos)) {
                         Ok(val) => {
                             if pos >= 100 {
                                 output[h as usize * 2].push_str(
@@ -1113,10 +1114,7 @@ impl<Hash: AccumulatorHash> Pollard<Hash> {
         Ok(proof)
     }
 
-    fn add_single(
-        &mut self,
-        node: PollardAddition<Hash>,
-    ) -> Result<AddSingleResult<Hash>, PollardError<Hash>> {
+    fn add_single(&mut self, node: PollardAddition<Hash>) -> AddSingleResult<Hash> {
         let mut row = 0;
         let mut new_node = PollardNode::new(node.hash, node.remember);
         self.leaf_map.insert(node.hash, Rc::downgrade(&new_node));
@@ -1152,17 +1150,17 @@ impl<Hash: AccumulatorHash> Pollard<Hash> {
 
             //FIXME: This should be a method in PollardNode
             if let Some(x) = new_node.left_niece() {
-                x.set_aunt(Rc::downgrade(&new_node))
+                x.set_aunt(Rc::downgrade(&new_node));
             }
             if let Some(x) = new_node.right_niece() {
-                x.set_aunt(Rc::downgrade(&new_node))
+                x.set_aunt(Rc::downgrade(&new_node));
             }
 
             if let Some(x) = old_root.left_niece() {
-                x.set_aunt(Rc::downgrade(&old_root))
+                x.set_aunt(Rc::downgrade(&old_root));
             }
             if let Some(x) = old_root.right_niece() {
-                x.set_aunt(Rc::downgrade(&old_root))
+                x.set_aunt(Rc::downgrade(&old_root));
             }
 
             // update aunts for the old nodes
@@ -1188,15 +1186,15 @@ impl<Hash: AccumulatorHash> Pollard<Hash> {
         self.roots[row as usize] = Some(new_node);
         self.leaves += 1;
 
-        Ok((add_positions, roots_to_destroy))
+        (add_positions, roots_to_destroy)
     }
 
-    fn delete_single(&mut self, node: Rc<PollardNode<Hash>>) -> Result<(), PollardError<Hash>> {
+    fn delete_single(&mut self, node: &Rc<PollardNode<Hash>>) -> Result<(), PollardError<Hash>> {
         self.leaf_map.remove(&node.hash());
         // we are deleting a root, just write an empty hash where it was
         if node.aunt.borrow().is_none() {
             for i in 0..64 {
-                if self.roots[i].eq(&Some(node.clone())) {
+                if self.roots[i].as_ref().is_some_and(|root| root == node) {
                     self.roots[i] = Some(Rc::new(PollardNode::default()));
                     return Ok(());
                 }
@@ -1212,9 +1210,7 @@ impl<Hash: AccumulatorHash> Pollard<Hash> {
             for i in 0..64 {
                 let aunt = node.aunt().ok_or(PollardError::AuntNotFound)?;
 
-                let root = if let Some(root) = self.roots[i].as_ref() {
-                    root
-                } else {
+                let Some(root) = self.roots[i].as_ref() else {
                     continue;
                 };
 
@@ -1288,7 +1284,7 @@ impl<Hash: AccumulatorHash> Pollard<Hash> {
 
 impl<Hash: AccumulatorHash> From<Stump<Hash>> for Pollard<Hash> {
     fn from(stump: Stump<Hash>) -> Self {
-        Self::from_roots(stump.roots, stump.leaves)
+        Self::from_roots(&stump.roots, stump.leaves)
     }
 }
 
@@ -1390,7 +1386,7 @@ mod tests {
         let proof = Proof::default();
         let dels = Vec::new();
 
-        p.modify(&adds, &dels, proof.clone()).unwrap();
+        p.modify(&adds, &dels, &proof).unwrap();
         p.prune(&[0, 1, 6, 7, 10]).unwrap();
 
         let mut buffer = Vec::new();
@@ -1411,7 +1407,7 @@ mod tests {
 
         let leaves = 15;
 
-        let p = Pollard::<BitcoinNodeHash>::from_roots(roots.clone(), leaves);
+        let p = Pollard::<BitcoinNodeHash>::from_roots(&roots, leaves);
         assert_eq!(roots, p.roots());
         assert_eq!(leaves, p.leaves());
     }
@@ -1426,7 +1422,7 @@ mod tests {
         ];
         let leaves = 15;
 
-        let stump = Stump { roots, leaves };
+        let stump = Stump { leaves, roots };
         let p: Pollard<BitcoinNodeHash> = stump.clone().into();
 
         assert_eq!(stump.roots, p.roots());
@@ -1448,7 +1444,7 @@ mod tests {
             .collect::<Vec<_>>();
 
         let mut acc = Pollard::<BitcoinNodeHash>::new();
-        acc.modify(&hashes, &[], Proof::default()).unwrap();
+        acc.modify(&hashes, &[], &Proof::default()).unwrap();
 
         assert_eq!(
             "b151a956139bb821d4effa34ea95c17560e0135d1e4661fc23cedc3af49dac42",
@@ -1490,15 +1486,15 @@ mod tests {
             serde_json::from_str::<TestsJSON>(contents).expect("JSON deserialization error");
 
         for i in tests.insertion_tests {
-            run_single_addition_case(i);
+            run_single_addition_case(&i);
         }
 
         for i in tests.deletion_tests {
-            run_case_with_deletion(i);
+            run_case_with_deletion(&i);
         }
     }
 
-    fn run_single_addition_case(case: TestCase) {
+    fn run_single_addition_case(case: &TestCase) {
         let hashes = case
             .leaf_preimages
             .iter()
@@ -1512,7 +1508,7 @@ mod tests {
             .collect::<Vec<_>>();
 
         let mut p = Pollard::<BitcoinNodeHash>::new();
-        p.modify(&hashes, &[], Proof::default()).unwrap();
+        p.modify(&hashes, &[], &Proof::default()).unwrap();
 
         let expected_roots = case
             .expected_roots
@@ -1525,7 +1521,7 @@ mod tests {
         assert_eq!(expected_roots, roots, "Test case failed {case:?}");
     }
 
-    fn run_case_with_deletion(case: TestCase) {
+    fn run_case_with_deletion(case: &TestCase) {
         let hashes = case
             .leaf_preimages
             .iter()
@@ -1559,8 +1555,8 @@ mod tests {
         let proof = Proof::new(case.target_values.clone().unwrap(), proof_hashes);
 
         let mut p = Pollard::<BitcoinNodeHash>::new();
-        p.modify(&hashes, &[], Proof::default()).unwrap();
-        p.modify(&[], &target_hashes, proof).unwrap();
+        p.modify(&hashes, &[], &Proof::default()).unwrap();
+        p.modify(&[], &target_hashes, &proof).unwrap();
 
         let expected_roots = case
             .expected_roots
@@ -1594,8 +1590,8 @@ mod tests {
             .collect();
 
         let mut p = Pollard::<BitcoinNodeHash>::new();
-        p.modify(&hashes, &[], Proof::default()).unwrap();
-        p.delete_single(p.grab_position(1).unwrap().0)
+        p.modify(&hashes, &[], &Proof::default()).unwrap();
+        p.delete_single(&p.grab_position(1).unwrap().0)
             .expect("Failed to delete");
 
         let root = p.roots[1].clone();
@@ -1619,7 +1615,7 @@ mod tests {
             .collect();
 
         let mut acc = Pollard::<BitcoinNodeHash>::new();
-        acc.modify(&hashes, &[], Proof::default()).unwrap();
+        acc.modify(&hashes, &[], &Proof::default()).unwrap();
 
         let del_hashes = [
             hash_from_u8(2),
@@ -1630,7 +1626,8 @@ mod tests {
         let proof = acc.batch_proof(&del_hashes).unwrap();
 
         acc.prune(&[0, 1, 2, 3, 4, 5, 6, 7]).unwrap();
-        acc.ingest_proof(proof, &del_hashes, &[2, 1, 4, 6]).unwrap();
+        acc.ingest_proof(&proof, &del_hashes, &[2, 1, 4, 6])
+            .unwrap();
 
         let del_hashes = [0, 1, 4, 5, 6, 7]
             .iter()
@@ -1654,7 +1651,7 @@ mod tests {
             .collect();
 
         let mut acc = Pollard::<BitcoinNodeHash>::new();
-        acc.modify(&hashes, &[], Proof::default()).unwrap();
+        acc.modify(&hashes, &[], &Proof::default()).unwrap();
         let del_hashes = [
             hash_from_u8(2),
             hash_from_u8(1),
@@ -1697,7 +1694,7 @@ mod tests {
             .collect();
 
         let mut acc = Pollard::<BitcoinNodeHash>::new();
-        acc.modify(&hashes, &[], Proof::default()).unwrap();
+        acc.modify(&hashes, &[], &Proof::default()).unwrap();
 
         let proof = acc.prove_single(hashes[3].hash).unwrap();
         let expected_hashes = [
@@ -1745,7 +1742,7 @@ mod tests {
 
         let hashes = get_hashes_of(&[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
         let mut p = Pollard::new();
-        p.modify(&hashes, &[], Proof::default())
+        p.modify(&hashes, &[], &Proof::default())
             .expect("Test mem_forests are valid");
         test_get_pos!(p, 0);
         test_get_pos!(p, 1);
@@ -1796,9 +1793,8 @@ mod tests {
         };
 
         let mut acc = Pollard::<BitcoinNodeHash>::new();
-        acc.modify(&values, &[], Proof::default()).unwrap();
-        acc.ingest_proof(proof.clone(), &[hash_from_u8(3)], &[3])
-            .unwrap();
+        acc.modify(&values, &[], &Proof::default()).unwrap();
+        acc.ingest_proof(&proof, &[hash_from_u8(3)], &[3]).unwrap();
 
         let new_proof = acc.prove_single(values[3].hash).unwrap();
         assert_eq!(new_proof, proof);

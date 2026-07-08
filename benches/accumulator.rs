@@ -1,3 +1,7 @@
+//! # Accumulator Benchmarks
+//!
+//! Benchmarks for the [`Pollard`] and [`MemForest`] Utreexo accumulators.
+
 use std::hint::black_box;
 
 use criterion::criterion_group;
@@ -31,7 +35,7 @@ fn memforest_proof_generation(c: &mut Criterion) {
     let mut forest = MemForest::new();
     forest.modify(&hashes, &[]).unwrap();
 
-    for target_count in [1, 10].iter() {
+    for target_count in &[1, 10] {
         let targets = &hashes[..*target_count];
 
         group.throughput(Throughput::Elements(*target_count as u64));
@@ -57,7 +61,7 @@ fn memforest_verification(c: &mut Criterion) {
     let mut forest = MemForest::new();
     forest.modify(&hashes, &[]).unwrap();
 
-    for target_count in [1, 10].iter() {
+    for target_count in &[1, 10] {
         let targets = &hashes[..*target_count];
         let proof = forest.prove(targets).unwrap();
 
@@ -82,11 +86,10 @@ fn pollard_operations(c: &mut Criterion) {
     let base_size = 100;
     let hashes = generate_test_hashes(base_size, 42);
     let roots = vec![hashes[0]]; // Simplified root structure
-    let pollard = Pollard::from_roots(roots, base_size as u64);
+    let pollard = Pollard::from_roots(&roots, base_size as u64);
 
     {
         let batch_size = &10;
-        let _del_hashes = &hashes[..*batch_size / 2];
 
         group.throughput(Throughput::Elements(*batch_size as u64));
         group.bench_with_input(

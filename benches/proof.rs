@@ -1,3 +1,7 @@
+//! # Proof Benchmarks
+//!
+//! Benchmarks for the [`Proof`] data structure.
+
 use std::hint::black_box;
 
 use criterion::criterion_group;
@@ -27,7 +31,7 @@ fn generate_test_hashes(count: usize, seed: u64) -> Vec<BitcoinNodeHash> {
 fn proof_creation(c: &mut Criterion) {
     let mut group = c.benchmark_group("proof_creation");
 
-    for target_count in [1, 10].iter() {
+    for target_count in &[1, 10] {
         let targets: Vec<u64> = (0..*target_count).collect();
         let proof_hashes = generate_test_hashes((*target_count * 3) as usize, 42); // Approximate proof size
 
@@ -47,6 +51,7 @@ fn proof_creation(c: &mut Criterion) {
     group.finish();
 }
 
+#[allow(clippy::cast_precision_loss)]
 #[allow(clippy::unnecessary_cast)]
 fn proof_verification(c: &mut Criterion) {
     let mut group = c.benchmark_group("proof_verification");
@@ -57,7 +62,7 @@ fn proof_verification(c: &mut Criterion) {
     let stump = Stump::new();
     let stump = stump.modify(&hashes, &[], &Proof::default()).unwrap();
 
-    for target_count in [1, 10].iter() {
+    for target_count in &[1, 10] {
         let del_hashes = hashes[..*target_count].to_vec();
         let targets: Vec<u64> = (0..*target_count as u64).collect();
 

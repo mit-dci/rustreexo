@@ -3,14 +3,13 @@
 use alloc::collections::BTreeSet;
 use core::convert::TryFrom;
 
-// Rustreexo
 use super::node_hash::AccumulatorHash;
 use crate::prelude::*;
 use crate::proof::ProofError;
 
 // isRootPosition checks if the current position is a root given the number of
 // leaves and the entire rows of the forest.
-pub fn is_root_position(position: u64, num_leaves: u64, forest_rows: u8) -> bool {
+pub(crate) fn is_root_position(position: u64, num_leaves: u64, forest_rows: u8) -> bool {
     let row = detect_row(position, forest_rows);
 
     let root_present = num_leaves & (1 << row) != 0;
@@ -21,7 +20,7 @@ pub fn is_root_position(position: u64, num_leaves: u64, forest_rows: u8) -> bool
 
 // removeBit removes the nth bit from the val passed in. For example, if the 2nd
 // bit is to be removed from 1011 (11 in dec), the returned value is 111 (7 in dec).
-pub fn remove_bit(val: u64, bit: u64) -> u64 {
+pub(crate) fn remove_bit(val: u64, bit: u64) -> u64 {
     let mask = ((2 << bit) - 1) as u64;
     let upper_mask = u64::MAX ^ mask;
     let upper = val & upper_mask;
@@ -76,7 +75,7 @@ pub(crate) fn read_bounded_len<R: Read>(reader: &mut R, max: u64) -> Result<usiz
 ///
 /// This function simply computes how far away from the start of the row this leaf is, then uses
 /// that to offset the same amount in the new structure.
-pub fn translate(pos: u64, from_rows: u8, to_rows: u8) -> u64 {
+pub(crate) fn translate(pos: u64, from_rows: u8, to_rows: u8) -> u64 {
     let row = detect_row(pos, from_rows);
     if row == 0 {
         return pos;
@@ -86,7 +85,7 @@ pub fn translate(pos: u64, from_rows: u8, to_rows: u8) -> u64 {
     offset + start_position_at_row(row, to_rows)
 }
 
-pub fn calc_next_pos(position: u64, del_pos: u64, forest_rows: u8) -> Result<u64, String> {
+pub(crate) fn calc_next_pos(position: u64, del_pos: u64, forest_rows: u8) -> Result<u64, String> {
     let del_row = detect_row(del_pos, forest_rows);
     let pos_row = detect_row(position, forest_rows);
 
@@ -97,17 +96,16 @@ pub fn calc_next_pos(position: u64, del_pos: u64, forest_rows: u8) -> Result<u64
     }
 
     // This is the lower bits where we'll remove the nth bit.
-    let lower_bits = remove_bit(position, (del_row - pos_row) as u64);
+    let lower_bits = remove_bit(position, u64::from(del_row - pos_row));
 
     // This is the bit to be prepended.
     let to_row = pos_row + 1;
-    let higher_bits = (1 << to_row) << (forest_rows - to_row) as u64;
-
+    let higher_bits = (1 << to_row) << u64::from(forest_rows - to_row);
     // Put the bits together and return it.
     Ok(higher_bits | lower_bits)
 }
 
-pub fn detwin(nodes: Vec<u64>, forest_rows: u8) -> Vec<u64> {
+pub(crate) fn detwin(nodes: Vec<u64>, forest_rows: u8) -> Vec<u64> {
     let mut computed: Vec<u64> = nodes;
     let mut detwinned = Vec::new();
 
@@ -118,12 +116,11 @@ pub fn detwin(nodes: Vec<u64>, forest_rows: u8) -> Vec<u64> {
 
         let node = computed.remove(0);
         let sibling = node ^ 1;
-        let next = match computed.first() {
-            Some(next) => *next,
-            None => {
-                detwinned.push(node);
-                continue;
-            }
+        let next = if let Some(next) = computed.first() {
+            *next
+        } else {
+            detwinned.push(node);
+            continue;
         };
 
         if next == sibling {
@@ -145,29 +142,29 @@ pub fn detwin(nodes: Vec<u64>, forest_rows: u8) -> Vec<u64> {
 
 // start_position_at_row returns the smallest position an accumulator can have for the
 // requested row for the given numLeaves.
-pub fn start_position_at_row(row: u8, forest_rows: u8) -> u64 {
+pub(crate) fn start_position_at_row(row: u8, forest_rows: u8) -> u64 {
     // 2 << forest_rows is 2 more than the max position
     // to get the correct offset for a given row,
     // subtract (2 << `row complement of forest_rows`) from (2 << forest_rows)
     ((2_u128 << forest_rows) - (2_u128 << (forest_rows - row))) as u64
 }
 
-pub fn is_left_niece(position: u64) -> bool {
+pub(crate) fn is_left_niece(position: u64) -> bool {
     position & 1 == 0
 }
 
-pub fn left_sibling(position: u64) -> u64 {
+pub(crate) fn left_sibling(position: u64) -> u64 {
     (position | 1) ^ 1
 }
 
 // roots_to_destroy returns the empty roots that get written over after num_adds
 // amount of leaves have been added.
-pub fn roots_to_destroy<Hash: AccumulatorHash>(
+pub(crate) fn roots_to_destroy<Hash: AccumulatorHash>(
     num_adds: u64,
     mut num_leaves: u64,
     orig_roots: &[Hash],
 ) -> Vec<u64> {
-    if !orig_roots.iter().any(|root| root.is_empty()) {
+    if !orig_roots.iter().any(AccumulatorHash::is_empty) {
         return vec![];
     }
 
@@ -194,12 +191,12 @@ pub fn roots_to_destroy<Hash: AccumulatorHash>(
     deleted
 }
 
-pub fn num_roots(leaves: u64) -> usize {
+pub(crate) fn num_roots(leaves: u64) -> usize {
     leaves.count_ones() as usize
 }
 // detectRow finds the current row of a node, given the position
 // and the total forest rows.
-pub fn detect_row(pos: u64, forest_rows: u8) -> u8 {
+pub(crate) fn detect_row(pos: u64, forest_rows: u8) -> u8 {
     let mut marker: u64 = 1 << forest_rows;
     let mut h: u8 = 0;
 
@@ -211,7 +208,7 @@ pub fn detect_row(pos: u64, forest_rows: u8) -> u8 {
     h
 }
 
-pub fn detect_offset(pos: u64, num_leaves: u64) -> (u8, u8, u64) {
+pub(crate) fn detect_offset(pos: u64, num_leaves: u64) -> (u8, u8, u64) {
     let mut tr = tree_rows(num_leaves);
     let nr = detect_row(pos, tr);
 
@@ -256,38 +253,38 @@ pub fn detect_offset(pos: u64, num_leaves: u64) -> (u8, u8, u64) {
     (bigger_trees, tr - nr, !marker)
 }
 
-pub fn children(pos: u64, forest_rows: u8) -> u64 {
+pub(crate) fn children(pos: u64, forest_rows: u8) -> u64 {
     let mask = (2 << forest_rows) - 1;
     (pos << 1) & mask
 }
-pub fn left_child(pos: u64, forest_rows: u8) -> u64 {
+pub(crate) fn left_child(pos: u64, forest_rows: u8) -> u64 {
     children(pos, forest_rows)
 }
-pub fn right_child(pos: u64, forest_rows: u8) -> u64 {
+pub(crate) fn right_child(pos: u64, forest_rows: u8) -> u64 {
     children(pos, forest_rows) + 1
 }
 
-pub fn is_root_populated(row: u8, num_leaves: u64) -> bool {
+pub(crate) fn is_root_populated(row: u8, num_leaves: u64) -> bool {
     (num_leaves >> row) & 1 == 1
 }
-/// max_position_at_row returns the biggest position an accumulator can have for the
-/// requested row for the given num_leaves.
-pub fn max_position_at_row(row: u8, total_rows: u8, num_leaves: u64) -> Result<u64, String> {
+/// `max_position_at_row` returns the biggest position an accumulator can have for the
+/// requested row for the given `num_leaves`.
+pub(crate) fn max_position_at_row(row: u8, total_rows: u8, num_leaves: u64) -> Result<u64, String> {
     Ok(parent_many(num_leaves, row, total_rows)?.saturating_sub(1))
 }
 // parent returns the parent position of the passed in child
-pub fn parent(pos: u64, forest_rows: u8) -> u64 {
+pub(crate) fn parent(pos: u64, forest_rows: u8) -> u64 {
     (pos >> 1) | (1 << forest_rows)
 }
 
-pub fn read_u64<Source: Read>(buf: &mut Source) -> Result<u64, io::Error> {
+pub(crate) fn read_u64<Source: Read>(buf: &mut Source) -> Result<u64, io::Error> {
     let mut bytes = [0u8; 8];
     buf.read_exact(&mut bytes)?;
     Ok(u64::from_le_bytes(bytes))
 }
 
 // tree_rows returns the number of rows given n leaves
-pub fn tree_rows(n: u64) -> u8 {
+pub(crate) fn tree_rows(n: u64) -> u8 {
     if n == 0 {
         return 0;
     }
@@ -298,14 +295,15 @@ pub fn tree_rows(n: u64) -> u8 {
 
 // root_position returns the position of the root at a given row
 // TODO undefined behavior if the given row doesn't have a root
-pub fn root_position(num_leaves: u64, row: u8, forest_rows: u8) -> u64 {
+pub(crate) fn root_position(num_leaves: u64, row: u8, forest_rows: u8) -> u64 {
     let mask = (2 << forest_rows) - 1;
     let before = num_leaves & (mask << (row + 1));
 
     let shifted = (before >> row) | (mask << (forest_rows + 1 - row));
     shifted & mask
 }
-pub fn parent_many(pos: u64, rise: u8, forest_rows: u8) -> Result<u64, String> {
+
+pub(crate) fn parent_many(pos: u64, rise: u8, forest_rows: u8) -> Result<u64, String> {
     if rise == 0 {
         return Ok(pos);
     }
@@ -316,10 +314,14 @@ pub fn parent_many(pos: u64, rise: u8, forest_rows: u8) -> Result<u64, String> {
     }
 
     let mask = (2_u64 << forest_rows) - 1;
-    Ok((pos >> rise | (mask << (forest_rows - (rise - 1)) as u64)) & mask)
+    Ok((pos >> rise | (mask << u64::from(forest_rows - (rise - 1)))) & mask)
 }
 
-pub fn is_ancestor(higher_pos: u64, lower_pos: u64, forest_rows: u8) -> Result<bool, String> {
+pub(crate) fn is_ancestor(
+    higher_pos: u64,
+    lower_pos: u64,
+    forest_rows: u8,
+) -> Result<bool, String> {
     if higher_pos == lower_pos {
         return Ok(false);
     }
@@ -340,7 +342,7 @@ pub fn is_ancestor(higher_pos: u64, lower_pos: u64, forest_rows: u8) -> Result<b
 
 /// Returns whether next is node's sibling or not
 #[allow(dead_code)]
-pub fn is_right_sibling(node: u64, next: u64) -> bool {
+fn is_right_sibling(node: u64, next: u64) -> bool {
     node | 1 == next
 }
 
@@ -352,7 +354,7 @@ fn is_sibling(a: u64, b: u64) -> bool {
 
 /// Returns which node should have its hashes on the proof, along with all nodes
 /// whose hashes will be calculated to reach a root
-pub fn get_proof_positions(targets: &[u64], num_leaves: u64, forest_rows: u8) -> Vec<u64> {
+pub(crate) fn get_proof_positions(targets: &[u64], num_leaves: u64, forest_rows: u8) -> Vec<u64> {
     let mut proof_positions = BTreeSet::new();
     let mut map = new_hash_set();
 
@@ -396,11 +398,11 @@ pub fn get_proof_positions(targets: &[u64], num_leaves: u64, forest_rows: u8) ->
 }
 
 #[cfg(test)]
-pub fn hash_from_u8(value: u8) -> super::node_hash::BitcoinNodeHash {
+pub(crate) fn hash_from_u8(value: u8) -> super::node_hash::BitcoinNodeHash {
     use bitcoin_hashes::sha256;
     use bitcoin_hashes::HashEngine;
 
-    let mut engine = bitcoin_hashes::sha256::Hash::engine();
+    let mut engine = sha256::Hash::engine();
 
     engine.input(&[value]);
 
@@ -413,11 +415,11 @@ mod tests {
     use alloc::vec::Vec;
     use core::str::FromStr;
 
+    use super::children;
     use super::roots_to_destroy;
+    use super::start_position_at_row;
+    use super::tree_rows;
     use crate::node_hash::BitcoinNodeHash;
-    use crate::util::children;
-    use crate::util::start_position_at_row;
-    use crate::util::tree_rows;
 
     #[test]
     fn test_proof_pos() {
@@ -457,7 +459,7 @@ mod tests {
 
         let deleted = roots_to_destroy(1, 15, &roots);
 
-        assert_eq!(deleted, vec![22, 28])
+        assert_eq!(deleted, vec![22, 28]);
     }
 
     #[test]
@@ -495,10 +497,10 @@ mod tests {
 
     #[test]
     fn test_tree_rows() {
-        assert_eq!(super::tree_rows(8), 3);
-        assert_eq!(super::tree_rows(9), 4);
-        assert_eq!(super::tree_rows(12), 4);
-        assert_eq!(super::tree_rows(255), 8);
+        assert_eq!(tree_rows(8), 3);
+        assert_eq!(tree_rows(9), 4);
+        assert_eq!(tree_rows(12), 4);
+        assert_eq!(tree_rows(255), 8);
     }
 
     fn row_offset(row: u8, forest_rows: u8) -> u64 {
@@ -531,8 +533,7 @@ mod tests {
     fn test_get_proof_positions() {
         let targets: Vec<u64> = vec![4, 5, 7, 8];
         let num_leaves = 8;
-        let targets =
-            super::get_proof_positions(&targets, num_leaves, super::tree_rows(num_leaves));
+        let targets = super::get_proof_positions(&targets, num_leaves, tree_rows(num_leaves));
 
         assert_eq!(vec![6, 9], targets);
     }
@@ -565,8 +566,8 @@ mod tests {
         assert_eq!(start_position_at_row(1, 12), 4096);
 
         // Check if we don't overflow with bigger forests
-        assert_eq!(start_position_at_row(63, 63), 18446744073709551614);
-        assert_eq!(start_position_at_row(44, 63), 18446744073708503040);
+        assert_eq!(start_position_at_row(63, 63), 18_446_744_073_709_551_614);
+        assert_eq!(start_position_at_row(44, 63), 18_446_744_073_708_503_040);
 
         assert_eq!(start_position_at_row(0, 63), 0);
         assert_eq!(start_position_at_row(0, 32), 0);
