@@ -23,9 +23,12 @@
 //!  * [`mem_forest`]: an in-memory forest accumulator. It keeps track of every leaf in the forest. It can both verify and
 //!    generate inclusion proofs for any leaf in the forest.
 
-#![cfg_attr(not(feature = "std"), no_std)]
+#![no_std]
 
 extern crate alloc;
+
+#[cfg(feature = "std")]
+extern crate std;
 
 /// This is the maximum size the forest is ever allowed to have, this caps how big `num_leaves` can
 /// be (we use a [`u64`]) and is also used by the [`util::translate`] logic.
@@ -102,12 +105,17 @@ pub mod prelude {
 #[cfg(feature = "std")]
 /// Re-exports `std` basics plus HashMap/HashSet and IO traits.
 pub mod prelude {
-    extern crate std;
+    pub use std::borrow::ToOwned;
     pub use std::collections::HashMap;
     pub use std::collections::HashSet;
+    pub use std::format;
     pub use std::io;
     pub use std::io::Read;
     pub use std::io::Write;
+    pub use std::string::String;
+    pub use std::string::ToString;
+    pub use std::vec;
+    pub use std::vec::Vec;
 
     /// Create a new [`HashMap`].
     pub fn new_hash_map<K, V>() -> HashMap<K, V> {
