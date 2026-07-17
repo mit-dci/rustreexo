@@ -14,3 +14,7 @@ runs:
         - name: Install Rust Toolchains
           shell: bash
           run: cargo rbmt toolchains
+
+        - name: Intall cargo-rbmt Tools
+          shell: bash
+          run: cargo rbmt tools
