@@ -608,8 +608,7 @@ impl<Hash: AccumulatorHash> Proof<Hash> {
         let proof_positions = get_proof_positions(&translated, num_leaves, total_rows);
 
         // As we calculate nodes upwards, it accumulates here
-        let mut nodes: Vec<_> = self
-            .targets
+        let mut nodes: Vec<_> = translated
             .iter()
             .copied()
             .zip(del_hashes.to_owned())
@@ -1040,6 +1039,7 @@ mod tests {
     use serde::Deserialize;
 
     use super::*;
+    use crate::mem_forest::MemForest;
     use crate::node_hash::AccumulatorHash;
     use crate::node_hash::BitcoinNodeHash;
     use crate::stump::Stump;
@@ -1474,6 +1474,96 @@ mod tests {
                 panic!()
             }
         }
+    }
+
+    /// Deletes one leaf from both accumulators, keeping them in sync, and returns the
+    /// updated [Stump].
+    fn delete_leaf(
+        forest: &mut MemForest<BitcoinNodeHash>,
+        stump: &Stump<BitcoinNodeHash>,
+        leaf: BitcoinNodeHash,
+    ) -> Stump<BitcoinNodeHash> {
+        let proof = forest.prove(&[leaf]).expect("the leaf is in the forest");
+        let stump = stump
+            .modify(&[], &[leaf], &proof)
+            .expect("the deletion proof is valid");
+
+        forest.modify(&[], &[leaf]).expect("the leaf is in the forest");
+
+        let roots = forest
+            .get_roots()
+            .iter()
+            .map(|root| root.get_data())
+            .collect::<Vec<_>>();
+        assert_eq!(roots, stump.roots, "both accumulators must agree");
+
+        stump
+    }
+
+    /// Deleting a leaf promotes its sibling one row up, and rows above the bottom one are
+    /// communicated in [MAX_FOREST_ROWS] space. Verification has to translate those targets
+    /// back to the forest's own rows before pairing them with the proof hashes, otherwise a
+    /// perfectly valid proof for a promoted leaf is rejected.
+    #[test]
+    fn test_verify_promoted_target() {
+        let hashes = (0..8).map(hash_from_u8).collect::<Vec<_>>();
+        let mut forest = MemForest::<BitcoinNodeHash>::new();
+        forest.modify(&hashes, &[]).expect("this forest is valid");
+
+        let mut stump = Stump::new()
+            .modify(&hashes, &[], &Proof::default())
+            .expect("this stump is valid");
+
+        // Deleting leaf 0 promotes leaf 1, its sibling, from row 0 to row 1.
+        stump = delete_leaf(&mut forest, &stump, hashes[0]);
+
+        let promoted = forest.prove(&[hashes[1]]).expect("leaf 1 is in the forest");
+        assert_ne!(promoted.targets, [1], "leaf 1 is not at row 0 anymore");
+        assert_eq!(stump.verify(&promoted, &[hashes[1]]), Ok(true));
+
+        // Leaves the deletion didn't touch are still at row 0.
+        let untouched = forest.prove(&[hashes[3]]).expect("leaf 3 is in the forest");
+        assert_eq!(untouched.targets, [3]);
+        assert_eq!(stump.verify(&untouched, &[hashes[3]]), Ok(true));
+
+        // Two deletions in a row promote leaf 3 twice, up to row 2.
+        stump = delete_leaf(&mut forest, &stump, hashes[2]);
+        stump = delete_leaf(&mut forest, &stump, hashes[1]);
+
+        let promoted = forest.prove(&[hashes[3]]).expect("leaf 3 is in the forest");
+        assert_eq!(stump.verify(&promoted, &[hashes[3]]), Ok(true));
+
+        // A promoted leaf also verifies alongside targets that are still at row 0.
+        let mixed = forest
+            .prove(&[hashes[3], hashes[5]])
+            .expect("both leaves are in the forest");
+        assert_eq!(stump.verify(&mixed, &[hashes[3], hashes[5]]), Ok(true));
+    }
+
+    /// Positions above row 0 are communicated in [MAX_FOREST_ROWS] space precisely so that
+    /// they don't have to be remapped when the forest grows, so a promoted leaf must still
+    /// verify after that happens.
+    #[test]
+    fn test_verify_promoted_target_after_growth() {
+        let hashes = (0..8).map(hash_from_u8).collect::<Vec<_>>();
+        let mut forest = MemForest::<BitcoinNodeHash>::new();
+        forest.modify(&hashes, &[]).expect("this forest is valid");
+
+        let mut stump = Stump::new()
+            .modify(&hashes, &[], &Proof::default())
+            .expect("this stump is valid");
+
+        stump = delete_leaf(&mut forest, &stump, hashes[0]);
+
+        // Growing past a power of two moves every row above the bottom one.
+        let new_hashes = (8..12).map(hash_from_u8).collect::<Vec<_>>();
+        forest.modify(&new_hashes, &[]).expect("this forest is valid");
+        stump = stump
+            .modify(&new_hashes, &[], &Proof::default())
+            .expect("this stump is valid");
+
+        let promoted = forest.prove(&[hashes[1]]).expect("leaf 1 is in the forest");
+        assert_eq!(stump.verify(&promoted, &[hashes[1]]), Ok(true));
     }
 
     #[test]
