@@ -57,11 +57,9 @@
 //! assert!(s.verify(&p, &vec![hashes[0]]).expect("This proof is valid"));
 //! ```
 
-use alloc::vec::IntoIter;
 use core::fmt;
 use core::fmt::Debug;
 use core::fmt::Formatter;
-use core::iter::Peekable;
 
 #[cfg(feature = "with-serde")]
 use serde::Deserialize;
@@ -342,15 +340,13 @@ impl<Hash: AccumulatorHash> Proof<Hash> {
         roots: &[Hash],
         num_leaves: u64,
     ) -> Result<bool, ProofError> {
-        if self.targets.is_empty() {
-            return Ok(true);
+        if self.targets.is_empty() || roots.is_empty() || num_leaves == 0 {
+            return Ok(del_hashes.is_empty());
         }
 
-        let mut calculated_roots: Peekable<IntoIter<Hash>> = self
-            .calculate_hashes(del_hashes, num_leaves)?
-            .1
-            .into_iter()
-            .peekable();
+        let calculated_roots: Vec<Hash> = self.calculate_hashes(del_hashes, num_leaves)?.1;
+        let mut calculated_roots = calculated_roots.into_iter().peekable();
+        let total_calculated = calculated_roots.len();
 
         let mut number_matched_roots = 0;
 
@@ -363,11 +359,9 @@ impl<Hash: AccumulatorHash> Proof<Hash> {
             }
         }
 
-        if calculated_roots.len() != number_matched_roots && calculated_roots.len() != 0 {
-            return Ok(false);
-        }
-
-        Ok(true)
+        // The proof is valid iff every root we computed from the proof matched an
+        // actual accumulator root.
+        Ok(total_calculated == number_matched_roots)
     }
 
     /// Returns the elements needed to prove a subset of targets. For example, a tree with
@@ -483,6 +477,7 @@ impl<Hash: AccumulatorHash> Proof<Hash> {
     pub fn deserialize<Source: Read>(mut buf: Source) -> Result<Self, ProofError> {
         let targets_len = read_bounded_len(&mut buf, MAX_PROOF_DESERIALIZE_COUNT)?;
         let mut targets = Vec::with_capacity(targets_len);
+
         for _ in 0..targets_len {
             targets.push(read_u64(&mut buf).map_err(|_| ProofError::InvalidTarget)?);
         }
@@ -524,6 +519,16 @@ impl<Hash: AccumulatorHash> Proof<Hash> {
 
         // Where all the root hashes that we've calculated will go to.
         let total_rows = util::tree_rows(num_leaves);
+
+        // Target positions are given in the full 63-row forest coordinates; reject
+        // anything that maps to a row outside the actual forest.
+        if self
+            .targets
+            .iter()
+            .any(|pos| util::detect_row(*pos, MAX_FOREST_ROWS) > total_rows)
+        {
+            return Err(ProofError::InvalidTarget);
+        }
 
         // Where all the parent hashes we've calculated in a given row will go to.
         let mut calculated_root_hashes =
@@ -614,6 +619,16 @@ impl<Hash: AccumulatorHash> Proof<Hash> {
 
         // Where all the root hashes that we've calculated will go to.
         let total_rows = util::tree_rows(num_leaves);
+
+        // Target positions are given in the full 63-row forest coordinates; reject
+        // anything that maps to a row outside the actual forest.
+        if self
+            .targets
+            .iter()
+            .any(|pos| util::detect_row(*pos, MAX_FOREST_ROWS) > total_rows)
+        {
+            return Err(ProofError::InvalidTarget);
+        }
 
         // Where all the parent hashes we've calculated in a given row will go to.
         let mut calculated_root_hashes = Vec::<Hash>::with_capacity(util::num_roots(num_leaves));
@@ -1604,6 +1619,83 @@ mod tests {
 
         assert_eq!(s.verify(&subset, &[del_hashes[0]]), Ok(true));
         assert_eq!(s.verify(&subset, &[del_hashes[2]]), Ok(false));
+    }
+
+    #[test]
+    fn test_deserialize_rejects_huge_target_count() {
+        // An attacker-controlled targets_len of u64::MAX must not cause a
+        // capacity-overflow panic or OOM; it must return an error.
+        let mut data = Vec::new();
+        data.extend_from_slice(&u64::MAX.to_le_bytes()); // targets_len
+        data.extend_from_slice(&0u64.to_le_bytes()); // hashes_len
+        let result = Proof::<BitcoinNodeHash>::deserialize(&data[..]);
+        assert!(matches!(
+            result.unwrap_err(),
+            ProofError::OversizedAllocation { .. }
+        ));
+    }
+
+    #[test]
+    fn test_deserialize_rejects_huge_hash_count() {
+        // Same for hashes_len.
+        let mut data = Vec::new();
+        data.extend_from_slice(&1u64.to_le_bytes()); // targets_len = 1
+        data.extend_from_slice(&0u64.to_le_bytes()); // one target
+        data.extend_from_slice(&u64::MAX.to_le_bytes()); // hashes_len
+        let result = Proof::<BitcoinNodeHash>::deserialize(&data[..]);
+        assert!(matches!(
+            result.unwrap_err(),
+            ProofError::OversizedAllocation { .. }
+        ));
+    }
+
+    #[test]
+    fn test_deserialize_rejects_truncated_input() {
+        // A valid header but truncated payload must produce a clean error.
+        let mut data = Vec::new();
+        data.extend_from_slice(&2u64.to_le_bytes()); // targets_len = 2
+        data.extend_from_slice(&1u64.to_le_bytes()); // only one target provided
+        let result = Proof::<BitcoinNodeHash>::deserialize(&data[..]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_verify_rejects_out_of_range_target() {
+        // A target at u64::MAX is outside the valid forest position range and
+        // must be rejected with an error, not panic.
+        let s = Stump::new()
+            .modify(&[hash_from_u8(0)], &[], &Proof::default())
+            .unwrap();
+
+        let p = Proof::new(vec![u64::MAX], vec![]);
+        assert!(s.verify(&p, &[hash_from_u8(0)]).is_err());
+    }
+
+    #[test]
+    fn test_verify_rejects_bogus_del_hash() {
+        // Replacing a deletion hash with a non-member must fail verification.
+        let hashes: Vec<_> = (0..4u8).map(hash_from_u8).collect();
+        let s = Stump::new()
+            .modify(&hashes, &[], &Proof::default())
+            .unwrap();
+
+        // Proof for leaf 0 (from the known test vectors)
+        let proof_hashes = vec![
+            BitcoinNodeHash::from_str(
+                "4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a",
+            )
+            .unwrap(),
+            BitcoinNodeHash::from_str(
+                "9576f4ade6e9bc3a6458b506ce3e4e890df29cb14cb5d3d887672aef55647a2b",
+            )
+            .unwrap(),
+        ];
+        let p = Proof::new(vec![0], proof_hashes);
+
+        // Valid: verifies with the correct del_hash
+        assert_eq!(s.verify(&p, &[hashes[0]]), Ok(true));
+        // Invalid: substituting a different hash must not verify
+        assert_ne!(s.verify(&p, &[hash_from_u8(42)]), Ok(true));
     }
 
     #[test]

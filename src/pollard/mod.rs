@@ -263,6 +263,22 @@ impl<Hash: AccumulatorHash> PollardNode<Hash> {
         ancestor: Option<Weak<Self>>,
         leaf_map: &mut HashMap<Hash, Weak<Self>>,
     ) -> Result<Rc<Self>, PollardError<Hash>> {
+        Self::deserialize_inner(reader, ancestor, leaf_map, 0)
+    }
+
+    fn deserialize_inner<R: Read>(
+        reader: &mut R,
+        ancestor: Option<Weak<Self>>,
+        leaf_map: &mut HashMap<Hash, Weak<Self>>,
+        depth: u8,
+    ) -> Result<Rc<Self>, PollardError<Hash>> {
+        // The forest has at most 64 rows, so a serialized node can never be deeper
+        // than that. Anything deeper is malformed input; reject it instead of
+        // recursing until the stack overflows.
+        if depth > MAX_FOREST_ROWS + 1 {
+            return Err(PollardError::InvalidProof);
+        }
+
         let mut is_leaf = [0u8; 1];
         reader.read_exact(&mut is_leaf)?;
 
@@ -293,8 +309,8 @@ impl<Hash: AccumulatorHash> PollardNode<Hash> {
 
         let node_weak = Rc::downgrade(&node);
 
-        let left = Self::deserialize(reader, Some(node_weak.clone()), leaf_map)?;
-        let right = Self::deserialize(reader, Some(node_weak), leaf_map)?;
+        let left = Self::deserialize_inner(reader, Some(node_weak.clone()), leaf_map, depth + 1)?;
+        let right = Self::deserialize_inner(reader, Some(node_weak), leaf_map, depth + 1)?;
 
         node.left_niece.replace(Some(left));
         node.right_niece.replace(Some(right));
@@ -1285,6 +1301,25 @@ mod tests {
     use super::*;
     use crate::node_hash::BitcoinNodeHash;
     use crate::util::hash_from_u8;
+
+    #[test]
+    fn test_deserialize_rejects_deep_nesting() {
+        // Craft input with many nested branch nodes; must not stack-overflow.
+        let mut data = Vec::new();
+        data.extend_from_slice(&1u64.to_be_bytes()); // leaves = 1
+        data.push(1u8); // root marker = present
+                        // 200 nested branch nodes (is_leaf=0 + 32-byte hash each)
+        for _ in 0..200 {
+            data.push(0u8); // is_leaf = false
+            data.extend_from_slice(&[0x42u8; 32]);
+        }
+        // Terminal leaf
+        data.push(1u8);
+        data.extend_from_slice(&[0x42u8; 32]);
+
+        let result = Pollard::<BitcoinNodeHash>::deserialize(&mut &data[..]);
+        assert!(result.is_err());
+    }
 
     #[test]
     fn test_ser_rtt() {

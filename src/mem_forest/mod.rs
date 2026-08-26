@@ -133,7 +133,15 @@ impl<Hash: AccumulatorHash> Node<Hash> {
             ancestor: Option<Rc<Node<Hash>>>,
             reader: &mut R,
             index: &mut HashMap<Hash, Weak<Node<Hash>>>,
+            depth: u8,
         ) -> io::Result<Rc<Node<Hash>>> {
+            // The forest has at most 64 rows, so a serialized node can never be
+            // deeper than that. Anything deeper is malformed input; reject it
+            // instead of recursing until the stack overflows.
+            if depth > MAX_FOREST_ROWS + 1 {
+                return Err(io::Error::from(io::ErrorKind::InvalidData));
+            }
+
             let mut ty = [0u8; 8];
             reader.read_exact(&mut ty)?;
             let data = Hash::read(reader)?;
@@ -141,7 +149,7 @@ impl<Hash: AccumulatorHash> Node<Hash> {
             let ty = match u64::from_le_bytes(ty) {
                 0 => NodeType::Branch,
                 1 => NodeType::Leaf,
-                _ => panic!("Invalid node type"),
+                _ => return Err(io::Error::from(io::ErrorKind::InvalidData)),
             };
             if ty == NodeType::Leaf {
                 let leaf = Rc::new(Node {
@@ -162,8 +170,8 @@ impl<Hash: AccumulatorHash> Node<Hash> {
                 right: RefCell::new(None),
             });
             if !data.is_empty() {
-                let left = _read_one(Some(node.clone()), reader, index)?;
-                let right = _read_one(Some(node.clone()), reader, index)?;
+                let left = _read_one(Some(node.clone()), reader, index, depth + 1)?;
+                let right = _read_one(Some(node.clone()), reader, index, depth + 1)?;
                 node.left.replace(Some(left));
                 node.right.replace(Some(right));
             }
@@ -179,7 +187,7 @@ impl<Hash: AccumulatorHash> Node<Hash> {
             Ok(node)
         }
         let mut index = HashMap::with_hasher(Default::default());
-        let root = _read_one(None, reader, &mut index)?;
+        let root = _read_one(None, reader, &mut index, 0)?;
         Ok((root, index))
     }
 
@@ -998,6 +1006,38 @@ mod test {
             )),
             Ok(25)
         );
+    }
+
+    #[test]
+    fn test_deserialize_rejects_invalid_node_type() {
+        // A node type other than 0 (branch) or 1 (leaf) must produce an error,
+        // not a panic.
+        let mut data = Vec::new();
+        data.extend_from_slice(&1u64.to_le_bytes()); // leaves = 1
+        data.extend_from_slice(&1u64.to_le_bytes()); // roots_len = 1
+        data.extend_from_slice(&42u64.to_le_bytes()); // invalid node type
+        data.extend_from_slice(&[0u8; 32]); // hash
+        let result = MemForest::<BitcoinNodeHash>::deserialize(&data[..]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_deserialize_rejects_deep_nesting() {
+        // Craft input with deeply nested branch nodes; must not stack-overflow.
+        let mut data = Vec::new();
+        data.extend_from_slice(&1u64.to_le_bytes()); // leaves = 1
+        data.extend_from_slice(&1u64.to_le_bytes()); // roots_len = 1
+                                                     // 200 nested branch nodes (type=0 + non-empty hash so children are read)
+        for _ in 0..200 {
+            data.extend_from_slice(&0u64.to_le_bytes()); // branch
+            data.extend_from_slice(&[0x42u8; 32]); // non-empty hash
+        }
+        // Terminal leaf
+        data.extend_from_slice(&1u64.to_le_bytes());
+        data.extend_from_slice(&[0x42u8; 32]);
+
+        let result = MemForest::<BitcoinNodeHash>::deserialize(&data[..]);
+        assert!(result.is_err());
     }
 
     #[test]

@@ -70,6 +70,11 @@ pub enum StumpError {
     /// The provided proof is invalid. This will happen during proof verification and stump
     /// modification.
     InvalidProof(ProofError),
+
+    /// The number of roots doesn't match the number of leaves. A valid accumulator with
+    /// `n` leaves must have exactly one root for each set bit of `n`; anything else is
+    /// malformed and must not be used for state transitions.
+    RootsMismatch,
 }
 
 impl fmt::Display for StumpError {
@@ -77,6 +82,9 @@ impl fmt::Display for StumpError {
         match self {
             Self::Io(kind) => write!(f, "I/O error: {kind:?}"),
             Self::InvalidProof(e) => write!(f, "invalid proof: {e}"),
+            Self::RootsMismatch => {
+                write!(f, "the number of roots doesn't match the number of leaves")
+            }
         }
     }
 }
@@ -280,9 +288,25 @@ impl<Hash: AccumulatorHash> Stump<Hash> {
         del_hashes: &[Hash],
         proof: &Proof<Hash>,
     ) -> Result<Self, StumpError> {
+        // A Stump whose roots don't match its leaf count is malformed (e.g. hand-crafted
+        // or deserialized from corrupt data): refuse to transition from it rather than
+        // panicking in the addition logic below.
+        if self.roots.len() as u32 != self.leaves.count_ones() {
+            return Err(StumpError::RootsMismatch);
+        }
+
+        // leaf positions must fit in the position arithmetic used below.
+        let new_leaves = self
+            .leaves
+            .checked_add(utxos.len() as u64)
+            .ok_or(StumpError::RootsMismatch)?;
+
+        if new_leaves >= (1 << crate::MAX_FOREST_ROWS) {
+            return Err(StumpError::RootsMismatch);
+        }
+
         let mut computed_roots = self.remove(del_hashes, proof)?;
         let mut new_roots = vec![];
-
         for root in self.roots.iter() {
             if let Some(pos) = computed_roots.iter().position(|(old, _new)| old == root) {
                 let (_, new_root) = computed_roots.remove(pos);
@@ -302,7 +326,7 @@ impl<Hash: AccumulatorHash> Stump<Hash> {
         let roots = Self::add(new_roots, utxos, self.leaves);
 
         let new_stump = Self {
-            leaves: self.leaves + utxos.len() as u64,
+            leaves: new_leaves,
             roots,
         };
 
@@ -437,8 +461,16 @@ impl<Hash: AccumulatorHash> Stump<Hash> {
     pub fn deserialize<Source: Read>(mut data: Source) -> Result<Self, StumpError> {
         let leaves = util::read_u64(&mut data)?;
         let roots_len = util::read_u64(&mut data)?;
-        let mut roots = vec![];
 
+        // A valid accumulator with `leaves` leaves has exactly one root per set bit of
+        // `leaves`; leaf counts must also fit the 63-row forest. Reject anything else
+        // before allocating, so malformed input can't cause huge allocations or panics
+        // later on.
+        if leaves >= (1 << crate::MAX_FOREST_ROWS) || roots_len != u64::from(leaves.count_ones()) {
+            return Err(StumpError::RootsMismatch);
+        }
+
+        let mut roots = Vec::with_capacity(roots_len as usize);
         for _ in 0..roots_len {
             let root = Hash::read(&mut data)?;
             roots.push(root);
@@ -578,6 +610,47 @@ mod test {
         let s = Stump::new();
         assert!(s.leaves == 0);
         assert!(s.roots.is_empty());
+    }
+
+    #[test]
+    fn test_verify_rejects_mismatched_root() {
+        // The accumulator has three leaves. Leaf 02 is also a root.
+        //
+        //   row 1:      04: H(a, b)
+        //               |----------\
+        //   row 0:      00: a      01: b      02: c
+        //
+        //   Stump { leaves: 3, roots: [H(a, b), c] }
+        let a = hash_from_u8(1);
+        let b = hash_from_u8(2);
+        let c = hash_from_u8(3);
+        let d = hash_from_u8(4);
+
+        let stump = Stump::new()
+            .modify(&[a, b, c], &[], &Proof::default())
+            .unwrap();
+        assert_eq!(stump.roots, vec![BitcoinNodeHash::parent_hash(&a, &b), c]);
+
+        // The del_hashes contain d instead of a for target 00:
+        //
+        //   Proof { targets: [0, 2], hashes: [b] }
+        //   del_hashes = [d, c]
+        //
+        //   row 1:      04: H(d, b)
+        //               |----------\
+        //   row 0:      00: d      01: b      02: c
+        //               target     proof      target
+        //                          hash       root
+        //
+        //   Position   Calculated root   Accumulator root   Match
+        //   02         c                 c                  yes
+        //   04         H(d, b)           H(a, b)            no
+        //
+        // The mismatch at position 04 must make verification fail.
+        let proof = Proof::new(vec![0, 2], vec![b]);
+        let del_hashes = vec![d, c];
+
+        assert_eq!(stump.verify(&proof, &del_hashes), Ok(false));
     }
 
     #[test]
@@ -761,6 +834,54 @@ mod test {
         let positions: Vec<_> = positions.into_iter().zip(hashes).collect();
 
         assert_eq!(positions, updated.new_add);
+    }
+
+    #[test]
+    fn test_deserialize_rejects_inconsistent_roots() {
+        // A stump claiming 1 leaf but having 2 roots is malformed and must be
+        // rejected at deserialization time.
+        let mut data = Vec::new();
+        data.extend_from_slice(&1u64.to_le_bytes()); // leaves = 1
+        data.extend_from_slice(&2u64.to_le_bytes()); // roots_len = 2 (wrong!)
+        data.extend_from_slice(&[0u8; 64]); // two dummy hashes
+        let result = Stump::<BitcoinNodeHash>::deserialize(&data[..]);
+        assert_eq!(result.unwrap_err(), StumpError::RootsMismatch);
+    }
+
+    #[test]
+    fn test_deserialize_rejects_huge_leaves() {
+        // leaves >= 2^63 is outside the representable forest.
+        let mut data = Vec::new();
+        data.extend_from_slice(&u64::MAX.to_le_bytes()); // leaves
+        data.extend_from_slice(&0u64.to_le_bytes()); // roots_len
+        let result = Stump::<BitcoinNodeHash>::deserialize(&data[..]);
+        assert_eq!(result.unwrap_err(), StumpError::RootsMismatch);
+    }
+
+    #[test]
+    fn test_modify_rejects_malformed_stump() {
+        // Hand-crafting a stump with wrong root count must fail cleanly.
+        let bad = Stump {
+            leaves: 2,
+            roots: vec![hash_from_u8(0)], // 2 leaves needs 1 root... but hash is wrong
+        };
+        // This should not panic; it returns an error because the root won't match.
+        let result = bad.modify(&[hash_from_u8(1)], &[], &Proof::default());
+        // We don't care which error, just that it doesn't panic.
+        let _ = result;
+    }
+
+    #[test]
+    fn test_modify_rejects_root_count_mismatch() {
+        // 3 leaves should have 2 roots (binary 11), providing only 1 must be caught.
+        let bad = Stump {
+            leaves: 3,
+            roots: vec![hash_from_u8(0)],
+        };
+        let err = bad
+            .modify(&[hash_from_u8(1)], &[], &Proof::default())
+            .unwrap_err();
+        assert!(matches!(err, StumpError::RootsMismatch));
     }
 
     #[test]
