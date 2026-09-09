@@ -13,6 +13,20 @@ _default:
     @echo "> A Rust implementation of Utreexo\n"
     @just --list
 
+[doc("Run this project's fuzz targets for 10 minutes per target by default")]
+fuzz TARGET="" TIME="600":
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    if [[ -n "{{TARGET}}" ]]; then
+        cargo +nightly fuzz run "{{TARGET}}" -- -max_total_time={{TIME}}
+    else
+        for target in $(cargo +nightly fuzz list); do
+            echo "Running fuzz target: $target"
+            cargo +nightly fuzz run "$target" -- -max_total_time={{TIME}}
+        done
+    fi
+
 [doc: "Run benchmarks: accumulator, proof, stump"]
 bench BENCH="":
     cargo rbmt run bench {{ if BENCH != "" { "--bench " + BENCH } else { "" } }}
