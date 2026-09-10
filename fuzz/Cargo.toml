@@ -1,0 +1,38 @@
+[package]
+name = "rustreexo-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+# Keep the fuzz crate out of the main package's build; it is its own
+# workspace so the profile settings below are honored.
+[workspace]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+arbitrary = { version = "1", features = ["derive"] }
+rustreexo = { path = ".." }
+
+[[bin]]
+name = "deserialize"
+path = "fuzz_targets/deserialize.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "proof_corruption"
+path = "fuzz_targets/proof_corruption.rs"
+test = false
+doc = false
+bench = false
+
+# Fuzz builds must panic on arithmetic overflow and debug assertions:
+# silent wrapping in position math is itself a bug class we want to catch.
+[profile.release]
+debug = true
+debug-assertions = true
+overflow-checks = true
