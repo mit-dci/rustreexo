@@ -60,9 +60,9 @@ pub(crate) const MAX_FOREST_ROWS: u8 = 63;
 /// [`proof::Proof::deserialize`].
 ///
 /// Untrusted length prefixes are checked against this value before
-/// `Vec::with_capacity`, so a hostile payload cannot force an enormous
-/// reservation and OOM the process. The bound is intentionally large and
-/// fixed size, arbitrary taken.
+/// `Vec::with_capacity`, bounding the number of elements reserved without
+/// guaranteeing allocation will succeed. The bound is intentionally large,
+/// fixed, and chosen arbitrarily.
 /// The same count applies to targets (`u64`). [`proof::Proof::serialize`]
 /// and in-memory construction are uncapped.
 pub const MAX_PROOF_DESERIALIZE_COUNT: u64 = 10_000_000;

@@ -465,11 +465,12 @@ impl<Hash: AccumulatorHash> Proof<Hash> {
     /// Deserializes a proof from a byte array.
     ///
     /// Length prefixes are checked against
-    /// [`crate::MAX_PROOF_DESERIALIZE_COUNT`] before any `Vec` allocation, so a
-    /// hostile payload cannot OOM the process by claiming a huge count.
+    /// [`crate::MAX_PROOF_DESERIALIZE_COUNT`] before allocating each vector.
     ///
-    /// That limit is a fixed ~4 GiB `DoS` bound on deserialize only. Oversized
-    /// prefixes return [`ProofError::OversizedAllocation`]. See [`Self::serialize`].
+    /// For [`BitcoinNodeHash`], this permits approximately 390 MiB across the
+    /// target and hash vectors, but does not guarantee allocation will succeed.
+    /// The limit applies only to deserialization. Oversized prefixes return
+    /// [`ProofError::OversizedAllocation`], see [`Self::serialize`].
     ///
     /// # Example
     /// ```
