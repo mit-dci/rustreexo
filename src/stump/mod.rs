@@ -39,7 +39,13 @@ use super::node_hash::AccumulatorHash;
 use super::node_hash::BitcoinNodeHash;
 use super::proof::Proof;
 use super::proof::ProofError;
-use super::util;
+use super::util::calc_next_pos;
+use super::util::is_ancestor;
+use super::util::left_sibling;
+use super::util::parent;
+use super::util::read_u64;
+use super::util::roots_to_destroy;
+use super::util::tree_rows;
 use crate::prelude::*;
 use crate::proof::RootsOldNew;
 
@@ -50,13 +56,16 @@ type AdditionUpdates<Hash> = (Vec<Hash>, Vec<(u64, Hash)>, Vec<u64>);
 
 #[derive(Debug, Clone, Default)]
 pub struct UpdateData<Hash: AccumulatorHash> {
-    /// to_destroy is the positions of the empty roots removed after the add.
+    /// `to_destroy` is the positions of the empty roots removed after the add.
     pub(crate) to_destroy: Vec<u64>,
-    /// pre_num_leaves is the numLeaves of the stump before the add.
+
+    /// `pre_num_leaves` is the numLeaves of the stump before the add.
     pub(crate) prev_num_leaves: u64,
-    /// new_add are the new hashes for the newly created roots after the addition.
+
+    /// `new_add` are the new hashes for the newly created roots after the addition.
     pub(crate) new_add: Vec<(u64, Hash)>,
-    /// new_del are the new hashes after the deletion.
+
+    /// `new_del` are the new hashes after the deletion.
     pub(crate) new_del: Vec<(u64, Hash)>,
 }
 
@@ -152,14 +161,14 @@ impl Stump {
     ///     ]
     /// );
     /// ```
-    pub fn serialize<Dst: Write>(&self, mut writer: &mut Dst) -> Result<u64, StumpError> {
+    pub fn serialize<Dst: Write>(&self, writer: &mut Dst) -> Result<u64, StumpError> {
         let mut len = 8;
         writer.write_all(&self.leaves.to_le_bytes())?;
         writer.write_all(&(self.roots.len() as u64).to_le_bytes())?;
 
-        for root in self.roots.iter() {
+        for root in &self.roots {
             len += 32;
-            root.write(&mut writer)?;
+            root.write(&mut *writer)?;
         }
 
         Ok(len)
@@ -191,7 +200,7 @@ impl Stump {
 
 impl<Hash: AccumulatorHash> Stump<Hash> {
     /// Verifies the proof against the Stump. The proof is a list of hashes that are used to
-    /// recompute the root of the accumulator. The del_hashes are the hashes that are being
+    /// recompute the root of the accumulator. The `del_hashes` are the hashes that are being
     /// deleted from the accumulator.
     /// // TODO: Add example
     pub fn verify(&self, proof: &Proof<Hash>, del_hashes: &[Hash]) -> Result<bool, StumpError> {
@@ -202,8 +211,8 @@ impl<Hash: AccumulatorHash> Stump<Hash> {
 
     /// Creates a new Stump with a custom hash type
     ///
-    /// If you need to use a hash type that's not the [BitcoinNodeHash], you can use this
-    /// function to create a new Stump with the desired hash type. Use [BitcoinNodeHash::new]
+    /// If you need to use a hash type that's not the [`BitcoinNodeHash`], you can use this
+    /// function to create a new Stump with the desired hash type. Use [`BitcoinNodeHash::new`]
     /// to create a new Stump with the default hash type.
     pub fn new_with_hash() -> Self {
         Self {
@@ -220,7 +229,7 @@ impl<Hash: AccumulatorHash> Stump<Hash> {
     /// ## Adding spent TXOs (STXOs) to the Stump
     ///
     /// If you know that an element will be deleted in the future, as is the case
-    /// in SwiftSync, you can pass an empty hash as the UTXO to be added.
+    /// in `SwiftSync`, you can pass an empty hash as the UTXO to be added.
     ///
     /// This is an optimized version of deletion that we call "implicit deletion",
     /// as you apply the changes caused by deletion during addition. If you do so,
@@ -307,7 +316,8 @@ impl<Hash: AccumulatorHash> Stump<Hash> {
 
         let mut computed_roots = self.remove(del_hashes, proof)?;
         let mut new_roots = vec![];
-        for root in self.roots.iter() {
+
+        for root in &self.roots {
             if let Some(pos) = computed_roots.iter().position(|(old, _new)| old == root) {
                 let (_, new_root) = computed_roots.remove(pos);
                 new_roots.push(new_root);
@@ -389,7 +399,13 @@ impl<Hash: AccumulatorHash> Stump<Hash> {
     ///
     /// // Call update to get the new proof and the hashes for the utxos being cached
     /// let (proof_updated, cached_hashes) = proof
-    ///     .update(cached_hashes, utxos, targets, cache_new_utxos, update_data)
+    ///     .update(
+    ///         cached_hashes,
+    ///         &utxos,
+    ///         &targets,
+    ///         cache_new_utxos,
+    ///         update_data,
+    ///     )
     ///     .unwrap();
     ///
     /// // Now we can verify this proof with the UTXO added in this block
@@ -408,7 +424,7 @@ impl<Hash: AccumulatorHash> Stump<Hash> {
         let mut computed_roots = self.remove(del_hashes, proof)?;
         let mut new_roots = vec![];
 
-        for root in self.roots.iter() {
+        for root in &self.roots {
             if let Some(pos) = computed_roots.iter().position(|(old, _new)| old == root) {
                 let (_, new_root) = computed_roots.remove(pos);
                 new_roots.push(new_root);
@@ -459,8 +475,8 @@ impl<Hash: AccumulatorHash> Stump<Hash> {
     /// );
     /// ```
     pub fn deserialize<Source: Read>(mut data: Source) -> Result<Self, StumpError> {
-        let leaves = util::read_u64(&mut data)?;
-        let roots_len = util::read_u64(&mut data)?;
+        let leaves = read_u64(&mut data)?;
+        let roots_len = read_u64(&mut data)?;
 
         // A valid accumulator with `leaves` leaves has exactly one root per set bit of
         // `leaves`; leaf counts must also fit the 63-row forest. Reject anything else
@@ -500,7 +516,7 @@ impl<Hash: AccumulatorHash> Stump<Hash> {
 
     /// Adds new leaves into the root
     fn add(mut roots: Vec<Hash>, utxos: &[Hash], mut leaves: u64) -> Vec<Hash> {
-        for add in utxos.iter() {
+        for add in utxos {
             let pos = leaves;
             let mut h = 0;
             let mut to_add = *add;
@@ -532,19 +548,19 @@ impl<Hash: AccumulatorHash> Stump<Hash> {
         utxos: &[Hash],
         mut leaves: u64,
     ) -> AdditionUpdates<Hash> {
-        let after_rows = util::tree_rows(leaves + (utxos.len() as u64));
+        let after_rows = tree_rows(leaves + (utxos.len() as u64));
         let mut updated_subtree: BTreeSet<(u64, Hash)> = BTreeSet::new();
-        let all_deleted = util::roots_to_destroy(utxos.len() as u64, leaves, &roots);
+        let all_deleted = roots_to_destroy(utxos.len() as u64, leaves, &roots);
 
         for (i, add) in utxos.iter().enumerate() {
             let mut pos = leaves;
 
             // deleted is the empty roots that are being added over. These force
             // the current root to move up.
-            let deleted = util::roots_to_destroy((utxos.len() - i) as u64, leaves, &roots);
+            let deleted = roots_to_destroy((utxos.len() - i) as u64, leaves, &roots);
             for del in deleted {
-                if util::is_ancestor(util::parent(del, after_rows), pos, after_rows).unwrap() {
-                    pos = util::calc_next_pos(pos, del, after_rows).unwrap();
+                if is_ancestor(parent(del, after_rows), pos, after_rows).unwrap() {
+                    pos = calc_next_pos(pos, del, after_rows).unwrap();
                 }
             }
             let mut h = 0;
@@ -561,9 +577,9 @@ impl<Hash: AccumulatorHash> Stump<Hash> {
 
                 if let Some(root) = root {
                     if !root.is_empty() {
-                        updated_subtree.insert((util::left_sibling(pos), root));
+                        updated_subtree.insert((left_sibling(pos), root));
                         updated_subtree.insert((pos, to_add));
-                        pos = util::parent(pos, after_rows);
+                        pos = parent(pos, after_rows);
 
                         to_add = AccumulatorHash::parent_hash(&root, &to_add);
                     }
@@ -801,7 +817,7 @@ mod test {
             assert_eq!(updated.prev_num_leaves, data.leaves);
             assert_eq!(updated.to_destroy, data.to_destroy);
             assert_eq!(updated.new_add, new_add);
-            for del in new_del.iter() {
+            for del in &new_del {
                 assert!(updated.new_del.contains(del));
             }
         }
@@ -910,7 +926,7 @@ mod test {
             .iter()
             .map(|preimage| {
                 let targets = case.target_values.as_ref().unwrap();
-                if targets.contains(&(*preimage as u64)) {
+                if targets.contains(&u64::from(*preimage)) {
                     BitcoinNodeHash::empty()
                 } else {
                     hash_from_u8(*preimage)

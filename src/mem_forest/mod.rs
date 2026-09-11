@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! A full MemForest accumulator implementation. This is a simple version of the forest,
+//! A full [`MemForest`] accumulator implementation. This is a simple version of the forest,
 //! that keeps every node in memory. This is may require more memory, but is faster
 //! to update, prove and verify.
 //!
@@ -129,7 +129,7 @@ impl<Hash: AccumulatorHash> Node<Hash> {
     /// many roots there are.
     #[allow(clippy::type_complexity)]
     pub fn read_one<R: Read>(reader: &mut R) -> io::Result<(Rc<Self>, HashMap<Hash, Weak<Self>>)> {
-        fn _read_one<Hash: AccumulatorHash, R: Read>(
+        fn read_one_inner<Hash: AccumulatorHash, R: Read>(
             ancestor: Option<Rc<Node<Hash>>>,
             reader: &mut R,
             index: &mut HashMap<Hash, Weak<Node<Hash>>>,
@@ -170,8 +170,8 @@ impl<Hash: AccumulatorHash> Node<Hash> {
                 right: RefCell::new(None),
             });
             if !data.is_empty() {
-                let left = _read_one(Some(node.clone()), reader, index, depth + 1)?;
-                let right = _read_one(Some(node.clone()), reader, index, depth + 1)?;
+                let left = read_one_inner(Some(node.clone()), reader, index, depth + 1)?;
+                let right = read_one_inner(Some(node.clone()), reader, index, depth + 1)?;
                 node.left.replace(Some(left));
                 node.right.replace(Some(right));
             }
@@ -186,8 +186,8 @@ impl<Hash: AccumulatorHash> Node<Hash> {
 
             Ok(node)
         }
-        let mut index = HashMap::with_hasher(Default::default());
-        let root = _read_one(None, reader, &mut index, 0)?;
+        let mut index = new_hash_map();
+        let root = read_one_inner(None, reader, &mut index, 0)?;
         Ok((root, index))
     }
 
@@ -197,7 +197,7 @@ impl<Hash: AccumulatorHash> Node<Hash> {
     }
 }
 
-/// The actual MemForest accumulator, it implements all methods required to update the forest
+/// The actual [`MemForest`] accumulator, it implements all methods required to update the forest
 /// and to prove/verify membership.
 #[derive(Default, Clone)]
 pub struct MemForest<Hash: AccumulatorHash = BitcoinNodeHash> {
@@ -213,10 +213,10 @@ pub struct MemForest<Hash: AccumulatorHash = BitcoinNodeHash> {
 }
 
 impl MemForest {
-    /// Creates a new empty [MemForest] with the default hash function.
+    /// Creates a new empty [`MemForest`] with the default hash function.
     ///
-    /// This will create an empty MemForest, using [BitcoinNodeHash] as the hash function. If you
-    /// want to use a different hash function, you can use [MemForest::new_with_hash].
+    /// This will create an empty [`MemForest`], using [`BitcoinNodeHash`] as the hash function. If you
+    /// want to use a different hash function, you can use [`MemForest::new_with_hash`].
     /// # Example
     /// ```
     /// use rustreexo::mem_forest::MemForest;
@@ -224,7 +224,7 @@ impl MemForest {
     /// ```
     pub fn new() -> Self {
         Self {
-            map: HashMap::with_hasher(Default::default()),
+            map: new_hash_map(),
             roots: Vec::new(),
             leaves: 0,
         }
@@ -232,7 +232,7 @@ impl MemForest {
 }
 
 impl<Hash: AccumulatorHash> MemForest<Hash> {
-    /// Creates a new empty [MemForest] with a custom hash function.
+    /// Creates a new empty [`MemForest`] with a custom hash function.
     /// # Example
     /// ```
     /// use rustreexo::mem_forest::MemForest;
@@ -241,13 +241,13 @@ impl<Hash: AccumulatorHash> MemForest<Hash> {
     /// ```
     pub fn new_with_hash() -> Self {
         Self {
-            map: HashMap::with_hasher(Default::default()),
+            map: new_hash_map(),
             roots: Vec::new(),
             leaves: 0,
         }
     }
 
-    /// Writes the MemForest to a writer. Used to send the accumulator over the wire
+    /// Writes the [`MemForest`] to a writer. Used to send the accumulator over the wire
     /// or to disk.
     /// # Example
     /// ```
@@ -274,7 +274,7 @@ impl<Hash: AccumulatorHash> MemForest<Hash> {
         Ok(())
     }
 
-    /// Deserializes a MemForest from a reader.
+    /// Deserializes a [`MemForest`] from a reader.
     /// # Example
     /// ```
     /// use rustreexo::mem_forest::MemForest;
@@ -294,10 +294,10 @@ impl<Hash: AccumulatorHash> MemForest<Hash> {
         let leaves = read_u64(&mut reader)?;
         let roots_len = read_u64(&mut reader)?;
         let mut roots = Vec::new();
-        let mut map = HashMap::with_hasher(Default::default());
+        let mut map = new_hash_map();
         for _ in 0..roots_len {
-            let (root, _map) = Node::read_one(&mut reader)?;
-            map.extend(_map);
+            let (root, node_map) = Node::read_one(&mut reader)?;
+            map.extend(node_map);
             roots.push(root);
         }
         Ok(Self { roots, leaves, map })
@@ -349,13 +349,13 @@ impl<Hash: AccumulatorHash> MemForest<Hash> {
         Ok(Proof::new_with_hash(translated_targets, proof))
     }
 
-    /// Returns a reference to the roots in this MemForest.
+    /// Returns a reference to the roots in this [`MemForest`].
     pub fn get_roots(&self) -> &[Rc<Node<Hash>>] {
         &self.roots
     }
 
-    /// Modify is the main API to a [MemForest]. Because order matters, you can only `modify`
-    /// a [MemForest], and internally it'll add and delete, in the correct order.
+    /// Modify is the main API to a [`MemForest`]. Because order matters, you can only `modify`
+    /// a [`MemForest`], and internally it'll add and delete, in the correct order.
     ///
     /// This method accepts two vectors as parameter, a vec of [Hash] and a vec of [u64]. The
     /// first one is a vec of leaf hashes for the newly created UTXOs. The second one is the position
@@ -413,7 +413,7 @@ impl<Hash: AccumulatorHash> MemForest<Hash> {
 
             #[allow(clippy::assigning_clones)]
             if let Some(node) = n {
-                if is_left_niece(niece_pos as u64) {
+                if is_left_niece(u64::from(niece_pos)) {
                     n = node.right.borrow().clone();
                     sibling.clone_from(&*node.left.borrow());
                 } else {
@@ -535,20 +535,18 @@ impl<Hash: AccumulatorHash> MemForest<Hash> {
     fn del_single(&mut self, node: &Node<Hash>) -> Option<()> {
         let parent = node.parent.borrow();
         // Deleting a root
-        let parent = match *parent {
-            Some(ref node) => node.upgrade()?,
-            None => {
-                let pos = self.roots.iter().position(|x| x.data == node.data).unwrap();
-                self.roots[pos] = Rc::new(Node {
-                    ty: NodeType::Branch,
-                    parent: RefCell::new(None),
-                    data: Cell::new(Hash::empty()),
-                    left: RefCell::new(None),
-                    right: RefCell::new(None),
-                });
-                return None;
-            }
+        let Some(parent) = &*parent else {
+            let pos = self.roots.iter().position(|x| x.data == node.data).unwrap();
+            self.roots[pos] = Rc::new(Node {
+                ty: NodeType::Branch,
+                parent: RefCell::new(None),
+                data: Cell::new(Hash::empty()),
+                left: RefCell::new(None),
+                right: RefCell::new(None),
+            });
+            return None;
         };
+        let parent = parent.upgrade()?;
 
         let me = parent.left.borrow();
         // Can unwrap because we know the sibling exists
@@ -623,7 +621,7 @@ impl<Hash: AccumulatorHash> MemForest<Hash> {
         }
     }
 
-    /// to_string returns the full MemForest in a string for all forests less than 6 rows.
+    /// `to_string` returns the full [`MemForest`] in a string for all forests less than 6 rows.
     fn string(&self) -> String {
         if self.leaves == 0 {
             return "empty".to_owned();
@@ -637,14 +635,14 @@ impl<Hash: AccumulatorHash> MemForest<Hash> {
                 a
             });
         }
-        let mut output = vec!["".to_string(); (fh as usize * 2) + 1];
+        let mut output = vec![String::new(); (fh as usize * 2) + 1];
         let mut pos: u8 = 0;
         for h in 0..=fh {
             let row_len = 1 << (fh - h);
             for _ in 0..row_len {
                 let max = max_position_at_row(h, fh, self.leaves).unwrap();
-                if max >= pos as u64 {
-                    match self.get_hash(pos as u64) {
+                if max >= u64::from(pos) {
+                    match self.get_hash(u64::from(pos)) {
                         Ok(val) => {
                             if pos >= 100 {
                                 output[h as usize * 2].push_str(
@@ -881,7 +879,7 @@ mod test {
         expected_roots: Vec<String>,
     }
 
-    fn run_single_addition_case(case: TestCase) {
+    fn run_single_addition_case(case: &TestCase) {
         let hashes = case
             .leaf_preimages
             .iter()
@@ -903,7 +901,7 @@ mod test {
         assert_eq!(expected_roots, roots, "Test case failed {case:?}");
     }
 
-    fn run_case_with_deletion(case: TestCase) {
+    fn run_case_with_deletion(case: &TestCase) {
         let hashes = case
             .leaf_preimages
             .iter()
@@ -948,10 +946,10 @@ mod test {
             serde_json::from_str::<TestsJSON>(contents).expect("JSON deserialization error");
 
         for i in tests.insertion_tests {
-            run_single_addition_case(i);
+            run_single_addition_case(&i);
         }
         for i in tests.deletion_tests {
-            run_case_with_deletion(i);
+            run_case_with_deletion(&i);
         }
     }
 

@@ -70,24 +70,3 @@ jobs:
 
             - name: Run Tests
               run: cargo rbmt test --toolchain ${{ matrix.toolchain }} --lockfile ${{ matrix.lockfile }}
-
-    test-no-std:
-        name: Test - no-std, MSRV toolchain, Minimal Lockfile
-        runs-on: ubuntu-latest
-        steps:
-            - name: Checkout Repository
-              uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-              with:
-                  persist-credentials: false
-
-            - name: Setup Build Cache
-              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-
-            - name: Setup cargo-rbmt
-              uses: $/.github/actions/setup-rbmt
-
-            - name: Add no_std Target
-              run: rustup target add thumbv7m-none-eabi --toolchain 1.74.0
-
-            - name: Run no_std Tests
-              run: cargo rbmt test --toolchain msrv --lockfile minimal

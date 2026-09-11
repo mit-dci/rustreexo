@@ -23,9 +23,12 @@
 //!  * [`mem_forest`]: an in-memory forest accumulator. It keeps track of every leaf in the forest. It can both verify and
 //!    generate inclusion proofs for any leaf in the forest.
 
-#![cfg_attr(not(feature = "std"), no_std)]
+#![no_std]
 
 extern crate alloc;
+
+#[cfg(feature = "std")]
+extern crate std;
 
 /// This is the maximum size the forest is ever allowed to have, this caps how big `num_leaves` can
 /// be (we use a [`u64`]) and is also used by the [`util::translate`] logic.
@@ -57,9 +60,9 @@ pub(crate) const MAX_FOREST_ROWS: u8 = 63;
 /// [`proof::Proof::deserialize`].
 ///
 /// Untrusted length prefixes are checked against this value before
-/// `Vec::with_capacity`, so a hostile payload cannot force an enormous
-/// reservation and OOM the process. The bound is intentionally large and
-/// fixed size, arbitrary taken.
+/// `Vec::with_capacity`, bounding the number of elements reserved without
+/// guaranteeing allocation will succeed. The bound is intentionally large,
+/// fixed, and chosen arbitrarily.
 /// The same count applies to targets (`u64`). [`proof::Proof::serialize`]
 /// and in-memory construction are uncapped.
 pub const MAX_PROOF_DESERIALIZE_COUNT: u64 = 10_000_000;
@@ -82,10 +85,18 @@ pub mod prelude {
     pub type HashMap<K, V> = hashbrown::HashMap<K, V, FixedState>;
     pub type HashSet<T> = hashbrown::HashSet<T, FixedState>;
 
+    /// Create a new [`HashMap`].
+    ///
+    /// On `#[no_std]!` targets, we must be explicit regarding the undelying hasher that the [`HashMap`]
+    /// uses. In this case, `foldhash`'s [`FixedState`] hasher backs the `#![no_std]` [`HashMap`].
     pub fn new_hash_map<K, V>() -> HashMap<K, V> {
         HashMap::with_hasher(FixedState::default())
     }
 
+    /// Create a new [`HashSet`].
+    ///
+    /// On `#[no_std]!` targets, we must be explicit regarding the undelying hasher that the [`HashSet`]
+    /// uses. In this case, `foldhash`'s [`FixedState`] hasher backs the `#![no_std]` [`HashSet`].
     pub fn new_hash_set<T>() -> HashSet<T> {
         HashSet::with_hasher(FixedState::default())
     }
@@ -94,12 +105,27 @@ pub mod prelude {
 #[cfg(feature = "std")]
 /// Re-exports `std` basics plus HashMap/HashSet and IO traits.
 pub mod prelude {
-    extern crate std;
+    pub use std::borrow::ToOwned;
     pub use std::collections::HashMap;
     pub use std::collections::HashSet;
+    pub use std::format;
     pub use std::io;
     pub use std::io::Read;
     pub use std::io::Write;
+    pub use std::string::String;
+    pub use std::string::ToString;
+    pub use std::vec;
+    pub use std::vec::Vec;
+
+    /// Create a new [`HashMap`].
+    pub fn new_hash_map<K, V>() -> HashMap<K, V> {
+        HashMap::new()
+    }
+
+    /// Create a new [`HashSet`].
+    pub fn new_hash_set<T>() -> HashSet<T> {
+        HashSet::new()
+    }
 }
 
 pub mod mem_forest;

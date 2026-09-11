@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! [AccumulatorHash] is an internal type for representing Hashes in an utreexo accumulator. It's
+//! [`AccumulatorHash`] is an internal type for representing Hashes in an utreexo accumulator. It's
 //! just a wrapper around [[u8; 32]] but with some useful methods.
 //! # Examples
 //! Building from a str
@@ -84,7 +84,7 @@ pub trait AccumulatorHash: Copy + Clone + Ord + Debug + Display + Hash + Default
 
 #[derive(Eq, PartialEq, Copy, Clone, Hash, PartialOrd, Ord)]
 #[cfg_attr(feature = "with-serde", derive(Serialize, Deserialize))]
-/// AccumulatorHash is a wrapper around a 32 byte array that represents a hash of a node in the tree.
+/// `AccumulatorHash` is a wrapper around a 32 byte array that represents a hash of a node in the tree.
 /// # Example
 /// ```
 /// use rustreexo::node_hash::BitcoinNodeHash;
@@ -120,7 +120,7 @@ impl Display for BitcoinNodeHash {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         if let Self::Some(ref inner) = self {
             let mut s = String::new();
-            for byte in inner.iter() {
+            for byte in inner {
                 s.push_str(&format!("{byte:02x}"));
             }
             write!(f, "{s}")
@@ -137,7 +137,7 @@ impl Debug for BitcoinNodeHash {
             Self::Placeholder => write!(f, "placeholder"),
             Self::Some(ref inner) => {
                 let mut s = String::new();
-                for byte in inner.iter() {
+                for byte in inner {
                     s.push_str(&format!("{byte:02x}"));
                 }
                 write!(f, "{s}")
@@ -215,7 +215,7 @@ impl FromStr for BitcoinNodeHash {
 }
 
 impl BitcoinNodeHash {
-    /// Creates a new AccumulatorHash from a 32 byte array.
+    /// Creates a new `AccumulatorHash` from a 32 byte array.
     /// # Example
     /// ```
     /// use rustreexo::node_hash::BitcoinNodeHash;
@@ -249,7 +249,7 @@ impl AccumulatorHash for BitcoinNodeHash {
         Self::Empty
     }
 
-    /// parent_hash return the merkle parent of the two passed in nodes.
+    /// `parent_hash` return the merkle parent of the two passed in nodes.
     /// # Example
     /// ```
     /// use std::str::FromStr;

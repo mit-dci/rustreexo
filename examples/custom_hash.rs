@@ -6,7 +6,7 @@
 //!
 //! This example shows how to use a custom hash type based on the Poseidon hash function. The
 //! [Poseidon Hash](https://eprint.iacr.org/2019/458.pdf) is a hash function that is optmized
-//! for zero-knowledge proofs, and is used in projects like ZCash and StarkNet.
+//! for zero-knowledge proofs, and is used in projects like `ZCash` and `StarkNet`.
 //! If you want to work with utreexo proofs in zero-knowledge you may want to use this instead
 //! of our usual sha512-256 that we use by default, since that will give you smaller circuits.
 //! This example shows how to use both the [`MemForest`] and proofs with a custom hash type.
@@ -28,8 +28,8 @@ enum CustomHash {
     Hash([u8; 32]),
     /// Placeholder is a value that haven't been deleted, but we don't have the actual value.
     /// The only thing that matters about it is that it's not empty. You can implement this
-    /// the way you want, just make sure that [NodeHash::is_placeholder] and [NodeHash::placeholder]
-    /// returns sane values (that is, if we call [NodeHash::placeholder] calling [NodeHash::is_placeholder]
+    /// the way you want, just make sure that [`NodeHash::is_placeholder`] and [`NodeHash::placeholder`]
+    /// returns sane values (that is, if we call [`NodeHash::placeholder`] calling [`NodeHash::is_placeholder`]
     /// on the result should return true).
     Placeholder,
 
@@ -37,7 +37,7 @@ enum CustomHash {
     /// This is an empty value, it represents a node that was deleted from the accumulator.
     ///
     /// Same as the placeholder, you can implement this the way you want, just make sure that
-    /// [NodeHash::is_empty] and [NodeHash::empty] returns sane values.
+    /// [`NodeHash::is_empty`] and [`NodeHash::empty`] returns sane values.
     Empty,
 }
 
