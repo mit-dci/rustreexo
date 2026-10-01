@@ -70,7 +70,6 @@ type Parent<T> = RefCell<Option<Weak<T>>>;
 type Children<T> = RefCell<Option<Rc<T>>>;
 
 /// A forest node that can either be a leaf or a branch.
-#[derive(Clone)]
 pub struct Node<Hash: AccumulatorHash = BitcoinNodeHash> {
     /// The type of this node.
     ty: NodeType,
@@ -199,7 +198,7 @@ impl<Hash: AccumulatorHash> Node<Hash> {
 
 /// The actual [`MemForest`] accumulator, it implements all methods required to update the forest
 /// and to prove/verify membership.
-#[derive(Default, Clone)]
+#[derive(Default)]
 pub struct MemForest<Hash: AccumulatorHash = BitcoinNodeHash> {
     /// The roots of the forest, all leaves are children of these roots, and therefore
     /// owned by them.
