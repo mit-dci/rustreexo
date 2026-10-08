@@ -6,6 +6,7 @@ use core::convert::TryFrom;
 use super::node_hash::AccumulatorHash;
 use crate::prelude::*;
 use crate::proof::ProofError;
+use crate::MAX_FOREST_ROWS;
 
 // isRootPosition checks if the current position is a root given the number of
 // leaves and the entire rows of the forest.
@@ -85,6 +86,23 @@ pub(crate) fn translate(pos: u64, from_rows: u8, to_rows: u8) -> u64 {
     offset + start_position_at_row(row, to_rows)
 }
 
+/// Converts fixed proof positions to local coordinates, rejecting out-of-forest rows.
+pub(crate) fn translate_to_local(
+    positions: &[u64],
+    forest_rows: u8,
+) -> Result<Vec<u64>, ProofError> {
+    if positions
+        .iter()
+        .any(|&pos| detect_row(pos, MAX_FOREST_ROWS) > forest_rows)
+    {
+        return Err(ProofError::InvalidTarget);
+    }
+    Ok(positions
+        .iter()
+        .map(|&pos| translate(pos, MAX_FOREST_ROWS, forest_rows))
+        .collect())
+}
+
 pub(crate) fn calc_next_pos(position: u64, del_pos: u64, forest_rows: u8) -> Result<u64, String> {
     let del_row = detect_row(del_pos, forest_rows);
     let pos_row = detect_row(position, forest_rows);
@@ -107,6 +125,7 @@ pub(crate) fn calc_next_pos(position: u64, del_pos: u64, forest_rows: u8) -> Res
 
 pub(crate) fn detwin(nodes: Vec<u64>, forest_rows: u8) -> Vec<u64> {
     let mut computed: Vec<u64> = nodes;
+    computed.sort_unstable();
     let mut detwinned = Vec::new();
 
     loop {
@@ -126,8 +145,8 @@ pub(crate) fn detwin(nodes: Vec<u64>, forest_rows: u8) -> Vec<u64> {
         if next == sibling {
             let parent = parent(node, forest_rows);
 
-            if computed.binary_search(&parent).is_err() {
-                computed.push(parent);
+            if let Err(index) = computed.binary_search(&parent) {
+                computed.insert(index, parent);
             }
 
             computed.remove(0);
@@ -170,8 +189,8 @@ pub(crate) fn roots_to_destroy<Hash: AccumulatorHash>(
 
     let mut roots = orig_roots.to_vec();
     let mut deleted = vec![];
-    let mut h = 0;
     for add in 0..num_adds {
+        let mut h = 0;
         while (num_leaves >> h) & 1 == 1 {
             let root = roots
                 .pop()
@@ -496,6 +515,14 @@ mod tests {
     }
 
     #[test]
+    fn test_detwin_mixed_rows() {
+        // Newly merged parents must be processed before existing higher-row targets.
+        assert_eq!(super::detwin(vec![4, 5, 12], 3), vec![10, 12]);
+        assert_eq!(super::detwin(vec![12, 7, 4, 6, 5], 3), vec![14]);
+        assert_eq!(super::detwin(vec![4, 5, 11, 12], 3), vec![14]);
+    }
+
+    #[test]
     fn test_tree_rows() {
         assert_eq!(tree_rows(8), 3);
         assert_eq!(tree_rows(9), 4);
@@ -508,6 +535,19 @@ mod tests {
         // to get the correct offset for a given row,
         // subtract (2 << `row complement of forestRows`) from (2 << forestRows)
         (2 << forest_rows) - (2 << (forest_rows - row))
+    }
+
+    #[test]
+    fn test_translate_to_local() {
+        // Preserve target order when translating a promoted leaf.
+        assert_eq!(
+            super::translate_to_local(&[5, 1 << 63, 7], 3),
+            Ok(vec![5, 8, 7])
+        );
+        assert_eq!(
+            super::translate_to_local(&[u64::MAX], 3),
+            Err(super::ProofError::InvalidTarget)
+        );
     }
 
     #[test]

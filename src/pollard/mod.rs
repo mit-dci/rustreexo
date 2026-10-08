@@ -64,6 +64,7 @@ use super::util::root_position;
 use super::util::tree_rows;
 use crate::prelude::*;
 use crate::util::translate;
+use crate::util::translate_to_local;
 use crate::MAX_FOREST_ROWS;
 
 #[derive(Default, Clone)]
@@ -892,17 +893,8 @@ type ChildrenTuple<Hash> = (Rc<PollardNode<Hash>>, Rc<PollardNode<Hash>>);
 
 impl<Hash: AccumulatorHash> Pollard<Hash> {
     fn local_positions(&self, positions: &[u64]) -> Result<Vec<u64>, PollardError<Hash>> {
-        let rows = tree_rows(self.leaves);
-        if positions
-            .iter()
-            .any(|&pos| detect_row(pos, MAX_FOREST_ROWS) > rows)
-        {
-            return Err(PollardError::InvalidProof);
-        }
-        Ok(positions
-            .iter()
-            .map(|&pos| translate(pos, MAX_FOREST_ROWS, rows))
-            .collect())
+        translate_to_local(positions, tree_rows(self.leaves))
+            .map_err(|_| PollardError::InvalidProof)
     }
 
     fn prune_map(&mut self, positions: &[u64]) {
