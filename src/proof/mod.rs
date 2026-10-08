@@ -396,6 +396,14 @@ impl<Hash: AccumulatorHash> Proof<Hash> {
         num_leaves: u64,
     ) -> Result<Self, ProofError> {
         let forest_rows = tree_rows(num_leaves);
+        if self
+            .targets
+            .iter()
+            .chain(new_targets)
+            .any(|&pos| detect_row(pos, MAX_FOREST_ROWS) > forest_rows)
+        {
+            return Err(ProofError::InvalidTarget);
+        }
         let to_local = |targets: &[u64]| {
             targets
                 .iter()
@@ -1590,6 +1598,28 @@ mod tests {
         assert_eq!(roots, stump.roots, "both accumulators must agree");
 
         stump
+    }
+
+    #[test]
+    fn test_get_proof_subset_rejects_invalid_rows() {
+        let hashes = (0..8).map(hash_from_u8).collect::<Vec<_>>();
+        let mut forest = MemForest::<BitcoinNodeHash>::new();
+        forest.modify(&hashes, &[]).unwrap();
+        let proof = forest.prove(&hashes[..1]).unwrap();
+
+        // Row four is outside this three-row forest; u64::MAX is also invalid.
+        for target in [0xf000_0000_0000_0000, u64::MAX] {
+            assert_eq!(
+                proof.get_proof_subset(&hashes[..1], &[target], 8),
+                Err(ProofError::InvalidTarget)
+            );
+            let mut invalid = proof.clone();
+            invalid.targets = vec![target];
+            assert_eq!(
+                invalid.get_proof_subset(&hashes[..1], &[], 8),
+                Err(ProofError::InvalidTarget)
+            );
+        }
     }
 
     #[test]

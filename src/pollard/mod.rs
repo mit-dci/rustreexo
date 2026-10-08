@@ -624,6 +624,7 @@ impl<Hash: AccumulatorHash> Pollard<Hash> {
     /// for them later. This function doesn't check the validity of the proof, so you should do
     /// that before calling this function. If the proof is not valid, this function will return an
     /// error.
+    /// `remembers` uses the same fixed coordinates as [`Proof::targets`].
     pub fn ingest_proof(
         &mut self,
         proof: &Proof<Hash>,
@@ -665,10 +666,12 @@ impl<Hash: AccumulatorHash> Pollard<Hash> {
         self.do_ingest_proof(proof, del_hashes, remembers, false)
     }
 
+    /// Prunes positions expressed in the fixed coordinates of [`Proof::targets`].
     pub fn prune(&mut self, positions: &[u64]) -> Result<(), PollardError<Hash>> {
-        self.prune_map(positions);
+        let positions = self.local_positions(positions)?;
+        self.prune_map(&positions);
 
-        let positions = detwin(positions.to_vec(), tree_rows(self.leaves));
+        let positions = detwin(positions, tree_rows(self.leaves));
         for node in positions {
             let (node, _) = self
                 .grab_position(node)
@@ -741,7 +744,7 @@ impl<Hash: AccumulatorHash> Pollard<Hash> {
 
         let pos = self.get_pos(node)?;
         let hashes = self.prove_single_inner(pos)?;
-        let targets = vec![pos];
+        let targets = vec![translate(pos, tree_rows(self.leaves), MAX_FOREST_ROWS)];
 
         Ok(Proof { targets, hashes })
     }
@@ -762,9 +765,9 @@ impl<Hash: AccumulatorHash> Pollard<Hash> {
         del_hashes: &[Hash],
         proof: &Proof<Hash>,
     ) -> Result<(), PollardError<Hash>> {
-        let targets = proof.targets.clone();
-        self.ingest_proof(proof, del_hashes, &targets)?;
+        self.ingest_proof(proof, del_hashes, &proof.targets)?;
 
+        let targets = self.local_positions(&proof.targets)?;
         let targets = detwin(targets, tree_rows(self.leaves));
         let targets = targets
             .iter()
@@ -888,6 +891,20 @@ type AddSingleResult<T> = (Vec<(u64, T)>, Vec<usize>);
 type ChildrenTuple<Hash> = (Rc<PollardNode<Hash>>, Rc<PollardNode<Hash>>);
 
 impl<Hash: AccumulatorHash> Pollard<Hash> {
+    fn local_positions(&self, positions: &[u64]) -> Result<Vec<u64>, PollardError<Hash>> {
+        let rows = tree_rows(self.leaves);
+        if positions
+            .iter()
+            .any(|&pos| detect_row(pos, MAX_FOREST_ROWS) > rows)
+        {
+            return Err(PollardError::InvalidProof);
+        }
+        Ok(positions
+            .iter()
+            .map(|&pos| translate(pos, MAX_FOREST_ROWS, rows))
+            .collect())
+    }
+
     fn prune_map(&mut self, positions: &[u64]) {
         for pos in positions {
             let node = self.grab_position(*pos).unwrap().0;
@@ -976,7 +993,9 @@ impl<Hash: AccumulatorHash> Pollard<Hash> {
             .calculate_hashes(del_hashes, self.leaves)
             .map_err(|_| PollardError::InvalidProof)?;
 
-        let proof_positions = get_proof_positions(&proof.targets, self.leaves, forest_rows);
+        let targets = self.local_positions(&proof.targets)?;
+        let local_remembers = self.local_positions(remembers)?;
+        let proof_positions = get_proof_positions(&targets, self.leaves, forest_rows);
 
         all_nodes.extend(
             proof_positions
@@ -985,7 +1004,7 @@ impl<Hash: AccumulatorHash> Pollard<Hash> {
         );
         all_nodes.sort();
         let iter = all_nodes.into_iter().rev();
-        self.ingest_positions(iter, remembers)?;
+        self.ingest_positions(iter, &local_remembers)?;
 
         let pruned = proof
             .targets
@@ -1679,6 +1698,59 @@ mod tests {
 
         assert_eq!(proof, expected_proof);
         assert!(acc.verify(&proof, &del_hashes).unwrap());
+    }
+
+    #[test]
+    fn test_updated_promoted_proof_roundtrip() {
+        let adds = get_hashes_of(&[0, 1, 2, 3, 4, 5, 6, 7]);
+        let hashes = adds.iter().map(|add| add.hash).collect::<Vec<_>>();
+        let mut pollard = Pollard::new();
+        pollard.modify(&adds, &[], &Proof::default()).unwrap();
+        let stump = Stump::new()
+            .modify(&hashes, &[], &Proof::default())
+            .unwrap();
+        let cached = vec![hashes[1], hashes[3]];
+        let proof = pollard.batch_proof(&cached).unwrap();
+
+        // Deleting leaf 0 promotes cached leaf 1 above the bottom row.
+        let block_proof = pollard.batch_proof(&hashes[..1]).unwrap();
+        let data = stump
+            .get_update_data(&[], &hashes[..1], &block_proof)
+            .unwrap();
+        let stump = stump.modify(&[], &hashes[..1], &block_proof).unwrap();
+        pollard.modify(&[], &hashes[..1], &block_proof).unwrap();
+        let (proof, cached) = proof
+            .update(cached, &[], &block_proof.targets, vec![], data)
+            .unwrap();
+        assert_eq!(stump.verify(&proof, &cached), Ok(true));
+        assert!(matches!(
+            pollard.ingest_proof(&proof, &cached, &[u64::MAX]),
+            Err(PollardError::InvalidProof)
+        ));
+        assert!(matches!(
+            pollard.prune(&[u64::MAX]),
+            Err(PollardError::InvalidProof)
+        ));
+        pollard
+            .verify_and_ingest(&proof, &cached, &proof.targets)
+            .unwrap();
+        assert_eq!(proof, pollard.batch_proof(&cached).unwrap());
+
+        let promoted = pollard.batch_proof(&[hashes[1]]).unwrap();
+        assert_eq!(pollard.prove_single(hashes[1]).unwrap(), promoted);
+
+        // Forget both cached leaves, then restore only the promoted one.
+        pollard.prune(&proof.targets).unwrap();
+        pollard
+            .verify_and_ingest(&proof, &cached, &promoted.targets)
+            .unwrap();
+        assert!(pollard.batch_proof(&[hashes[3]]).is_err());
+        assert_eq!(pollard.batch_proof(&[hashes[1]]).unwrap(), promoted);
+
+        // The same exported target must also work for deletion.
+        let stump = stump.modify(&[], &[hashes[1]], &promoted).unwrap();
+        pollard.modify(&[], &[hashes[1]], &promoted).unwrap();
+        assert_eq!(pollard.roots(), stump.roots);
     }
 
     #[test]
