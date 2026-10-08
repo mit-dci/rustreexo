@@ -828,8 +828,23 @@ impl<Hash: AccumulatorHash> Proof<Hash> {
         remembers: Vec<u64>,
         update_data: UpdateData<Hash>,
     ) -> Result<(Self, Vec<Hash>), ProofError> {
+        if self.targets.len() != cached_hashes.len() {
+            return Err(ProofError::DelHashesTargetsMismatch {
+                targets: self.targets.len(),
+                del_hashes: cached_hashes.len(),
+            });
+        }
+
         // The update helpers use forest-local positions.
         let before_rows = tree_rows(update_data.prev_num_leaves);
+        if self
+            .targets
+            .iter()
+            .chain(block_targets)
+            .any(|&pos| detect_row(pos, MAX_FOREST_ROWS) > before_rows)
+        {
+            return Err(ProofError::InvalidTarget);
+        }
         for target in &mut self.targets {
             *target = translate(*target, MAX_FOREST_ROWS, before_rows);
         }
@@ -1645,6 +1660,47 @@ mod tests {
                 .unwrap();
             assert_eq!(subset, forest.prove(&cached_hashes[..count]).unwrap());
             assert_eq!(stump.verify(&subset, &cached_hashes[..count]), Ok(true));
+        }
+    }
+
+    #[test]
+    fn test_update_rejects_invalid_rows() {
+        let stump = Stump::<BitcoinNodeHash>::new();
+        let update_data = stump.get_update_data(&[], &[], &Proof::default()).unwrap();
+
+        // Neither cached nor block targets can be above this empty forest's row.
+        for target in [1 << 63, u64::MAX] {
+            let proof = Proof::new(vec![target], vec![]);
+            assert_eq!(
+                proof.update(vec![hash_from_u8(0)], &[], &[], vec![], update_data.clone()),
+                Err(ProofError::InvalidTarget)
+            );
+            assert_eq!(
+                Proof::default().update(vec![], &[], &[target], vec![], update_data.clone()),
+                Err(ProofError::InvalidTarget)
+            );
+        }
+    }
+
+    #[test]
+    fn test_update_rejects_mismatched_cached_hashes() {
+        // Do not silently drop targets or hashes when pairing them.
+        for (targets, cached_hashes) in [(vec![u64::MAX], vec![]), (vec![], vec![hash_from_u8(0)])]
+        {
+            let expected = ProofError::DelHashesTargetsMismatch {
+                targets: targets.len(),
+                del_hashes: cached_hashes.len(),
+            };
+            assert_eq!(
+                Proof::new(targets, vec![]).update(
+                    cached_hashes,
+                    &[],
+                    &[],
+                    vec![],
+                    UpdateData::default(),
+                ),
+                Err(expected)
+            );
         }
     }
 
