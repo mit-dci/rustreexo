@@ -1,6 +1,6 @@
 [package]
 name = "rustreexo"
-version = "0.6.0"
+version = "0.7.0"
 description = "A Rust implementation of Utreexo"
 keywords = ["accumulator", "bitcoin", "utreexo"]
 categories = ["algorithms", "cryptography::cryptocurrencies", "no-std"]

@@ -664,7 +664,7 @@ dependencies = [
 
 [[package]]
 name = "rustreexo"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "bitcoin-io",
  "bitcoin_hashes",
