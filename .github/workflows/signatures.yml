@@ -8,7 +8,7 @@ permissions: {}
 
 jobs:
     signatures:
-        name: Check PGP Signatures
+        name: Check Commit Signatures
         runs-on: ubuntu-latest
 
         steps:

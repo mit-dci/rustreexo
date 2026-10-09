@@ -86,6 +86,7 @@ use crate::prelude::*;
 use crate::stump::Stump;
 use crate::util::read_bounded_len;
 use crate::util::translate;
+use crate::util::translate_to_local;
 use crate::MAX_FOREST_ROWS;
 use crate::MAX_PROOF_DESERIALIZE_COUNT;
 
@@ -156,6 +157,8 @@ impl From<io::Error> for ProofError {
 /// hashes that can't be calculated from the data itself.
 /// Proofs are generated elsewhere.
 pub struct Proof<Hash: AccumulatorHash = BitcoinNodeHash> {
+    /// Positions use a fixed 63-row forest, regardless of the current forest size.
+    ///
     /// Targets are the i'th of leaf locations to delete and they are the bottommost leaves.
     /// With the tree below, the Targets can only consist of one of these: 02, 03, 04.
     ///```text
@@ -376,6 +379,8 @@ impl<Hash: AccumulatorHash> Proof<Hash> {
     /// 8 leaves, if we cache `[0, 2, 6, 7]`, and we need to prove `[2, 7]` only, we have to remove
     /// elements for 0 and 7. The original proof is `[1, 3, 10]`, and we can compute `[8, 9, 11, 12, 13, 14]`.
     /// But for `[2, 7]` we need `[3, 6, 8, 10]`, and compute `[9, 11, 12, 13, 14]`
+    ///
+    /// `new_targets` uses the same fixed coordinates as [`Self::targets`].
     ///```text
     /// // 14
     /// // |---------------\
@@ -392,8 +397,10 @@ impl<Hash: AccumulatorHash> Proof<Hash> {
         num_leaves: u64,
     ) -> Result<Self, ProofError> {
         let forest_rows = tree_rows(num_leaves);
-        let old_proof_positions = get_proof_positions(&self.targets, num_leaves, forest_rows);
-        let needed_positions = get_proof_positions(new_targets, num_leaves, forest_rows);
+        let local_targets = translate_to_local(&self.targets, forest_rows)?;
+        let local_new_targets = translate_to_local(new_targets, forest_rows)?;
+        let old_proof_positions = get_proof_positions(&local_targets, num_leaves, forest_rows);
+        let needed_positions = get_proof_positions(&local_new_targets, num_leaves, forest_rows);
         let (intermediate_positions, _) = self.calculate_hashes(del_hashes, num_leaves)?;
 
         let mut old_proof = old_proof_positions
@@ -529,26 +536,12 @@ impl<Hash: AccumulatorHash> Proof<Hash> {
         // Where all the root hashes that we've calculated will go to.
         let total_rows = tree_rows(num_leaves);
 
-        // Target positions are given in the full 63-row forest coordinates; reject
-        // anything that maps to a row outside the actual forest.
-        if self
-            .targets
-            .iter()
-            .any(|pos| detect_row(*pos, MAX_FOREST_ROWS) > total_rows)
-        {
-            return Err(ProofError::InvalidTarget);
-        }
+        let translated = translate_to_local(&self.targets, total_rows)?;
 
         // Where all the parent hashes we've calculated in a given row will go to.
         let mut calculated_root_hashes = Vec::<(Hash, Hash)>::with_capacity(num_roots(num_leaves));
 
         // the positions that should be passed as a proof
-        let translated: Vec<_> = self
-            .targets
-            .iter()
-            .copied()
-            .map(|pos| translate(pos, MAX_FOREST_ROWS, total_rows))
-            .collect();
         let proof_positions = get_proof_positions(&translated, num_leaves, total_rows);
 
         // As we calculate nodes upwards, it accumulates here
@@ -628,26 +621,12 @@ impl<Hash: AccumulatorHash> Proof<Hash> {
         // Where all the root hashes that we've calculated will go to.
         let total_rows = tree_rows(num_leaves);
 
-        // Target positions are given in the full 63-row forest coordinates; reject
-        // anything that maps to a row outside the actual forest.
-        if self
-            .targets
-            .iter()
-            .any(|pos| detect_row(*pos, MAX_FOREST_ROWS) > total_rows)
-        {
-            return Err(ProofError::InvalidTarget);
-        }
+        let translated = translate_to_local(&self.targets, total_rows)?;
 
         // Where all the parent hashes we've calculated in a given row will go to.
         let mut calculated_root_hashes = Vec::<Hash>::with_capacity(num_roots(num_leaves));
 
         // the positions that should be passed as a proof
-        let translated: Vec<_> = self
-            .targets
-            .iter()
-            .copied()
-            .map(|pos| translate(pos, MAX_FOREST_ROWS, total_rows))
-            .collect();
         let proof_positions = get_proof_positions(&translated, num_leaves, total_rows);
 
         // As we calculate nodes upwards, it accumulates here
@@ -747,6 +726,7 @@ impl<Hash: AccumulatorHash> Proof<Hash> {
     /// Before calling this method, you will need to use [`Stump::get_update_data`] to
     /// get the changes that happened in the accumulator for that block. This includes the nodes
     /// added and deleted in that block, as well as the previous number of leaves.
+    /// `block_targets` and returned targets use the fixed coordinates of [`Self::targets`].
     ///
     /// After computing this, you can use [`Proof::update`] to update your proof to be valid for
     /// the next accumulator. Call these for all blocks between your proof's height and the current
@@ -801,21 +781,33 @@ impl<Hash: AccumulatorHash> Proof<Hash> {
     /// assert!(final_stump.verify(&proof_updated, &cached_hashes).unwrap());
     /// ```
     pub fn update(
-        self,
+        mut self,
         cached_hashes: Vec<Hash>,
         add_hashes: &[Hash],
         block_targets: &[u64],
         remembers: Vec<u64>,
         update_data: UpdateData<Hash>,
     ) -> Result<(Self, Vec<Hash>), ProofError> {
+        if self.targets.len() != cached_hashes.len() {
+            return Err(ProofError::DelHashesTargetsMismatch {
+                targets: self.targets.len(),
+                del_hashes: cached_hashes.len(),
+            });
+        }
+
+        // The update helpers use forest-local positions.
+        let before_rows = tree_rows(update_data.prev_num_leaves);
+        let local_targets = translate_to_local(&self.targets, before_rows)?;
+        let block_targets = translate_to_local(block_targets, before_rows)?;
+        self.targets = local_targets;
         let (proof_after_deletion, cached_hashes) = self.update_proof_remove(
-            block_targets,
+            &block_targets,
             cached_hashes,
             &update_data.new_del,
             update_data.prev_num_leaves,
         )?;
 
-        let data_after_addition = proof_after_deletion.update_proof_add(
+        let (mut proof, cached_hashes) = proof_after_deletion.update_proof_add(
             add_hashes,
             cached_hashes,
             remembers,
@@ -824,7 +816,11 @@ impl<Hash: AccumulatorHash> Proof<Hash> {
             update_data.to_destroy,
         )?;
 
-        Ok(data_after_addition)
+        let after_rows = tree_rows(update_data.prev_num_leaves + add_hashes.len() as u64);
+        for target in &mut proof.targets {
+            *target = translate(*target, after_rows, MAX_FOREST_ROWS);
+        }
+        Ok((proof, cached_hashes))
     }
 
     fn update_proof_add(
@@ -856,11 +852,16 @@ impl<Hash: AccumulatorHash> Proof<Hash> {
         let targets_after_remap =
             Self::maybe_remap(before_num_leaves, adds.len() as u64, orig_targets_with_hash);
         let mut final_targets = targets_after_remap;
-        let mut new_nodes_iter = new_nodes.iter();
         let mut proof_with_pos =
             Self::maybe_remap(before_num_leaves, adds.len() as u64, proof_with_pos);
 
         let num_leaves = before_num_leaves + (adds.len() as u64);
+        // Remembered additions start at their insertion positions and share root promotions.
+        for remember in remembers {
+            if remember < adds.len() as u64 {
+                final_targets.push((before_num_leaves + remember, adds[remember as usize]));
+            }
+        }
         // Move up positions that need to be moved up due to the empty roots
         // being written over.
         for node in to_destroy {
@@ -868,18 +869,8 @@ impl<Hash: AccumulatorHash> Proof<Hash> {
             proof_with_pos = Self::calc_next_positions(&[node], &proof_with_pos, num_leaves, true)?;
         }
 
-        // remembers is an index telling what newly created UTXO should be cached
-        for remember in remembers {
-            let remember_target: Option<&Hash> = adds.get(remember as usize);
-            if let Some(remember_target) = remember_target {
-                let node = new_nodes_iter.find(|(_, hash)| *hash == *remember_target);
-                if let Some((pos, hash)) = node {
-                    final_targets.push((*pos, *hash));
-                }
-            }
-        }
-
         final_targets.sort();
+        final_targets.dedup();
 
         let (new_target_pos, target_hashes): (Vec<_>, Vec<_>) =
             final_targets.clone().into_iter().unzip();
@@ -1111,6 +1102,7 @@ mod tests {
     /// Deriving hashes directly reduces the amount of boilerplate code used, and makes everything
     /// more clearer, hence, it's preferable.
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn test_update_proof() {
         #[derive(Debug, Deserialize)]
         struct JsonProof {
@@ -1151,6 +1143,13 @@ mod tests {
 
         let values: Vec<TestData> =
             serde_json::from_str(contents).expect("JSON deserialization error");
+        // The fixtures store targets in forest-local coordinates.
+        let to_global = |targets: &[u64], leaves| {
+            targets
+                .iter()
+                .map(|&pos| translate(pos, tree_rows(leaves), MAX_FOREST_ROWS))
+                .collect::<Vec<_>>()
+        };
         for case_values in values {
             let proof_hashes = case_values
                 .cached_proof
@@ -1164,7 +1163,13 @@ mod tests {
                 .map(|val| BitcoinNodeHash::from_str(val).unwrap())
                 .collect();
 
-            let cached_proof = Proof::new(case_values.cached_proof.targets, proof_hashes);
+            let cached_proof = Proof::new(
+                to_global(
+                    &case_values.cached_proof.targets,
+                    case_values.initial_leaves,
+                ),
+                proof_hashes,
+            );
             let roots = case_values
                 .initial_roots
                 .into_iter()
@@ -1196,8 +1201,10 @@ mod tests {
                 .map(|hash| BitcoinNodeHash::from_str(hash).unwrap())
                 .collect::<Vec<_>>();
 
-            let block_proof =
-                Proof::new(case_values.update.proof.targets.clone(), block_proof_hashes);
+            let block_proof = Proof::new(
+                to_global(&case_values.update.proof.targets, stump.leaves),
+                block_proof_hashes,
+            );
             let new_stump = stump.modify(&utxos, &del_hashes, &block_proof).unwrap();
             let updated = stump
                 .get_update_data(&utxos, &del_hashes, &block_proof)
@@ -1206,7 +1213,7 @@ mod tests {
                 .update(
                     cached_hashes,
                     &utxos,
-                    &case_values.update.proof.targets,
+                    &block_proof.targets,
                     case_values.remembers.clone(),
                     updated,
                 )
@@ -1226,7 +1233,10 @@ mod tests {
                 .map(|hash| BitcoinNodeHash::from_str(hash).unwrap())
                 .collect();
             assert_eq!(res, Ok(true));
-            assert_eq!(cached_proof.targets, case_values.expected_targets);
+            assert_eq!(
+                cached_proof.targets,
+                to_global(&case_values.expected_targets, new_stump.leaves)
+            );
             assert_eq!(new_stump.roots, expected_roots);
             assert_eq!(cached_hashes, expected_cached_hashes);
         }
@@ -1546,6 +1556,280 @@ mod tests {
         assert_eq!(roots, stump.roots, "both accumulators must agree");
 
         stump
+    }
+
+    #[test]
+    fn test_get_proof_subset_rejects_invalid_rows() {
+        let hashes = (0..8).map(hash_from_u8).collect::<Vec<_>>();
+        let mut forest = MemForest::<BitcoinNodeHash>::new();
+        forest.modify(&hashes, &[]).unwrap();
+        let proof = forest.prove(&hashes[..1]).unwrap();
+
+        // Row four is outside this three-row forest; u64::MAX is also invalid.
+        for target in [0xf000_0000_0000_0000, u64::MAX] {
+            assert_eq!(
+                proof.get_proof_subset(&hashes[..1], &[target], 8),
+                Err(ProofError::InvalidTarget)
+            );
+            let mut invalid = proof.clone();
+            invalid.targets = vec![target];
+            assert_eq!(
+                invalid.get_proof_subset(&hashes[..1], &[], 8),
+                Err(ProofError::InvalidTarget)
+            );
+        }
+    }
+
+    #[test]
+    fn test_get_proof_subset_promoted_targets() {
+        let hashes = (0..8).map(hash_from_u8).collect::<Vec<_>>();
+        let mut forest = MemForest::<BitcoinNodeHash>::new();
+        forest.modify(&hashes, &[]).unwrap();
+        let mut stump = Stump::new()
+            .modify(&hashes, &[], &Proof::default())
+            .unwrap();
+
+        // Promote leaf 3 twice; leaf 5 stays at the bottom.
+        for index in [0, 2, 1] {
+            stump = delete_leaf(&mut forest, &stump, hashes[index]);
+        }
+        let cached_hashes = [hashes[3], hashes[5]];
+        let proof = forest.prove(&cached_hashes).unwrap();
+        assert_eq!(stump.verify(&proof, &cached_hashes), Ok(true));
+
+        for count in 1..=cached_hashes.len() {
+            let subset = proof
+                .get_proof_subset(&cached_hashes, &proof.targets[..count], stump.leaves)
+                .unwrap();
+            assert_eq!(subset, forest.prove(&cached_hashes[..count]).unwrap());
+            assert_eq!(stump.verify(&subset, &cached_hashes[..count]), Ok(true));
+        }
+    }
+
+    #[test]
+    fn test_update_rejects_invalid_rows() {
+        let stump = Stump::<BitcoinNodeHash>::new();
+        let update_data = stump.get_update_data(&[], &[], &Proof::default()).unwrap();
+
+        // Neither cached nor block targets can be above this empty forest's row.
+        for target in [1 << 63, u64::MAX] {
+            let proof = Proof::new(vec![target], vec![]);
+            assert_eq!(
+                proof.update(vec![hash_from_u8(0)], &[], &[], vec![], update_data.clone()),
+                Err(ProofError::InvalidTarget)
+            );
+            assert_eq!(
+                Proof::default().update(vec![], &[], &[target], vec![], update_data.clone()),
+                Err(ProofError::InvalidTarget)
+            );
+        }
+    }
+
+    #[test]
+    fn test_update_rejects_mismatched_cached_hashes() {
+        // Do not silently drop targets or hashes when pairing them.
+        for (targets, cached_hashes) in [(vec![u64::MAX], vec![]), (vec![], vec![hash_from_u8(0)])]
+        {
+            let expected = ProofError::DelHashesTargetsMismatch {
+                targets: targets.len(),
+                del_hashes: cached_hashes.len(),
+            };
+            assert_eq!(
+                Proof::new(targets, vec![]).update(
+                    cached_hashes,
+                    &[],
+                    &[],
+                    vec![],
+                    UpdateData::default(),
+                ),
+                Err(expected)
+            );
+        }
+    }
+
+    #[test]
+    fn test_update_empty_root_across_additions() {
+        let hashes = (0..8).map(hash_from_u8).collect::<Vec<_>>();
+        let mut forest = MemForest::<BitcoinNodeHash>::new();
+        forest.modify(&hashes[..5], &[]).unwrap();
+        let mut stump = Stump::new()
+            .modify(&hashes[..5], &[], &Proof::default())
+            .unwrap();
+
+        // The first four leaves form an empty root, separate from leaf 4.
+        for &hash in &hashes[..4] {
+            stump = delete_leaf(&mut forest, &stump, hash);
+        }
+        let mut cached_hashes = vec![hashes[4]];
+        let mut proof = forest.prove(&cached_hashes).unwrap();
+
+        // Two additions leave that empty root alone; the next addition consumes it.
+        for adds in [&hashes[5..7], &hashes[7..]] {
+            let update_data = stump.get_update_data(adds, &[], &Proof::default()).unwrap();
+            stump = stump.modify(adds, &[], &Proof::default()).unwrap();
+            forest.modify(adds, &[]).unwrap();
+            (proof, cached_hashes) = proof
+                .update(cached_hashes, adds, &[], vec![], update_data)
+                .unwrap();
+            assert_eq!(cached_hashes, vec![hashes[4]]);
+            assert_eq!(stump.verify(&proof, &cached_hashes), Ok(true));
+            assert_eq!(proof, forest.prove(&cached_hashes).unwrap());
+        }
+    }
+
+    #[test]
+    fn test_update_remembers_reordered_additions() {
+        let hashes = (0..5).map(hash_from_u8).collect::<Vec<_>>();
+        let mut forest = MemForest::<BitcoinNodeHash>::new();
+        forest.modify(&hashes[..3], &[]).unwrap();
+        let stump = Stump::new()
+            .modify(&hashes[..3], &[], &Proof::default())
+            .unwrap();
+        let stump = delete_leaf(&mut forest, &stump, hashes[2]);
+        let cached_hashes = vec![hashes[0]];
+        let proof = forest.prove(&cached_hashes).unwrap();
+        let adds = &hashes[3..];
+        let update_data = stump.get_update_data(adds, &[], &Proof::default()).unwrap();
+        let stump = stump.modify(adds, &[], &Proof::default()).unwrap();
+        forest.modify(adds, &[]).unwrap();
+
+        // The first addition is promoted over the empty root, reordering new node positions.
+        // Repeated remember indices must not duplicate targets.
+        for remembers in [vec![0, 1], vec![1, 0], vec![0, 1, 0, 1]] {
+            let (proof, cached_hashes) = proof
+                .clone()
+                .update(
+                    cached_hashes.clone(),
+                    adds,
+                    &[],
+                    remembers,
+                    update_data.clone(),
+                )
+                .unwrap();
+            assert_eq!(cached_hashes.len(), 3);
+            for hash in [hashes[0], hashes[3], hashes[4]] {
+                assert!(cached_hashes.contains(&hash));
+            }
+            assert_eq!(stump.verify(&proof, &cached_hashes), Ok(true));
+            assert_eq!(proof, forest.prove(&cached_hashes).unwrap());
+        }
+    }
+
+    #[test]
+    fn test_update_remembers_distinct_equal_hashes() {
+        let hash = hash_from_u8(3);
+        let adds = [hash, hash];
+        let stump = Stump {
+            leaves: 3,
+            roots: vec![
+                BitcoinNodeHash::parent_hash(&hash_from_u8(0), &hash_from_u8(1)),
+                BitcoinNodeHash::empty(),
+            ],
+        };
+        let data = stump
+            .get_update_data(&adds, &[], &Proof::default())
+            .unwrap();
+        let next = stump.modify(&adds, &[], &Proof::default()).unwrap();
+
+        // Only the first addition is promoted over the empty root.
+        let promoted = (1 << 63) | 1;
+        for (remembers, targets) in [
+            (vec![0], vec![promoted]),
+            (vec![1], vec![4]),
+            (vec![1, 0, 1], vec![4, promoted]),
+        ] {
+            let (proof, cached) = Proof::default()
+                .update(vec![], &adds, &[], remembers, data.clone())
+                .unwrap();
+            assert_eq!(proof.targets, targets);
+            assert_eq!(cached, vec![hash; targets.len()]);
+            assert_eq!(next.verify(&proof, &cached), Ok(true));
+        }
+    }
+
+    #[test]
+    fn test_update_deletions_with_promoted_target() {
+        let hashes = (0..8).map(hash_from_u8).collect::<Vec<_>>();
+        let mut forest = MemForest::<BitcoinNodeHash>::new();
+        forest.modify(&hashes, &[]).unwrap();
+        let mut stump = Stump::new()
+            .modify(&hashes, &[], &Proof::default())
+            .unwrap();
+        for index in [1, 2, 3] {
+            stump = delete_leaf(&mut forest, &stump, hashes[index]);
+        }
+        let cached_hashes = vec![hashes[4], hashes[6], hashes[0]];
+        let proof = forest.prove(&cached_hashes).unwrap();
+
+        // Delete two siblings and the promoted leaf 0. Leaf 6 must move twice.
+        let deleted = [hashes[4], hashes[5], hashes[0]];
+        let block_proof = forest.prove(&deleted).unwrap();
+        let update_data = stump.get_update_data(&[], &deleted, &block_proof).unwrap();
+        let stump = stump.modify(&[], &deleted, &block_proof).unwrap();
+        forest.modify(&[], &deleted).unwrap();
+        let (proof, cached_hashes) = proof
+            .update(
+                cached_hashes,
+                &[],
+                &block_proof.targets,
+                vec![],
+                update_data,
+            )
+            .unwrap();
+        assert_eq!(cached_hashes, vec![hashes[6]]);
+        assert_eq!(stump.verify(&proof, &cached_hashes), Ok(true));
+        assert_eq!(proof, forest.prove(&cached_hashes).unwrap());
+    }
+
+    #[test]
+    fn test_update_promoted_targets() {
+        let hashes = (0..8).map(hash_from_u8).collect::<Vec<_>>();
+        let mut forest = MemForest::<BitcoinNodeHash>::new();
+        forest.modify(&hashes, &[]).unwrap();
+        let stump = Stump::new()
+            .modify(&hashes, &[], &Proof::default())
+            .unwrap();
+        let mut stump = delete_leaf(&mut forest, &stump, hashes[0]);
+        let cached_hashes = vec![hashes[1], hashes[5]];
+        let proof = forest.prove(&cached_hashes).unwrap();
+        assert_eq!(stump.verify(&proof, &cached_hashes), Ok(true));
+        assert_eq!(proof.targets, vec![1 << 63, 5]);
+
+        // Leaf 1's original position must not verify after promotion.
+        let mut stale = proof.clone();
+        stale.targets[0] = 1;
+        assert!(stump.verify(&stale, &cached_hashes).is_err());
+
+        // Adding a ninth leaf grows the forest; also cache that new leaf.
+        let adds = [hash_from_u8(8)];
+        let update_data = stump
+            .get_update_data(&adds, &[], &Proof::default())
+            .unwrap();
+        stump = stump.modify(&adds, &[], &Proof::default()).unwrap();
+        forest.modify(&adds, &[]).unwrap();
+        let (proof, cached_hashes) = proof
+            .update(cached_hashes, &adds, &[], vec![0], update_data)
+            .unwrap();
+        assert_eq!(stump.verify(&proof, &cached_hashes), Ok(true));
+        assert_eq!(proof, forest.prove(&cached_hashes).unwrap());
+
+        // Delete the promoted cached leaf using targets from a normal block proof.
+        let block_proof = forest.prove(&[hashes[1]]).unwrap();
+        let update_data = stump
+            .get_update_data(&[], &[hashes[1]], &block_proof)
+            .unwrap();
+        stump = delete_leaf(&mut forest, &stump, hashes[1]);
+        let (proof, cached_hashes) = proof
+            .update(
+                cached_hashes,
+                &[],
+                &block_proof.targets,
+                vec![],
+                update_data,
+            )
+            .unwrap();
+        assert_eq!(stump.verify(&proof, &cached_hashes), Ok(true));
+        assert_eq!(proof, forest.prove(&cached_hashes).unwrap());
     }
 
     /// Deleting a leaf promotes its sibling one row up, and rows above the bottom one are
