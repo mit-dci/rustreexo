@@ -57,9 +57,11 @@
 //! assert!(s.verify(&p, &vec![hashes[0]]).expect("This proof is valid"));
 //! ```
 
+use alloc::collections::VecDeque;
 use core::fmt;
 use core::fmt::Debug;
 use core::fmt::Formatter;
+use core::iter::Peekable;
 
 #[cfg(feature = "with-serde")]
 use serde::Deserialize;
@@ -544,28 +546,30 @@ impl<Hash: AccumulatorHash> Proof<Hash> {
         // the positions that should be passed as a proof
         let proof_positions = get_proof_positions(&translated, num_leaves, total_rows);
 
-        // As we calculate nodes upwards, it accumulates here
-        let mut nodes: Vec<_> = translated
+        // The targets with their hashes, sorted for finding siblings during hashing
+        let mut targets: Vec<_> = translated
             .iter()
             .copied()
-            .zip(del_hashes.to_owned())
+            .zip(del_hashes.iter().copied())
             .collect();
+        targets.sort();
 
-        // add the proof positions to the nodes
-        nodes.extend(
+        // The nodes the proof provides, in order: the targets merged with the proof hashes,
+        // which come in the ascending order of their positions
+        let mut provided = Merge::new(
+            targets.into_iter(),
             proof_positions
                 .iter()
                 .copied()
                 .zip(self.hashes.iter().copied().map(|hash| (hash, hash))),
-        );
+        )
+        .peekable();
 
-        // Nodes must be sorted for finding siblings during hashing
-        nodes.sort();
-        let mut computed = Vec::with_capacity(nodes.len() * 2);
-        let mut computed_index = 0;
-        let mut provided_index = 0;
+        // The parents calculated and not used yet. They are calculated in the order of their
+        // positions, and used in that order.
+        let mut computed = VecDeque::new();
         while let Some((next_pos, (next_hash_old, next_hash_new))) =
-            Self::get_next(&computed, &nodes, &mut computed_index, &mut provided_index)
+            Self::get_next(&mut computed, &mut provided)
         {
             if is_root_position(next_pos, num_leaves, total_rows) {
                 calculated_root_hashes.push((next_hash_old, next_hash_new));
@@ -574,7 +578,7 @@ impl<Hash: AccumulatorHash> Proof<Hash> {
 
             let sibling = next_pos | 1;
             let (sibling_pos, (sibling_hash_old, sibling_hash_new)) =
-                Self::get_next(&computed, &nodes, &mut computed_index, &mut provided_index)
+                Self::get_next(&mut computed, &mut provided)
                     .ok_or(ProofError::MissingSibling(next_pos))?;
 
             if sibling_pos != sibling {
@@ -590,7 +594,7 @@ impl<Hash: AccumulatorHash> Proof<Hash> {
 
             let parent = parent(next_pos, total_rows);
             let old_parent_hash = AccumulatorHash::parent_hash(&next_hash_old, &sibling_hash_old);
-            computed.push((parent, (old_parent_hash, parent_hash)));
+            computed.push_back((parent, (old_parent_hash, parent_hash)));
         }
 
         Ok(calculated_root_hashes)
@@ -629,29 +633,30 @@ impl<Hash: AccumulatorHash> Proof<Hash> {
         // the positions that should be passed as a proof
         let proof_positions = get_proof_positions(&translated, num_leaves, total_rows);
 
-        // As we calculate nodes upwards, it accumulates here
+        // The targets with their hashes, sorted for finding siblings during hashing
         let mut nodes: Vec<_> = translated
             .iter()
             .copied()
-            .zip(del_hashes.to_owned())
+            .zip(del_hashes.iter().copied())
             .collect();
-
-        // add the proof positions to the nodes
-        nodes.extend(
-            proof_positions
-                .iter()
-                .copied()
-                .zip(self.hashes.iter().copied()),
-        );
-
-        // Nodes must be sorted for finding siblings during hashing
         nodes.sort();
-        let mut computed = Vec::with_capacity(nodes.len() * 2);
+
+        // The nodes the proof provides, in order: the targets merged with the proof hashes,
+        // which come in the ascending order of their positions
+        let proof = proof_positions
+            .iter()
+            .copied()
+            .zip(self.hashes.iter().copied());
+        let provided_len = nodes.len() + proof.len();
+        let mut provided = Merge::new(nodes.iter().copied(), proof).peekable();
+
+        // The parents calculated, in the order of their positions. Each takes the place of two
+        // nodes, provided or calculated, so there are fewer than nodes provided.
+        let mut computed = Vec::with_capacity(provided_len);
         let mut computed_index = 0;
-        let mut provided_index = 0;
 
         while let Some((next_pos, next_hash)) =
-            Self::get_next(&computed, &nodes, &mut computed_index, &mut provided_index)
+            Self::get_next_kept(&computed, &mut computed_index, &mut provided)
         {
             if is_root_position(next_pos, num_leaves, total_rows) {
                 calculated_root_hashes.push(next_hash);
@@ -660,7 +665,7 @@ impl<Hash: AccumulatorHash> Proof<Hash> {
 
             let sibling = next_pos | 1;
             let (sibling_pos, sibling_hash) =
-                Self::get_next(&computed, &nodes, &mut computed_index, &mut provided_index)
+                Self::get_next_kept(&computed, &mut computed_index, &mut provided)
                     .ok_or(ProofError::MissingSibling(next_pos))?;
 
             if sibling_pos != sibling {
@@ -677,6 +682,7 @@ impl<Hash: AccumulatorHash> Proof<Hash> {
             let parent = parent(next_pos, total_rows);
             computed.push((parent, parent_hash));
         }
+        drop(provided);
 
         // we shouldn't return the hashes in the proof
         nodes.extend(computed);
@@ -684,34 +690,40 @@ impl<Hash: AccumulatorHash> Proof<Hash> {
         Ok((nodes, calculated_root_hashes))
     }
 
-    fn get_next<T: Copy>(
-        computed: &[(u64, T)],
-        provided: &[(u64, T)],
-        computed_pos: &mut usize,
-        provided_pos: &mut usize,
-    ) -> Option<(u64, T)> {
-        let last_computed = computed.get(*computed_pos);
-        let last_provided = provided.get(*provided_pos);
+    /// Whether the next node is the next calculated one rather than the next provided one: the
+    /// one with the lower position, the provided one at equal positions.
+    fn computed_first<T>(computed: Option<&(u64, T)>, provided: Option<&(u64, T)>) -> bool {
+        match (computed, provided) {
+            (Some((computed, _)), Some((provided, _))) => computed < provided,
+            (Some(_), None) => true,
+            (None, _) => false,
+        }
+    }
 
-        match (last_computed, last_provided) {
-            (Some((pos1, hashes1)), Some((pos2, hashes2))) => {
-                if pos1 < pos2 {
-                    *computed_pos += 1;
-                    Some((*pos1, *hashes1))
-                } else {
-                    *provided_pos += 1;
-                    Some((*pos2, *hashes2))
-                }
-            }
-            (Some(node), None) => {
-                *computed_pos += 1;
-                Some(*node)
-            }
-            (None, Some(node)) => {
-                *provided_pos += 1;
-                Some(*node)
-            }
-            (None, None) => None,
+    /// Takes the next node, calculated or provided, the calculated ones dropped once taken.
+    fn get_next<T: Copy>(
+        computed: &mut VecDeque<(u64, T)>,
+        provided: &mut Peekable<impl Iterator<Item = (u64, T)>>,
+    ) -> Option<(u64, T)> {
+        if Self::computed_first(computed.front(), provided.peek()) {
+            computed.pop_front()
+        } else {
+            provided.next()
+        }
+    }
+
+    /// Takes the next node, calculated or provided, the calculated ones kept, those before
+    /// `computed_pos` taken.
+    fn get_next_kept<T: Copy>(
+        computed: &[(u64, T)],
+        computed_pos: &mut usize,
+        provided: &mut Peekable<impl Iterator<Item = (u64, T)>>,
+    ) -> Option<(u64, T)> {
+        if Self::computed_first(computed.get(*computed_pos), provided.peek()) {
+            *computed_pos += 1;
+            Some(computed[*computed_pos - 1])
+        } else {
+            provided.next()
         }
     }
 
@@ -1068,6 +1080,44 @@ impl<Hash: AccumulatorHash> Proof<Hash> {
     }
 }
 
+/// Two sequences in ascending order merged into one in ascending order, the items of `a` first
+/// among equal ones.
+struct Merge<A: Iterator, B: Iterator<Item = A::Item>> {
+    a: Peekable<A>,
+    b: Peekable<B>,
+}
+
+impl<A: Iterator, B: Iterator<Item = A::Item>> Merge<A, B> {
+    fn new(a: A, b: B) -> Self {
+        Self {
+            a: a.peekable(),
+            b: b.peekable(),
+        }
+    }
+}
+
+impl<A, B> Iterator for Merge<A, B>
+where
+    A: Iterator,
+    B: Iterator<Item = A::Item>,
+    A::Item: Ord,
+{
+    type Item = A::Item;
+
+    fn next(&mut self) -> Option<A::Item> {
+        let a_first = match (self.a.peek(), self.b.peek()) {
+            (Some(a), Some(b)) => a <= b,
+            (Some(_), None) => true,
+            (None, _) => false,
+        };
+        if a_first {
+            self.a.next()
+        } else {
+            self.b.next()
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use core::str::FromStr;
@@ -1245,56 +1295,45 @@ mod tests {
     #[test]
     fn test_get_next() {
         use super::Proof;
-        let computed = vec![(1, BitcoinNodeHash::empty()), (3, BitcoinNodeHash::empty())];
-        let provided = vec![(2, BitcoinNodeHash::empty()), (4, BitcoinNodeHash::empty())];
-        let mut computed_pos = 0;
-        let mut provided_pos = 0;
+        let node = |pos| (pos, BitcoinNodeHash::empty());
+        // at position 3, the provided node comes before the calculated one
+        let computed = [node(1), node(3), node(5)];
+        let provided = [node(2), node(3), node(4)];
+        let expected = [1, 2, 3, 3, 4, 5];
 
+        let mut queue: VecDeque<_> = computed.iter().copied().collect();
+        let mut from = provided.iter().copied().peekable();
+        for pos in expected {
+            let next = Proof::<BitcoinNodeHash>::get_next(&mut queue, &mut from);
+            assert_eq!(next, Some(node(pos)));
+        }
         assert_eq!(
-            Proof::<BitcoinNodeHash>::get_next(
-                &computed,
-                &provided,
-                &mut computed_pos,
-                &mut provided_pos
-            ),
-            Some((1, AccumulatorHash::empty()))
-        );
-        assert_eq!(
-            Proof::<BitcoinNodeHash>::get_next(
-                &computed,
-                &provided,
-                &mut computed_pos,
-                &mut provided_pos
-            ),
-            Some((2, AccumulatorHash::empty()))
-        );
-        assert_eq!(
-            Proof::<BitcoinNodeHash>::get_next(
-                &computed,
-                &provided,
-                &mut computed_pos,
-                &mut provided_pos
-            ),
-            Some((3, AccumulatorHash::empty()))
-        );
-        assert_eq!(
-            Proof::<BitcoinNodeHash>::get_next(
-                &computed,
-                &provided,
-                &mut computed_pos,
-                &mut provided_pos
-            ),
-            Some((4, AccumulatorHash::empty()))
-        );
-        assert_eq!(
-            Proof::<BitcoinNodeHash>::get_next(
-                &computed,
-                &provided,
-                &mut computed_pos,
-                &mut provided_pos
-            ),
+            Proof::<BitcoinNodeHash>::get_next(&mut queue, &mut from),
             None
         );
+
+        let mut computed_pos = 0;
+        let mut from = provided.iter().copied().peekable();
+        for pos in expected {
+            let next =
+                Proof::<BitcoinNodeHash>::get_next_kept(&computed, &mut computed_pos, &mut from);
+            assert_eq!(next, Some(node(pos)));
+        }
+        let next = Proof::<BitcoinNodeHash>::get_next_kept(&computed, &mut computed_pos, &mut from);
+        assert_eq!(next, None);
+        assert_eq!(computed_pos, computed.len());
+    }
+
+    #[test]
+    fn test_merge() {
+        use super::Merge;
+        let merged: Vec<_> =
+            Merge::new([1, 4, 4, 7].into_iter(), [2, 4, 8, 9].into_iter()).collect();
+        assert_eq!(merged, vec![1, 2, 4, 4, 4, 7, 8, 9]);
+        let merged: Vec<_> = Merge::new([].into_iter(), [3, 5].into_iter()).collect();
+        assert_eq!(merged, vec![3, 5]);
+        let merged: Vec<u64> = Merge::new([3, 5].into_iter(), [].into_iter()).collect();
+        assert_eq!(merged, vec![3, 5]);
     }
 
     #[test]
